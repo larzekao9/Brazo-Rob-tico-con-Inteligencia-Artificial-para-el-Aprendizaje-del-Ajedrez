@@ -25,11 +25,15 @@ de punta a punta con un subconjunto chico, y un backend mínimo que ya expone el
 - [x] Test con posiciones conocidas (aperturas + mate en 1).
 
 ### Modelo/Entrenamiento (Luis Ángel)
-- [ ] Descargar un mes de Lichess (mes viejo, 2013-2014, por tamaño).
-- [ ] `training/data_pipeline.py`:
+- [x] Descargar un mes de Lichess (2017-02 — más grande que lo recomendado, 1.8 GB comprimido,
+      pero el pipeline lee en streaming así que no hace falta descomprimirlo entero).
+- [x] `training/data_pipeline.py`:
   - `board_to_tensor(board) -> np.ndarray (8, 8, 12)` — desde la perspectiva del jugador a mover.
-  - `pgn_to_samples(path, limit) -> list[(tensor, etiqueta)]` — etiqueta = `from_square * 64 + to_square`.
-- [ ] Validar en Colab con 100-200 partidas: shapes y etiquetas correctas.
+  - `pgn_to_samples(path, limite_partidas) -> list[(tensor, etiqueta)]` — etiqueta =
+    `from_square * 64 + to_square`, también en perspectiva del jugador a mover.
+- [x] Validado localmente (no en Colab todavía) con partidas sintéticas + 5 partidas reales del
+      dataset descargado: shapes y etiquetas correctas. Falta correrlo en Colab con 100-200
+      partidas reales antes de escalar a todo el mes.
 
 ### Backend
 - [x] `backend/main.py` — FastAPI mínimo.
