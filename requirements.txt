@@ -1,0 +1,3 @@
+python-chess==1.999.0
+stockfish==3.28.0
+pytest==9.1.1

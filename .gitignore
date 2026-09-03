@@ -1,0 +1,19 @@
+# Entornos virtuales
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Configuración local de Claude Code (personal, no compartida)
+.claude/settings.local.json
+
+# Datasets y checkpoints — no se commitean (ver CLAUDE.md)
+*.pgn
+*.pgn.zst
+training/checkpoints/
+
+# Sistema
+.DS_Store
+
+# Caches de test
+.pytest_cache/
