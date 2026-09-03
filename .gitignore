@@ -7,6 +7,10 @@ __pycache__/
 # Configuración local de Claude Code (personal, no compartida)
 .claude/settings.local.json
 
+# Documentos internos de planificación (no se publican en el repo)
+CLAUDE.md
+PLAN_IMPLEMENTACION.md
+
 # Datasets y checkpoints — no se commitean (ver CLAUDE.md)
 *.pgn
 *.pgn.zst
