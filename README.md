@@ -35,12 +35,23 @@ docs/                  # historias de usuario, C4, plan por sprint
 
 ## Setup
 
-Requiere Python 3.12+ y el binario de Stockfish instalado (por ejemplo `brew install stockfish`
-en macOS, disponible en el `PATH` como `stockfish`).
+Requiere el binario de Stockfish instalado (por ejemplo `brew install stockfish` en macOS,
+disponible en el `PATH` como `stockfish`) y [conda/miniforge](https://github.com/conda-forge/miniforge)
+para el entorno de Python.
+
+Se usa conda en vez de un venv plano porque `pybullet` no siempre tiene wheel instalable con `pip`
+en macOS (compila desde código y puede fallar según la versión de Xcode/SDK) — conda-forge sí trae
+binarios precompilados.
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+conda env create -f environment.yml
+conda activate ajedrez
+```
+
+Si `environment.yml` ya existe y solo cambiaron dependencias de `requirements.txt`:
+
+```bash
+conda activate ajedrez
 pip install -r requirements.txt
 ```
 

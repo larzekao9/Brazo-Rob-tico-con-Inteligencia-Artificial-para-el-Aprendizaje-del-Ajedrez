@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brazo Robótico de Ajedrez - Visualización</title>
+    <link rel="stylesheet" href="{{ request.url_for('static', path='style.css') }}">
+</head>
+<body>
+    <main class="contenedor">
+        <h1>Visualización del Razonamiento</h1>
+
+        <section class="panel">
+            <label for="fenInput">Posición (FEN)</label>
+            <input type="text" id="fenInput" value="{{ fen_inicial }}" autocomplete="off">
+
+            <label for="nivelSelect">Nivel de Stockfish</label>
+            <select id="nivelSelect"></select>
+
+            <div class="acciones">
+                <button id="calcularJugadaBtn" type="button">Calcular jugada</button>
+                <button id="analizarPosicionBtn" type="button">Analizar posición</button>
+            </div>
+        </section>
+
+        <section class="panel">
+            <h2>Jugada calculada</h2>
+            <p id="resultadoJugada" class="resultado">-</p>
+        </section>
+
+        <section class="panel">
+            <h2>Análisis de la posición</h2>
+            <ul class="resultado-lista">
+                <li>Jugada sugerida: <span id="analisisJugada">-</span></li>
+                <li>Evaluación (centipawns): <span id="analisisEvaluacion">-</span></li>
+                <li>Mate en: <span id="analisisMate">-</span></li>
+            </ul>
+        </section>
+
+        <p id="mensajeError" class="error" hidden></p>
+    </main>
+
+    <script>
+        window.NIVEL_DEFAULT = {{ nivel_default }};
+        window.NIVEL_MIN = {{ nivel_min }};
+        window.NIVEL_MAX = {{ nivel_max }};
+    </script>
+    <script src="{{ request.url_for('static', path='app.js') }}"></script>
+</body>
+</html>
