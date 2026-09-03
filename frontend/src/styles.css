@@ -1,16 +1,24 @@
-:root {
-  --color-fondo: #1b1e1a;
-  --color-superficie: #23271e;
-  --color-borde: #34392c;
-  --color-texto: #ede9dd;
-  --color-texto-tenue: #9a9d8e;
-  --color-casilla-clara: #e8e4d6;
-  --color-casilla-oscura: #3f5a42;
-  --color-acento: #c98a3e;
-  --color-acento-tenue: #8c6430;
-  --color-error: #c24f3d;
+@font-face {
+  font-family: "Audiowide";
+  src: url("./assets/fonts/Audiowide.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
 
-  --fuente-titulo: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+:root {
+  --color-fondo: #14150f;
+  --color-superficie: #1b1d15;
+  --color-borde: #34351f;
+  --color-texto: #f0ecd8;
+  --color-texto-tenue: #93967a;
+  --color-casilla-clara: #e6e2c8;
+  --color-casilla-oscura: #37461f;
+  --color-acento: #a8c23c;
+  --color-acento-tenue: #6f7d28;
+  --color-error: #d05a3d;
+
+  --fuente-titulo: "Audiowide", "Michroma", var(--fuente-cuerpo);
   --fuente-cuerpo: "Avenir Next", "Century Gothic", Futura, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
   --fuente-datos: "SF Mono", "IBM Plex Mono", Menlo, Consolas, monospace;
@@ -23,6 +31,9 @@
 body {
   margin: 0;
   background-color: var(--color-fondo);
+  background-image: radial-gradient(ellipse at 50% -10%, rgba(168, 194, 60, 0.1), transparent 60%),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/></svg>");
+  background-size: cover, 180px 180px;
   color: var(--color-texto);
   font-family: var(--fuente-cuerpo);
 }
@@ -39,14 +50,17 @@ body {
 
 .marca {
   font-family: var(--fuente-titulo);
-  font-size: 1.6rem;
+  font-size: 1.7rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
   margin: 0;
 }
 
 .submarca {
   color: var(--color-texto-tenue);
-  font-size: 0.9rem;
-  margin: 0.25rem 0 0;
+  font-family: var(--fuente-datos);
+  font-size: 0.8rem;
+  margin: 0.4rem 0 0;
 }
 
 .banco {
@@ -72,7 +86,9 @@ body {
 
 .mesa-encabezado h1 {
   font-family: var(--fuente-titulo);
-  font-size: 1.25rem;
+  font-size: 1.05rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
   margin: 0 0 0.4rem;
 }
 
@@ -83,7 +99,9 @@ body {
 
 .consola h2 {
   font-family: var(--fuente-titulo);
-  font-size: 1.1rem;
+  font-size: 0.95rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
   margin: 0 0 1.25rem;
 }
 
@@ -130,7 +148,7 @@ body {
 
 .casilla.resaltada {
   box-shadow: inset 0 0 0 3px var(--color-acento);
-  animation: pulso-bronce 700ms ease-out;
+  animation: pulso-acento 700ms ease-out;
 }
 
 .casilla:focus-visible {
@@ -283,9 +301,9 @@ button:disabled {
   font-size: 0.9rem;
 }
 
-@keyframes pulso-bronce {
+@keyframes pulso-acento {
   from {
-    box-shadow: inset 0 0 0 3px var(--color-acento), inset 0 0 0 12px rgba(201, 138, 62, 0.45);
+    box-shadow: inset 0 0 0 3px var(--color-acento), inset 0 0 0 12px rgba(168, 194, 60, 0.45);
   }
   to {
     box-shadow: inset 0 0 0 3px var(--color-acento);
