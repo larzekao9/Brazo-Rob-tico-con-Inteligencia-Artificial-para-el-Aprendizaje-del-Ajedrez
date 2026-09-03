@@ -37,7 +37,7 @@ body {
     url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/></svg>");
   background-size: cover, cover, 180px 180px;
   color: var(--color-texto);
-  font-family: var(--fuente-cuerpo);
+  font-family: var(--fuente-titulo);
 }
 
 .taller {
@@ -60,7 +60,6 @@ body {
 
 .submarca {
   color: var(--color-texto-tenue);
-  font-family: var(--fuente-datos);
   font-size: 0.8rem;
   margin: 0.4rem 0 0;
 }
@@ -160,7 +159,6 @@ body {
 
 .coordenada {
   position: absolute;
-  font-family: var(--fuente-datos);
   font-size: 0.6rem;
   opacity: 0.55;
 }
@@ -209,6 +207,12 @@ body {
 }
 
 input,
+select,
+button {
+  font-family: var(--fuente-titulo);
+}
+
+input,
 select {
   width: 100%;
   background-color: var(--color-fondo);
@@ -216,7 +220,6 @@ select {
   border: 1px solid var(--color-borde);
   border-radius: 4px;
   padding: 0.5rem 0.6rem;
-  font-family: var(--fuente-datos);
   font-size: 0.9rem;
 }
 
@@ -238,7 +241,6 @@ button:focus-visible {
 }
 
 button {
-  font-family: var(--fuente-cuerpo);
   font-size: 0.9rem;
   padding: 0.55rem 1rem;
   border: 1px solid var(--color-acento);
@@ -291,7 +293,6 @@ button:disabled {
 
 .lectura dd {
   margin: 0;
-  font-family: var(--fuente-datos);
   font-size: 0.95rem;
 }
 
