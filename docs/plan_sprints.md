@@ -106,6 +106,24 @@ depende del brazo físico real.
 
 ---
 
+## Fuera del plan original: partida jugable
+
+No estaba en `PLAN_IMPLEMENTACION.md` — se adelantó mientras Visión queda en pausa, para tener
+algo interactivo que no dependa de ella ni del modelo.
+
+- [x] `backend/models/partida.py` — entidad `Partida` (tablero, nivel, id).
+- [x] `backend/game/servicio.py` — `crear_partida`, `obtener_partida`, `mover` (aplica la jugada
+      humana y responde con `calcular_jugada`; partidas en memoria del proceso, sin persistencia).
+- [x] `backend/game/router.py` — `POST /partida`, `GET /partida/{id}`, `POST /partida/{id}/mover`.
+- [x] Tablero interactivo en `frontend/` (clic origen → clic destino, sin librerías nuevas) dentro
+      de la misma página única.
+
+**Pendiente sobre esto:** el humano siempre juega blancas (no hay opción de color); no hay
+persistencia entre reinicios del servidor; promoción de peón siempre a dama (sin elegir pieza).
+Ninguno de estos tres bloquea la demo, quedan para si sobra tiempo.
+
+---
+
 ## Notas de seguimiento
 
 - Marcar los checkboxes a medida que se completan las tareas — este archivo es el tablero de

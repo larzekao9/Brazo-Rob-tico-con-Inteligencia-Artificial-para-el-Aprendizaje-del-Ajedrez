@@ -38,3 +38,31 @@ def test_analisis_mate_en_uno() -> None:
     cuerpo = respuesta.json()
     assert cuerpo["jugada"] == "Qxf7#"
     assert cuerpo["mate_en"] == 1
+
+
+def test_crear_partida_devuelve_posicion_inicial() -> None:
+    respuesta = cliente.post("/partida", json={"nivel": 5})
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert cuerpo["fen"].startswith(POSICION_INICIAL.split(" ")[0])
+    assert cuerpo["terminada"] is False
+
+
+def test_obtener_partida_inexistente_devuelve_404() -> None:
+    respuesta = cliente.get("/partida/no-existe")
+    assert respuesta.status_code == 404
+
+
+def test_mover_partida_responde_con_jugada_del_motor() -> None:
+    partida_id = cliente.post("/partida", json={"nivel": 5}).json()["id"]
+    respuesta = cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "e2e4"})
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert cuerpo["jugada_motor"] is not None
+    assert cuerpo["fen"] != POSICION_INICIAL
+
+
+def test_mover_partida_jugada_ilegal_devuelve_400() -> None:
+    partida_id = cliente.post("/partida", json={"nivel": 5}).json()["id"]
+    respuesta = cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "e2e5"})
+    assert respuesta.status_code == 400

@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.engine.stockfish_wrapper import analizar_posicion, calcular_jugada
+from backend.game.router import router as game_router
 from backend.models.esquemas import AnalisisResponse, JugadaRequest, JugadaResponse
 from frontend.router import router as frontend_router
 from frontend.router import static_files
@@ -20,6 +21,7 @@ app.add_middleware(
 )
 
 app.include_router(frontend_router)
+app.include_router(game_router)
 app.mount("/static", static_files, name="static")
 
 
