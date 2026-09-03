@@ -1,14 +1,17 @@
 """API FastAPI del backend de ajedrez."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from backend.engine.stockfish_wrapper import analizar_posicion, calcular_jugada
 from backend.game.router import router as game_router
 from backend.models.esquemas import AnalisisResponse, JugadaRequest, JugadaResponse
-from frontend.router import router as frontend_router
-from frontend.router import static_files
+
+FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 app = FastAPI(title="Ajedrez Backend")
 
@@ -20,9 +23,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(frontend_router)
 app.include_router(game_router)
-app.mount("/static", static_files, name="static")
 
 
 @app.get("/health")
@@ -49,3 +50,7 @@ def analisis(request: JugadaRequest) -> AnalisisResponse:
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     return AnalisisResponse(**resultado)
+
+
+if FRONTEND_DIST.is_dir():
+    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")

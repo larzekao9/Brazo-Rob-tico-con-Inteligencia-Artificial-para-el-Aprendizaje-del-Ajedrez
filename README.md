@@ -18,19 +18,22 @@ Equipo: Suárez Burgos Hebert, Arce Kao Luis Ángel.
 | Modelo de aprendizaje | PyTorch, entrenado en Google Colab |
 | Simulación del brazo | PyBullet |
 | Backend / API | FastAPI |
+| Frontend | React + Vite |
 
 ## Estructura
 
 ```
 backend/
 ├── engine/          # wrapper de Stockfish + python-chess
-├── vision/          # reconocimiento de tablero y piezas (próximamente)
-├── learning/        # inferencia del modelo entrenado (próximamente)
-├── simulation/       # integración con PyBullet (próximamente)
-└── models/           # entidades: Partida, Jugada, Sesión, Progreso (próximamente)
-training/             # pipeline de datos y notebook de entrenamiento (próximamente)
-frontend/              # aplicación de control / visualización (próximamente)
-docs/                  # historias de usuario, C4, plan por sprint
+├── game/             # partidas jugables (estado en memoria + Stockfish responde)
+├── models/            # esquemas Pydantic y entidades: Partida, Jugada, Sesión, Progreso
+├── vision/            # reconocimiento de tablero y piezas (próximamente)
+├── learning/           # inferencia del modelo entrenado (próximamente)
+├── simulation/          # integración con PyBullet
+└── main.py               # arma la app y monta el build del frontend
+training/              # pipeline de datos y notebook de entrenamiento
+frontend/                # proyecto React (Vite) — tablero interactivo + consola del motor
+docs/                     # historias de usuario, C4, plan por sprint
 ```
 
 ## Setup
@@ -55,11 +58,28 @@ conda activate ajedrez
 pip install -r requirements.txt
 ```
 
+## Frontend (React)
+
+Requiere Node.js 20+.
+
+```bash
+cd frontend
+npm install
+npm run dev       # desarrollo, en http://localhost:5173 (proxea la API a :8000)
+npm run build     # genera frontend/dist — el backend lo sirve automáticamente en "/"
+```
+
+Con el backend corriendo (`uvicorn backend.main:app`) y `frontend/dist` construido, todo el
+sistema queda disponible en un solo puerto: `http://127.0.0.1:8000`.
+
 ## Tests
 
 ```bash
 python -m pytest
 ```
+
+El frontend todavía no tiene tests automatizados (no se armó el setup de Vitest) — se prueba
+manualmente contra el backend real.
 
 ## Documentación
 

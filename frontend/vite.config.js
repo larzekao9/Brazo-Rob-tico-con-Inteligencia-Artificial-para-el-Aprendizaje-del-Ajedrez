@@ -1,0 +1,16 @@
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+
+const BACKEND_URL = "http://127.0.0.1:8000";
+
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    proxy: {
+      "/jugada": BACKEND_URL,
+      "/analisis": BACKEND_URL,
+      "/partida": BACKEND_URL,
+      "/health": BACKEND_URL,
+    },
+  },
+});

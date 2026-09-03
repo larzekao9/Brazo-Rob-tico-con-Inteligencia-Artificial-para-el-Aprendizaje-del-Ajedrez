@@ -86,9 +86,11 @@ en Drive; la escena de PyBullet resalta origen/destino de una jugada dada.
 - [ ] Endpoint que dispare `resaltar_jugada` en el simulador tras cada jugada calculada.
 
 ### Frontend
-- [x] Página única servida por el mismo FastAPI (Jinja2 + fetch a los endpoints) — sin proyecto
-      React aparte, para no sumar infraestructura que no aporta a lo evaluado. (Adelantado; hoy
-      pide FEN a mano, todavía no imagen — depende de Visión.)
+- [x] Página única en React (Vite), build servido por el mismo FastAPI en `/`. Decisión original
+      era Jinja2 + JS plano para no sumar infraestructura; se migró a React a pedido explícito
+      (07/09) pensando en escalabilidad futura del proyecto más allá de la defensa — implica que
+      levantar el frontend ahora requiere `npm install` + `npm run build` (Node 20+), ver README.
+      Hoy pide FEN a mano, todavía no imagen — depende de Visión.
 - [ ] Vista de "Visualización del Razonamiento en Tiempo Real": imagen capturada, jugada elegida,
       explicación (falta conectar imagen real y `explicar_jugada`).
 
@@ -115,8 +117,8 @@ algo interactivo que no dependa de ella ni del modelo.
 - [x] `backend/game/servicio.py` — `crear_partida`, `obtener_partida`, `mover` (aplica la jugada
       humana y responde con `calcular_jugada`; partidas en memoria del proceso, sin persistencia).
 - [x] `backend/game/router.py` — `POST /partida`, `GET /partida/{id}`, `POST /partida/{id}/mover`.
-- [x] Tablero interactivo en `frontend/` (clic origen → clic destino, sin librerías nuevas) dentro
-      de la misma página única.
+- [x] Tablero interactivo en React (`frontend/src/components/Tablero.jsx`, clic origen → clic
+      destino) dentro de la misma página única.
 
 **Pendiente sobre esto:** el humano siempre juega blancas (no hay opción de color); no hay
 persistencia entre reinicios del servidor; promoción de peón siempre a dama (sin elegir pieza).

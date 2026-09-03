@@ -16,6 +16,10 @@ PLAN_IMPLEMENTACION.md
 *.pgn.zst
 training/checkpoints/
 
+# Frontend (React/Vite)
+frontend/node_modules/
+frontend/dist/
+
 # Sistema
 .DS_Store
 
