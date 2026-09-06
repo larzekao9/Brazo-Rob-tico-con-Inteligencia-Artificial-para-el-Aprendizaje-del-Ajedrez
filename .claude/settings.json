@@ -22,5 +22,9 @@
       "Bash(git push --force:*)"
     ]
   },
-  "enabledMcpServers": ["code-review-graph"]
+  "enabledMcpServers": ["code-review-graph"],
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  }
 }

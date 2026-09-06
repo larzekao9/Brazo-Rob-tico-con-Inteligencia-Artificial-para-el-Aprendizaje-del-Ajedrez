@@ -1,136 +1,132 @@
 # Plan de implementación por sprint
 
-Basado en el plan de 3 semanas de `PLAN_IMPLEMENTACION.md` (sección 5). Cada sprint dura 1 semana.
-No cambia el alcance ni las reglas ya definidas ahí — lo organiza por **área** en vez de por
-persona, para poder avanzar varias áreas en paralelo dentro de cada sprint.
-
-Áreas: **Motor** · **Visión** · **Modelo/Entrenamiento** · **Backend** · **Simulador** · **Frontend**.
-
----
-
-## Sprint 1 — Fundamentos y arranque en paralelo
-
-**Objetivo:** motor de ajedrez respondiendo jugadas de forma aislada, pipeline de datos corriendo
-de punta a punta con un subconjunto chico, y un backend mínimo que ya expone el motor.
-
-### Conjunto (día 1-2)
-- [x] Estructura de repositorio (`backend/`, `training/`, `frontend/`, `docs/`).
-- [x] `requirements.txt` con versiones exactas.
-- [ ] `docs/historias_usuario.md` — Alcance del Perfil de Proyecto reformateado como historias.
-- [ ] `docs/c4/` — C4 de Contexto y Contenedores.
-
-### Motor (Hebert)
-- [x] Instalar Stockfish y probarlo desde `python-chess`.
-- [x] `backend/engine/stockfish_wrapper.py`: `calcular_jugada(fen, nivel)`.
-- [x] Test con posiciones conocidas (aperturas + mate en 1).
-
-### Modelo/Entrenamiento (Luis Ángel)
-- [x] Descargar un mes de Lichess (2017-02 — más grande que lo recomendado, 1.8 GB comprimido,
-      pero el pipeline lee en streaming así que no hace falta descomprimirlo entero).
-- [x] `training/data_pipeline.py`:
-  - `board_to_tensor(board) -> np.ndarray (8, 8, 12)` — desde la perspectiva del jugador a mover.
-  - `pgn_to_samples(path, limite_partidas) -> list[(tensor, etiqueta)]` — etiqueta =
-    `from_square * 64 + to_square`, también en perspectiva del jugador a mover.
-- [x] Validado localmente (no en Colab todavía) con partidas sintéticas + 5 partidas reales del
-      dataset descargado: shapes y etiquetas correctas. Falta correrlo en Colab con 100-200
-      partidas reales antes de escalar a todo el mes.
-
-### Backend
-- [x] `backend/main.py` — FastAPI mínimo.
-- [x] `POST /jugada` (`fen`, `nivel`) → llama a `calcular_jugada`, devuelve la jugada.
-- [x] `backend/models/` — esquemas Pydantic de request/response (no las entidades completas
-      todavía, solo lo que necesita este endpoint).
-- [x] `POST /analisis` (`fen`, `nivel`) → llama a `analizar_posicion` (adelantado, no bloqueaba).
-
-**Definition of Done:** `calcular_jugada(fen, nivel)` en verde; `data_pipeline.py` corre sobre
-100-200 partidas sin errores; `POST /jugada` responde una jugada válida vía HTTP.
+Basado en `PLAN_IMPLEMENTACION_COMPLETO.md` (secciones 7 a 11) y en el Product Backlog de 11
+Historias de Usuario (51 puntos totales) definido junto con la documentación de SW2 y Taller
+de Grado I. Reemplaza la versión anterior de este archivo, que estaba basada en un borrador
+previo del plan (por área, sin las 11 HU balanceadas).
 
 ---
 
-## Sprint 2 — Visión + entrenamiento real
+## Sprint 1 — Núcleo técnico
 
-**Objetivo:** reconocer un tablero desde una foto, primera versión entrenada del modelo (sin
-buscar precisión todavía), y el simulador mostrando la jugada calculada.
+**Objetivo:** motor de ajedrez respondiendo jugadas de forma aislada, reconocimiento de
+tablero funcionando sobre fotos de prueba, y el pipeline de datos corriendo de punta a punta.
 
-### Visión (Hebert)
+| HU | Descripción | Puntos | Responsable | Estado |
+|---|---|---|---|---|
+| HU2 | Motor de Jugadas y Niveles de Dificultad | 3 | Hebert | ✅ Hecho |
+| HU1 | Reconocimiento de Tablero y Piezas | 8 | Hebert | ⬜ Pendiente |
+| HU3 | Entrenamiento del Modelo con Partidas de Referencia | 5 | Luis Ángel | 🟨 En curso |
+
+### HU2 — Motor (Hebert) — ✅ Hecho
+- [x] Stockfish instalado y probado desde `python-chess`.
+- [x] `backend/engine/stockfish_wrapper.py`: `calcular_jugada(fen, nivel)`,
+      `analizar_posicion(fen, nivel)` (evaluación en centipawns + mate), `obtener_variaciones`
+      (mejores jugadas candidatas vía MultiPV) — esto último adelanta trabajo útil para HU6.
+- [x] Tests con posiciones conocidas (aperturas + mate en 1).
+- [x] Expuesto vía `POST /jugada` y `POST /analisis` en el backend.
+
+### HU3 — Modelo (Luis Ángel) — 🟨 En curso
+- [x] Un mes de partidas de Lichess descargado (2017-02, 1.8 GB comprimido; el pipeline lee
+      en streaming, no hace falta descomprimir entero).
+- [x] `training/data_pipeline.py`: `board_to_tensor` y `pgn_to_samples` — validado localmente
+      con partidas sintéticas y reales.
+- [ ] Correr el pipeline en Google Colab con 100-200 partidas antes de escalar al mes
+      completo (paso pendiente antes de dar por cerrada la HU).
+- [ ] Primera versión entrenada del modelo, guardada en Google Drive.
+
+### HU1 — Visión (Hebert) — ⬜ Pendiente
 - [ ] Set de 15-20 fotos de tablero (luz y ángulo variados).
 - [ ] Detección de las 64 casillas (transformación de perspectiva + grilla, OpenCV).
-- [ ] Clasificación de pieza por casilla (modelo preentrenado como base, no CNN propia todavía).
-- [ ] `tablero_a_fen(imagen) -> str`.
+- [ ] Clasificación de pieza por casilla.
+- [ ] `reconocer_tablero(imagen) -> fen`.
 
-### Modelo/Entrenamiento (Luis Ángel)
-- [ ] Primera versión del modelo en Colab (arquitectura simple, pocas épocas) — validar pipeline
-      end-to-end, no precisión.
-- [ ] Checkpoints a Google Drive cada N épocas.
-- [ ] `explicar_jugada(fen, jugada) -> str` (puede ser genérica al principio).
-
-### Simulador
-- [x] `backend/simulation/` — escena PyBullet con un tablero 3D estático (sin brazo — el kit
-      físico está fuera de alcance).
-- [x] `resaltar_jugada(desde, hasta)` — marca visualmente casilla origen/destino de la jugada
-      calculada. Sin cinemática inversa ni animación de brazo: es deliberadamente simple para no
-      arriesgar el resto del plan. (Adelantado desde Sprint 2, no dependía de nada más.)
-
-**Definition of Done:** una foto de tablero produce un FEN válido; existe un checkpoint entrenado
-en Drive; la escena de PyBullet resalta origen/destino de una jugada dada.
+**Definition of Done Sprint 1:** `calcular_jugada` en verde (cumplido); `data_pipeline.py`
+corre sobre 100-200 partidas reales en Colab sin errores; `reconocer_tablero` reconoce
+correctamente al menos un tablero de prueba fijo.
 
 ---
 
-## Sprint 3 — Integración y preparación de la defensa
+## Sprint 2 — Interfaz, aprendizaje y configuración
 
-**Objetivo:** flujo completo funcionando end-to-end y demo lista.
+**Objetivo:** visualizar en tiempo real lo que el sistema percibe y decide, primer modelo
+entrenado con evaluación real, modo educativo básico, y configuración de partida.
 
-### Backend
-- [ ] `POST /analizar` (imagen) → visión → FEN → `calcular_jugada` → `explicar_jugada` →
-      respuesta única con jugada + explicación.
-- [ ] Endpoint que dispare `resaltar_jugada` en el simulador tras cada jugada calculada.
+| HU | Descripción | Puntos | Responsable |
+|---|---|---|---|
+| HU6 | Visualización del Razonamiento en Tiempo Real | 5 | Hebert |
+| HU4 | Reentrenamiento y Evaluación del Modelo | 5 | Luis Ángel |
+| HU5 | Modo Educativo | 5 | Luis Ángel |
+| HU10 | Configuración de Partida | 3 | Luis Ángel |
 
-### Frontend
-- [x] Página única en React (Vite), build servido por el mismo FastAPI en `/`. Decisión original
-      era Jinja2 + JS plano para no sumar infraestructura; se migró a React a pedido explícito
-      (07/09) pensando en escalabilidad futura del proyecto más allá de la defensa — implica que
-      levantar el frontend ahora requiere `npm install` + `npm run build` (Node 20+), ver README.
-      Hoy pide FEN a mano, todavía no imagen — depende de Visión.
-- [ ] Vista de "Visualización del Razonamiento en Tiempo Real": imagen capturada, jugada elegida,
-      explicación (falta conectar imagen real y `explicar_jugada`).
+- [ ] HU6: interfaz que muestra la imagen capturada, el análisis de posición (ya disponible
+      vía `analizar_posicion`/`obtener_variaciones`) y la jugada elegida.
+- [ ] HU4: clasificación de patrones de error + reentrenamiento en lotes versionados +
+      evaluación mediante partidas digitales simultáneas.
+- [ ] HU5: explicación de jugadas y errores frecuentes, principios básicos del ajedrez.
+- [ ] HU10: selección de nivel de dificultad y tipo de oponente desde la interfaz.
 
-### Simulador
-- [ ] Conectar `resaltar_jugada` al resultado real de `POST /analizar`.
+---
 
-### Conjunto
-- [ ] Probar el flujo completo con al menos 10 posiciones distintas, documentar errores.
+## Sprint 3 — Brazo robótico y cierre
+
+**Objetivo:** interconexión con el brazo (simulado), rostro y expresiones, panel de
+progreso, administración de sesiones, e integración completa para la defensa.
+
+| HU | Descripción | Puntos | Responsable |
+|---|---|---|---|
+| HU9 | Interconexión con el Brazo Robótico | 8 | Hebert |
+| HU7 | Rostro y Expresiones del Sistema | 3 | Luis Ángel |
+| HU8 | Panel de Progreso | 3 | Luis Ángel |
+| HU11 | Administración de Sesiones y Participantes | 3 | Luis Ángel |
+
+### Sobre el simulador ya iniciado
+Ya existe una versión temprana en `backend/simulation/escena.py` (escena de PyBullet con
+tablero 3D estático y `resaltar_jugada(desde, hasta)`, sin cinemática inversa ni animación de
+brazo — deliberadamente simple). Esto se adelantó mientras Visión estaba en pausa; queda como
+base para HU9, pero la cinemática real y la conexión con el ESP32 son trabajo de este sprint,
+no algo ya cerrado.
+
+- [ ] HU9: cinemática inversa sobre el URDF del kit (o uno de referencia mientras se
+      consigue el definitivo) + comunicación con el ESP32 real cuando esté disponible.
+- [ ] HU7, HU8, HU11: interfaz y lógica de cada una.
+- [ ] Integración de punta a punta con al menos 10 posiciones de prueba documentadas.
 - [ ] Colchón de 2-3 días antes de la defensa para bugs de integración.
-- [ ] Preparar 2-3 posiciones para la demo en vivo.
-
-**Definition of Done:** demo reproducible de punta a punta (imagen → jugada → explicación →
-resaltado en el simulador) con al menos 10 posiciones probadas y documentadas; nada de esto
-depende del brazo físico real.
 
 ---
 
-## Fuera del plan original: partida jugable
+## Trabajo adelantado fuera del plan original
 
-No estaba en `PLAN_IMPLEMENTACION.md` — se adelantó mientras Visión queda en pausa, para tener
-algo interactivo que no dependa de ella ni del modelo.
+No estaba explícitamente en ninguna HU puntual, pero ya está construido y es una base útil
+para varias historias (especialmente HU10 y HU11):
 
-- [x] `backend/models/partida.py` — entidad `Partida` (tablero, nivel, id).
-- [x] `backend/game/servicio.py` — `crear_partida`, `obtener_partida`, `mover` (aplica la jugada
-      humana y responde con `calcular_jugada`; partidas en memoria del proceso, sin persistencia).
-- [x] `backend/game/router.py` — `POST /partida`, `GET /partida/{id}`, `POST /partida/{id}/mover`.
-- [x] Tablero interactivo en React (`frontend/src/components/Tablero.jsx`, clic origen → clic
-      destino) dentro de la misma página única.
+- `backend/models/partida.py`, `backend/game/servicio.py`, `backend/game/router.py`:
+  partida jugable en memoria (`crear_partida`, `obtener_partida`, `mover`), expuesta vía
+  `POST /partida`, `GET /partida/{id}`, `POST /partida/{id}/mover`.
+- Tablero interactivo en React (`frontend/src/components/Tablero.jsx`).
 
-**Pendiente sobre esto:** el humano siempre juega blancas (no hay opción de color); no hay
-persistencia entre reinicios del servidor; promoción de peón siempre a dama (sin elegir pieza).
-Ninguno de estos tres bloquea la demo, quedan para si sobra tiempo.
+**Pendiente conocido sobre esto:** el humano siempre juega blancas, no hay persistencia entre
+reinicios del servidor, y la promoción de peón siempre es a dama. Ninguno bloquea la demo;
+quedan para si sobra tiempo.
 
 ---
 
 ## Notas de seguimiento
 
 - Marcar los checkboxes a medida que se completan las tareas — este archivo es el tablero de
-  seguimiento, `PLAN_IMPLEMENTACION.md` sigue siendo la fuente de verdad del alcance y las reglas.
-- Cualquier tarea que no se pueda completar en su sprint se avisa explícitamente antes de pasar al
-  siguiente, no se arrastra en silencio.
-- Backend, Simulador y Frontend no tienen dueño fijo asignado en `PLAN_IMPLEMENTACION.md` — se
-  reparten según disponibilidad, o se ejecutan con ayuda de subagentes (ver nota abajo).
+  seguimiento; `PLAN_IMPLEMENTACION_COMPLETO.md` sigue siendo la fuente de verdad del alcance,
+  la arquitectura y las reglas del proyecto.
+- El contrato de datos entre módulos es FEN. Las jugadas se están devolviendo en notación SAN
+  (más legible para mostrar en pantalla) — recordar convertir a UCI cuando HU9 necesite
+  indicarle al brazo casillas de origen y destino (`python-chess` lo resuelve con
+  `board.parse_san()` / `move.uci()`).
+- Cualquier tarea que no se pueda completar en su sprint se avisa explícitamente antes de
+  pasar al siguiente, no se arrastra en silencio.
+- **Excepción acordada a la sección 2 y 5 de `PLAN_IMPLEMENTACION_COMPLETO.md`:** el backend no
+  usa capas horizontales de primer nivel (`rutas/`, `servicios/`, `esquemas/`) ni nombres de
+  carpeta en español (`motor/`, `simulacion/`) como se planteó ahí. Se mantiene la organización
+  ya construida — módulos verticales por dominio (`backend/engine/`, `backend/game/`,
+  `backend/models/`, `backend/simulation/`), cada uno con su propia lógica y router adentro,
+  con nombres de funciones en español (`calcular_jugada`, `crear_partida`). Es una organización
+  igualmente válida en FastAPI; para el "Diagrama de Paquetes por capas" de SW2 se documenta
+  esta estructura tal cual está, en vez de reacomodar el código.
