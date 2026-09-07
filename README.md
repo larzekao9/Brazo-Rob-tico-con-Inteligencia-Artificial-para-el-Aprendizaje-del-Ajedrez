@@ -6,7 +6,7 @@ física con un brazo robótico queda para una fase posterior; por ahora todo el 
 el brazo se simula con PyBullet.
 
 Proyecto académico — Ingeniería de Software II, UAGRM (2/2026).
-Equipo: Suárez Burgos Hebert, Arce Kao Luis Ángel.
+Equipo: Suárez Burgos Hebert, Arze Kao Luis Ángel.
 
 ## Stack
 
@@ -22,16 +22,23 @@ Equipo: Suárez Burgos Hebert, Arce Kao Luis Ángel.
 
 ## Estructura
 
+Arquitectura en capas (MVC) — ver `PLAN_IMPLEMENTACION_COMPLETO.md`, secciones 3 y 4, para el
+detalle de la arquitectura y los patrones de diseño aplicados (Strategy, Factory, Repository).
+
 ```
 backend/
-├── engine/          # wrapper de Stockfish + python-chess
-├── game/             # partidas jugables (estado en memoria + Stockfish responde)
-├── models/            # esquemas Pydantic y entidades: Partida, Jugada, Sesión, Progreso
-├── vision/            # reconocimiento de tablero y piezas (próximamente)
-├── learning/           # inferencia del modelo entrenado (próximamente)
-├── simulation/          # integración con PyBullet
-└── main.py               # arma la app y monta el build del frontend
-training/              # pipeline de datos y notebook de entrenamiento
+├── rutas/              # capa de Rutas (Controlador) — endpoints HTTP
+├── servicios/           # capa de Servicios (lógica real)
+│   ├── motor/             # Stockfish + python-chess
+│   ├── partida/            # orquesta partidas jugables (usa repositorios/ y estrategias/)
+│   ├── estrategias/         # patrón Strategy + Factory: quién decide la jugada
+│   ├── vision/                # reconocimiento de tablero y piezas
+│   └── simulacion/             # integración con PyBullet
+├── repositorios/          # patrón Repository: acceso a datos de partidas
+├── esquemas/               # capa de Esquemas (Pydantic) — DTOs de entrada/salida
+├── modelos/                 # capa de Modelos de datos — entidades (Partida)
+└── main.py                    # arma la app y monta el build del frontend
+training/              # pipeline de datos, entrenamiento del clasificador de piezas y notebook
 frontend/                # proyecto React (Vite) — tablero interactivo + consola del motor
 docs/                     # historias de usuario, C4, plan por sprint
 ```

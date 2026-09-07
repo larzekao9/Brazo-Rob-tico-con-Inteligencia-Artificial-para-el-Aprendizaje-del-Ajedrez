@@ -11,6 +11,7 @@ __pycache__/
 *.pgn
 *.pgn.zst
 training/checkpoints/
+training/dataset_tablero/
 
 # Frontend (React/Vite)
 frontend/node_modules/

@@ -1,6 +1,6 @@
 import pytest
 
-from backend.game.servicio import crear_partida, mover, obtener_partida
+from backend.servicios.partida.servicio_partida import crear_partida, mover, obtener_partida
 
 
 def test_crear_partida_arranca_en_posicion_inicial() -> None:

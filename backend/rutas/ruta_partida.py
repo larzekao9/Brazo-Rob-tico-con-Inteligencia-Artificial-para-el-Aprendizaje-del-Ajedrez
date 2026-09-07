@@ -1,15 +1,15 @@
-"""Endpoints HTTP para partidas jugables contra Stockfish."""
+"""Endpoints HTTP para partidas jugables contra la estrategia de jugada activa."""
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from backend.game.servicio import crear_partida, mover, obtener_partida
-from backend.models.esquemas import (
+from backend.esquemas.partida_esquema import (
     CrearPartidaRequest,
     EstadoPartidaResponse,
     MoverRequest,
     ResultadoMovimientoResponse,
 )
+from backend.servicios.partida.servicio_partida import crear_partida, mover, obtener_partida
 
 router = APIRouter(prefix="/partida", tags=["partida"])
 

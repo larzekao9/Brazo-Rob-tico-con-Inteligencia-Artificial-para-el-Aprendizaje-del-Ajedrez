@@ -1,6 +1,6 @@
 # Plan de Implementación Completo — Brazo Robótico con IA para Ajedrez
 
-Equipo: Suárez Burgos Hebert · Arce Kao Luis Ángel
+Equipo: Suárez Burgos Hebert · Arze Kao Luis Ángel
 
 > **Principio rector: hay un solo software.** Este plan sirve para programar, sin importar
 > si documentan primero para SW2 o para Taller de Grado I — el código, la base de datos y
@@ -9,72 +9,212 @@ Equipo: Suárez Burgos Hebert · Arce Kao Luis Ángel
 
 ---
 
-## 1. Antes de escribir código: qué deciden juntos, una sola vez
+## 0. Dos horizontes de alcance — no confundir uno con otro
+
+Este documento mezcla dos cosas a propósito, porque es un solo software con dos fechas de
+entrega distintas encima. Para no perderse, cada RF y cada caso de uso de las secciones 10 y
+11 lleva una marca:
+
+- **🟢 Sprint actual (defensa SW2, 1-2 semanas):** las 11 HU del Product Backlog (sección 13),
+  51 puntos. Es lo único que hay que tener funcionando para la defensa inminente.
+- **🔭 Visión de tesis (Taller de Grado I y en adelante):** todo lo que agrega este documento
+  más allá de las 11 HU — login de jugadores (JWT), plataforma multiusuario online, panel de
+  administrador con promoción de versiones de modelo, mapa de atención (Grad-CAM) en vivo por
+  WebSocket, cinemática inversa real del brazo. Es la arquitectura a la que el software
+  converge con el tiempo, **no algo a programar antes de la defensa de SW2.**
+
+Si alguna vez este documento y el sprint actual (`docs/plan_sprints.md`) parecen contradecirse
+en qué hay que hacer *ya*, gana `docs/plan_sprints.md` — es el tablero de seguimiento del
+sprint real, este documento es la arquitectura y el backlog completo del proyecto.
+
+---
+
+## 1. Objetivo General y Alcance
+
+Desarrollar una plataforma de ajedrez con inteligencia artificial que combine un motor de
+cálculo consolidado (Stockfish) con un modelo de aprendizaje propio entrenado sobre partidas
+humanas, capaz de jugar y explicar jugadas al estilo humano, retroalimentarse en lotes
+controlados a partir de las partidas jugadas en línea, y ejecutar físicamente las jugadas
+mediante un brazo robótico simulado y, a futuro, real. El software es el cerebro (percepción,
+decisión, aprendizaje, explicación); el brazo robótico es el cuerpo — un anexo de ejecución
+física y de valor demostrativo, no el centro del proyecto.
+
+### Objetivos específicos
+
+- Diseñar la arquitectura del sistema en capas (patrón MVC), separando percepción, decisión,
+  aprendizaje, ejecución y presentación.
+- Construir el módulo de reconocimiento de tablero y piezas mediante visión por computadora.
+- Integrar el motor Stockfish como fuente única de la jugada legal y real, configurable por
+  niveles de dificultad.
+- Entrenar un modelo de aprendizaje automático que prediga y explique jugadas al estilo
+  humano, por bandas de nivel/estilo.
+- Reentrenar el modelo en lotes controlados y versionados, usando partidas de referencia
+  (Lichess) y partidas jugadas en línea.
+- Desarrollar un módulo de visualización que muestre, en tiempo real, el razonamiento del
+  modelo (mapa de atención, confianza, entropía) junto al análisis de Stockfish. **🔭**
+- Resolver la cinemática del brazo (directa e inversa) para traducir cada jugada calculada en
+  una secuencia física ejecutable, primero en simulador (PyBullet) y luego en hardware real. **🔭**
+- Ofrecer una plataforma web donde cualquier jugador pueda jugar en línea contra el motor o el
+  modelo, y donde un administrador pueda gestionar modelos, sesiones y configuración del
+  sistema. **🔭**
+- Validar el sistema con pruebas piloto documentadas.
+
+### Alcance
+
+**Dentro de alcance (del proyecto completo, no solo del sprint actual):** plataforma web de
+ajedrez online contra motor/modelo; pipeline de entrenamiento y reentrenamiento en lotes;
+panel de administración del modelo (entrenar, evaluar, versionar, promover); módulo de visión
+sobre tablero físico; módulo de visualización del razonamiento (mapa de atención, confianza);
+brazo robótico en simulador reflejando las jugadas; seguimiento de progreso del jugador;
+administración de sesiones y participantes para el contexto del curso.
+
+**Fuera de alcance (en cualquier horizonte, por ahora):** aprendizaje en vivo durante una
+partida en curso; ejecución sobre el brazo físico real (depende de la llegada del kit); modelo
+personalizado por oponente individual (se usa el enfoque por bandas de nivel/estilo, tipo
+Maia, no un modelo 1-a-1 por jugador); torneos o ranking competitivo entre jugadores.
+
+---
+
+## 2. Antes de escribir código: qué deciden juntos, una sola vez
 
 Esto se hace en una sola sesión de 1-2 horas, los dos juntos, antes de que cada uno arranque
 por su lado. Si no lo hacen, van a terminar con formatos de datos incompatibles entre el
 módulo de Hebert y el de Luis Ángel.
 
-- [ ] Crear el repositorio en GitHub (uno solo, no uno por persona).
-- [ ] Acordar el **contrato de datos entre módulos**: ¿en qué formato exacto se pasan un
+- [x] Crear el repositorio en GitHub (uno solo, no uno por persona).
+- [x] Acordar el **contrato de datos entre módulos**: ¿en qué formato exacto se pasan un
       tablero entre el módulo de visión y el módulo de motor? Recomendación: **FEN**
       (Forsyth-Edwards Notation), el estándar de ajedrez — es una sola línea de texto,
       ejemplo: `rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1`. Todo el proyecto
       habla en FEN entre sí; nadie inventa su propio formato de tablero.
-- [ ] Crear el archivo `requirements.txt` vacío y decidir juntos cada versión a medida que
+- [x] Crear el archivo `requirements.txt` vacío y decidir juntos cada versión a medida que
       la agreguen (no dejar ninguna dependencia "sin fijar").
-- [ ] Crear las 4 tablas mínimas de la base de datos (sección 4) — esto lo hace una sola
+- [ ] Crear las 4 tablas mínimas de la base de datos (sección 7) — esto lo hace una sola
       persona, no las dos por separado, para evitar migraciones en conflicto.
 
 ---
 
-## 2. Arquitectura del Software
+## 3. Arquitectura de Software — Patrón MVC (organizado en capas)
 
-### Patrón: Arquitectura en Capas (la versión moderna de MVC para una API)
+Se adopta MVC (Modelo-Vista-Controlador) en su forma orientada a servicios, apropiada para un
+backend que expone una API y no arma HTML directamente — el frontend (React) es la Vista, y el
+"Controlador" se separa en dos capas explícitas (Rutas y Servicios) para mantener la lógica de
+negocio aislada de la capa HTTP.
 
-MVC clásico se pensó para cuando el propio servidor arma el HTML de la página (Modelo-Vista-
-Controlador, todo junto). Acá el backend es una API que no arma HTML — el frontend es una
-aplicación aparte que le consulta datos. El patrón que corresponde a esto es una
-**arquitectura en capas**, que en el fondo es la misma idea de MVC, solo que separada de
-forma más clara. Así se las recomiendo organizar:
-
-| Capa | Equivalente en MVC | Qué hace | Carpeta |
+| Capa MVC | Sub-capa | Responsabilidad | Carpeta |
 |---|---|---|---|
-| Rutas (routers) | Controlador | Recibe la petición HTTP, valida los datos de entrada, llama al servicio correspondiente | `backend/routers/` |
-| Servicios | Modelo (lógica) | Acá vive la lógica real del negocio: `calcular_jugada`, `reconocer_tablero`, `entrenar_modelo` | `backend/services/` |
-| Esquemas | — (DTO) | Define la forma exacta de los datos que entran y salen de cada endpoint (con Pydantic) | `backend/schemas/` |
-| Modelos de datos | Modelo (datos) | Representa las tablas de la base de datos | `backend/models/` |
-| Frontend (React) | Vista | Lo que ve y usa el facilitador o el participante | `frontend/` |
+| Controlador | Rutas | Recibe la petición HTTP/WebSocket, valida entrada, llama al servicio correspondiente | `backend/rutas/` |
+| Controlador | Servicios | Lógica real de negocio: percepción, decisión, aprendizaje, ejecución | `backend/servicios/` |
+| Modelo | Esquemas | Forma exacta de los datos que entran y salen de cada endpoint (Pydantic) | `backend/esquemas/` |
+| Modelo | Modelos de datos | Representan las tablas de la base de datos | `backend/modelos/` |
+| Vista | Frontend (React) | Lo que ve y usa el jugador o el administrador | `frontend/` |
 
-**Cómo se construye cada HU con esto:** una ruta nueva → llama a un servicio nuevo → (si
-hace falta) usa o crea un modelo de datos → el frontend consume esa ruta desde una pantalla.
-Siempre en ese orden, de adentro hacia afuera.
+Cada caso de uso nuevo se construye siempre de adentro hacia afuera: modelo de datos (si hace
+falta) → servicio → ruta → pantalla del frontend que la consume.
 
 ### Por qué esta arquitectura y no otra
 
-- Separa "qué pide el usuario" (rutas) de "qué hace el sistema" (servicios): si mañana
-  cambian de cámara o prueban otro motor de ajedrez, tocan un solo archivo de servicio, no
-  todo el sistema.
+- Separa "qué pide el usuario" (rutas) de "qué hace el sistema" (servicios): si mañana cambian
+  de cámara o prueban otro motor de ajedrez, tocan un solo archivo de servicio, no todo el
+  sistema.
 - Encaja directo con lo que pide la materia de SW2: el "Diagrama de Paquetes organizado en
   capas" que exige el Capítulo 3 es literalmente este esquema, dibujado.
 - No es sobre-ingeniería: para 2 personas y unas semanas, microservicios o arquitecturas más
   complejas solo agregarían trabajo sin necesidad real.
 
+**Estado actual del código vs. este esquema:** migrado. El backend ya está organizado en estas
+capas horizontales (`backend/rutas/`, `backend/servicios/`, `backend/esquemas/`,
+`backend/modelos/`) — ver sección 8 (Estructura del repositorio) para el árbol completo.
+
 ---
 
-## 3. Stack Tecnológico Completo
+## 4. Patrones de Diseño Aplicados
+
+### 4.1 Strategy
+
+Se usa donde el sistema debe poder intercambiar una implementación por otra sin que el resto
+del código lo note, definiendo una interfaz común y varias implementaciones concretas:
+
+- **Selección de oponente 🟢 — implementado.** `backend/servicios/estrategias/estrategia_jugada.py`:
+  interfaz `EstrategiaJugada` (`decidir_jugada(fen)`) con `EstrategiaStockfish` ya funcionando.
+  `EstrategiaModelo` (cuando HU3/HU4 den un modelo entrenado) y `EstrategiaHumano` quedan como
+  extensión futura de la misma interfaz — el jugador elige la estrategia activa por partida
+  (`tipo_oponente`, contemplado en la tabla `sesion` de la sección 7, aunque HU10 todavía no
+  conecta esa elección a la API).
+- **Ejecutor de movimientos del brazo 🔭** — interfaz `ejecutar_movimiento(origen, destino,
+  captura)`, con una implementación `EjecutorSimulado` (PyBullet, la que ya existe en
+  `backend/servicios/simulacion/escena.py`) y una `EjecutorReal` (ESP32 + PCA9685) a futuro.
+  Permite desarrollar y probar todo el sistema sin depender de que el hardware físico esté
+  listo, y cambiar a producción real sin tocar el resto del backend. Todavía no está escrita
+  como interfaz formal (alcance de tesis, no de este sprint).
+
+### 4.2 Factory Method
+
+Complemento natural de Strategy — sin esto, el `if/elif` de qué estrategia usar termina
+desparramado por el código en vez de en un solo lugar:
+
+- **Implementado.** `backend/servicios/estrategias/fabrica_estrategias.py::crear_estrategia_jugada(tipo_oponente, nivel)`
+  decide qué implementación de la 4.1 instanciar. Hoy solo soporta `"motor"` — pedir cualquier
+  otro tipo lanza `ValueError` explícito, en vez de fallar en silencio.
+
+### 4.3 Repository
+
+Se usa para desacoplar el acceso a datos de la lógica de servicios, de modo que los servicios
+no dependan directamente de SQLAlchemy ni de la estructura exacta de las tablas:
+
+- **`RepositorioPartida` implementado** — `backend/repositorios/repositorio_partida.py`:
+  interfaz `RepositorioPartidas` (`guardar`, `obtener`) con `RepositorioPartidasEnMemoria` como
+  única implementación por ahora (el mismo dict que antes vivía suelto en el servicio, ahora
+  detrás de la interfaz). `RepositorioPartidasPostgres` se agrega recién cuando llegue HU11 con
+  la base de datos real — no hace falta instalar Postgres para tener el patrón funcionando hoy.
+- `RepositorioJugada` — 🔭 todavía no existe (no hay entidad `Jugada` persistida, ver sección 7).
+- También facilita los tests unitarios: `backend/repositorios/test_repositorio_partida.py`
+  prueba el repositorio en memoria sin ninguna base de datos corriendo.
+
+### 4.4 Ya presentes en el código, sin haber sido nombrados (gratis para la documentación)
+
+- **Facade** — `backend/servicios/vision/reconocimiento.py::reconocer_tablero(imagen) -> fen`
+  esconde 4 pasos (esquinas, perspectiva, clasificación, armado de FEN) detrás de una sola
+  llamada. Mismo caso con `calcular_jugada(fen, nivel)` tapando toda la comunicación UCI con
+  Stockfish.
+- **Adapter** — `backend/servicios/motor/motor_ajedrez.py` adapta la interfaz genérica de
+  `chess.engine` a la interfaz específica que necesita el proyecto.
+- **Singleton (a nivel de módulo)** — `backend/servicios/vision/piezas.py` carga el modelo de
+  PyTorch una sola vez (`_modelo`, `_clases` a nivel de módulo) y lo reusa en cada
+  clasificación, en vez de recargarlo en cada llamada.
+
+---
+
+## 5. Roles
+
+- **Jugador** — cualquier persona que juega en línea contra el motor o el modelo. **🔭** La
+  versión con cuenta/login (JWT) es alcance de tesis; hoy cualquiera que abre la página juega,
+  sin autenticación.
+- **Administrador** — gestiona el modelo de IA (entrena, evalúa, promueve versiones), configura
+  el comportamiento del sistema, y administra sesiones y participantes cuando el sistema se usa
+  en el contexto del curso con la Asociación Departamental de Ajedrez. **🔭** No existe todavía
+  ningún panel ni rol diferenciado — es HU10/HU11 en su versión mínima, y el panel completo de
+  promoción de modelos es alcance de tesis.
+- **Motor/Modelo de IA** (actor no humano) — restringido por reglas de negocio fijas: Stockfish
+  es siempre quien valida/decide la jugada real ejecutada; el modelo propio nunca aprende en
+  vivo durante una partida (ver `CLAUDE.md`, reglas técnicas obligatorias). **🟢** Ya vigente.
+
+---
+
+## 6. Stack Tecnológico Completo
 
 | Capa | Tecnología | Por qué |
 |---|---|---|
 | Backend | Python 3.12 + FastAPI | Ya decidido — rápido de escribir, documentación automática (Swagger/OpenAPI), tipado con Pydantic |
 | Frontend | React (con Vite) | Mismo stack que usan los proyectos de referencia de la materia; permite actualización en vivo para HU6 |
-| Tiempo real | WebSockets (FastAPI ya los trae) | Necesario para HU6 — mostrar jugada y análisis en vivo sin recargar la página |
+| Tiempo real | WebSockets (FastAPI ya los trae) | Necesario para HU6 y para el mapa de atención en vivo (🔭) — mostrar jugada y análisis sin recargar la página |
+| Autenticación 🔭 | JWT | Para login de jugadores/administrador — alcance de tesis, no del sprint actual |
 | Base de datos | PostgreSQL | El equipo ya tiene experiencia con él (proyecto anterior de semáforos) |
-| Visión por computadora | OpenCV | Ya decidido |
-| Motor de ajedrez | Stockfish + python-chess | Ya decidido |
-| Modelo de aprendizaje | PyTorch | Entrenado en Google Colab (GPU gratuita) |
-| Simulación del brazo | PyBullet | Ya decidido, para HU9 (Sprint 3) |
-| Hardware del brazo | ESP32 + PCA9685 | Ya decidido |
+| Visión por computadora | OpenCV | Ya decidido y en uso (HU1) |
+| Motor de ajedrez | Stockfish + python-chess | Ya decidido y en uso (HU2) |
+| Modelo de aprendizaje | PyTorch | Entrenado en Google Colab (GPU gratuita); también es lo que ya entrena el clasificador de piezas de HU1 |
+| Simulación del brazo | PyBullet | Ya decidido, en uso parcial (HU9) |
+| Hardware del brazo 🔭 | ESP32 + PCA9685 | Ya decidido, para cuando llegue el kit |
 
 ### Dónde corre cada cosa — es un sistema híbrido, no todo en la nube
 
@@ -86,7 +226,7 @@ eso el despliegue se piensa en dos partes:
 - Backend completo (FastAPI) corriendo en `localhost`
 - Base de datos PostgreSQL local
 - Cámara conectada por USB
-- Comunicación WiFi con el ESP32 del brazo (recién en Sprint 3)
+- Comunicación WiFi con el ESP32 del brazo (alcance de tesis)
 
 **En la nube (opcional — para tener el proyecto accesible fuera de la demo en vivo):**
 - Backend: Railway o Render (capa gratuita para proyectos chicos en Python)
@@ -96,18 +236,18 @@ eso el despliegue se piensa en dos partes:
   específicamente para alojar modelos de IA, también gratis)
 
 **Recomendación concreta para el día de la defensa:** correr todo en local. No conviene
-depender de internet ni de que un servicio gratuito "despierte" a tiempo (Render, por
-ejemplo, duerme los servicios inactivos) justo en el momento de mostrarlo al jurado. La
-versión en la nube es un plus para demostrar que el software es desplegable — no el plan
-principal para el día de la presentación.
+depender de internet ni de que un servicio gratuito "despierte" a tiempo (Render, por ejemplo,
+duerme los servicios inactivos) justo en el momento de mostrarlo al jurado. La versión en la
+nube es un plus para demostrar que el software es desplegable — no el plan principal para el
+día de la presentación.
 
 ---
 
-## 4. Base de datos — sí va primero, pero solo lo mínimo de Sprint 1
+## 7. Base de datos — sí va primero, pero solo lo mínimo de Sprint 1
 
 Tenés razón en priorizar esto: si cada uno arranca a guardar datos a su manera, después hay
-que rehacer todo. Pero **no hace falta diseñar las 8 tablas completas del proyecto ahora** —
-eso sería sobre-diseñar antes de necesitarlo. Para Sprint 1 alcanza con 4 tablas:
+que rehacer todo. Pero **no hace falta diseñar las tablas completas del proyecto ahora** — eso
+sería sobre-diseñar antes de necesitarlo. Para el sprint actual alcanza con 4 tablas:
 
 ```sql
 CREATE TABLE participante (
@@ -120,7 +260,7 @@ CREATE TABLE sesion (
     facilitador TEXT,
     fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     dificultad INTEGER,       -- 0-20, nivel de Stockfish
-    tipo_oponente TEXT        -- 'motor' | 'modelo' | 'participante'
+    tipo_oponente TEXT        -- 'motor' | 'modelo' | 'participante' (ver Strategy, sección 4.1)
 );
 
 CREATE TABLE partida (
@@ -144,21 +284,24 @@ CREATE TABLE jugada (
 );
 ```
 
-**Quién la crea:** la persona que arranque primero con el repo (recomendación: Luis Ángel,
+**Quién la crea:** la persona que arranque primero con esta parte (recomendación: Luis Ángel,
 ya que su HU3 también necesita leer/escribir partidas para el dataset). Las tablas que faltan
-(`modelo_version`, `error_patron`, `progreso`) se agregan recién cuando lleguen a HU4 y HU8 —
-no antes.
+(`modelo_version` — con estado de promoción para el panel de administrador 🔭, `error_patron`,
+`progreso`, `usuario` para el login 🔭) se agregan recién cuando lleguen a HU4, HU8 y a la
+etapa de tesis correspondiente — no antes. **Hoy esto todavía no está creado:** las partidas
+viven en memoria del proceso, detrás del `RepositorioPartidasEnMemoria` de la sección 4.3 — el
+Repository ya está armado, solo falta la implementación con Postgres real.
 
 ---
 
-## 5. Estructura del repositorio (reflejando las capas de la sección 2)
+## 8. Estructura del repositorio (destino acordado, migración pendiente)
 
 ```
 ajedrez-robotico/
 ├── requirements.txt
 ├── backend/
 │   ├── main.py                     # arranca la app FastAPI
-│   ├── database.py                 # conexión a PostgreSQL
+│   ├── database.py                 # conexión a PostgreSQL (🔭, hoy no existe — todo en memoria)
 │   ├── modelos/                    # capa de Modelos de datos
 │   │   ├── partida.py
 │   │   └── jugada.py
@@ -168,19 +311,32 @@ ajedrez-robotico/
 │   ├── rutas/                      # capa de Rutas (Controlador)
 │   │   ├── ruta_partida.py
 │   │   └── ruta_jugada.py
+│   ├── repositorios/               # patrón Repository (sección 4.3)
+│   │   └── repositorio_partida.py
 │   ├── servicios/                  # capa de Servicios (lógica real)
+│   │   ├── estrategias/            # patrón Strategy + Factory (secciones 4.1, 4.2)
+│   │   │   ├── estrategia_jugada.py
+│   │   │   └── fabrica_estrategias.py
+│   │   ├── partida/                # orquesta partidas jugables — HU10, trabajo adelantado
+│   │   │   └── servicio_partida.py
 │   │   ├── vision/                 # HU1 — Hebert
+│   │   │   ├── modelo_piezas.py    # arquitectura de la CNN, compartida con training/
+│   │   │   ├── tablero.py
+│   │   │   ├── piezas.py
 │   │   │   └── reconocimiento.py
 │   │   ├── motor/                  # HU2 — Hebert
 │   │   │   └── motor_ajedrez.py
-│   │   ├── aprendizaje/            # HU3, HU4 — Luis Ángel
-│   │   │   ├── pipeline_datos.py
+│   │   ├── aprendizaje/            # HU3, HU4 — Luis Ángel (🔭 inferencia.py todavía no existe)
 │   │   │   └── inferencia.py
-│   │   ├── educativo/              # HU5 — Luis Ángel
-│   │   └── simulacion/             # HU9 — Hebert (Sprint 3)
+│   │   ├── educativo/              # HU5 — Luis Ángel (🔭 no existe todavía)
+│   │   └── simulacion/             # HU9 — Hebert
+│   │       └── escena.py
 ├── training/
-│   ├── colab_entrenamiento.ipynb
-│   └── checkpoints/
+│   ├── colab_entrenamiento.ipynb   # 🔭 no existe todavía, HU3
+│   ├── data_pipeline.py            # HU3, PGN de Lichess -> tensores
+│   ├── dataset_piezas.py           # HU1, auto-etiqueta casillas para entrenar el clasificador
+│   ├── entrenar_clasificador_piezas.py
+│   └── checkpoints/                # ignorado por git
 ├── frontend/
 │   ├── src/
 │   │   ├── componentes/            # piezas reutilizables (tablero, panel, rostro)
@@ -190,13 +346,18 @@ ajedrez-robotico/
 └── docs/
 ```
 
+**Estado real hoy vs. este destino:** migrado. El árbol de arriba es exactamente cómo está
+`backend/` hoy, con dos excepciones marcadas 🔭: `database.py` (no hay base de datos, todo en
+memoria vía el Repository de la sección 4.3) y las carpetas de HU3/HU4/HU5
+(`aprendizaje/`, `educativo/`) que todavía no tienen código porque esas HU no empezaron.
+
 ---
 
-## 6. Convenciones de código
+## 9. Convenciones de código
 
-- **Nombres de variables, funciones y clases en español.** Las palabras propias del
-  lenguaje (`def`, `class`, `return`, `async`) quedan en inglés porque son parte de Python,
-  pero todo lo que ustedes nombran va en español:
+- **Nombres de variables, funciones y clases en español.** Las palabras propias del lenguaje
+  (`def`, `class`, `return`, `async`) quedan en inglés porque son parte de Python, pero todo lo
+  que ustedes nombran va en español:
 
   ```python
   def calcular_jugada(posicion_fen: str, nivel_dificultad: int) -> str:
@@ -212,159 +373,271 @@ ajedrez-robotico/
       return jugada_elegida.uci()
   ```
 
-- **Seguir PEP 8** (el estándar oficial de estilo en Python): funciones en `snake_case`,
-  clases en `PascalCase`. Instalar `black` (`pip install black`) y correrlo antes de cada
-  commit — formatea el código automáticamente, sin discusiones de estilo entre ustedes dos.
+- **Seguir PEP 8** (el estándar oficial de estilo en Python): funciones en `snake_case`, clases
+  en `PascalCase`. Instalar `black` (`pip install black`) y correrlo antes de cada commit —
+  formatea el código automáticamente, sin discusiones de estilo entre ustedes dos.
 - **Docstring en cada función pública**, como en el ejemplo de arriba: qué recibe, qué
   devuelve.
 - **Nombres descriptivos, no abreviados**: `tablero_reconocido` en vez de `tab_rec`,
   `nivel_dificultad` en vez de `nv_dif`.
-- **Un archivo, una responsabilidad**: si un archivo de servicio supera las 200-300 líneas,
-  es señal de que conviene separarlo en más archivos dentro de la misma carpeta.
+- **Un archivo, una responsabilidad**: si un archivo de servicio supera las 200-300 líneas, es
+  señal de que conviene separarlo en más archivos dentro de la misma carpeta.
+- **Interfaces de Strategy/Repository como clases base abstractas** (`abc.ABC` +
+  `@abstractmethod`) — es el estándar de Python para definir un contrato que varias clases
+  deben cumplir, en vez de confiar en duck typing implícito para algo tan central.
 
 ---
 
-## 7. Las 11 HU, divididas por sprint y persona (plan completo)
+## 10. Catálogo de Casos de Uso
 
-| Sprint | HU | Descripción | Puntos | Responsable | Depende de |
-|---|---|---|---|---|---|
-| **1** | HU1 | Reconocimiento de Tablero y Piezas | 8 | Hebert | — |
-| **1** | HU2 | Motor de Jugadas y Niveles de Dificultad | 3 | Hebert | — |
-| **1** | HU3 | Entrenamiento del Modelo con Partidas de Referencia | 5 | Luis Ángel | — |
-| **2** | HU6 | Visualización del Razonamiento en Tiempo Real | 5 | Hebert | HU1 |
-| **2** | HU4 | Reentrenamiento y Evaluación del Modelo | 5 | Luis Ángel | HU3 |
-| **2** | HU5 | Modo Educativo | 5 | Luis Ángel | HU3 |
-| **2** | HU10 | Configuración de Partida | 3 | Luis Ángel | HU2 |
-| **3** | HU9 | Interconexión con el Brazo Robótico (simulado) | 8 | Hebert | HU2 |
-| **3** | HU7 | Rostro y Expresiones del Sistema | 3 | Luis Ángel | HU6 |
-| **3** | HU8 | Panel de Progreso | 3 | Luis Ángel | — |
-| **3** | HU11 | Administración de Sesiones y Participantes | 3 | Luis Ángel | — |
+Marca 🟢 = alcance del sprint actual (aunque sea en versión mínima); 🔭 = alcance de tesis.
 
-**Por qué este orden:** HU1 y HU2 no dependen de nada, así que arrancan ya. HU6
-(visualización) necesita que HU1 exista primero para tener algo que mostrar. HU9 (el brazo)
-va al final a propósito — es la pieza de mayor riesgo (8 puntos, depende del kit y del
-simulador), y conviene tener todo lo demás sólido antes de meterse ahí.
+### Actor: Jugador
+
+**CU-J1 — Registrarse e iniciar sesión 🔭**
+Descripción: el jugador crea una cuenta o inicia sesión para poder jugar y guardar su
+historial. Precondición: ninguna. Flujo principal: (1) el jugador ingresa sus datos o
+credenciales; (2) el sistema valida y autentica (JWT); (3) el sistema redirige al tablero.
+Postcondición: sesión activa asociada al jugador. *No tiene HU asociada en el backlog de 11
+HU — es contenido nuevo que agrega esta visión de tesis.*
+
+**CU-J2 — Configurar y comenzar una partida online 🟢 (HU10, versión mínima)**
+Descripción: el jugador elige contra qué/quién juega y con qué ajustes. Precondición: CU-J1
+completado (🔭) / ninguna en la versión mínima actual. Flujo principal: (1) el jugador elige
+tipo de oponente (Stockfish, modelo propio, u otro jugador); (2) elige nivel de dificultad;
+(3) elige si activa el modo educativo; (4) el sistema crea la partida (`POST /partida`) y
+muestra el tablero inicial. Postcondición: partida creada y en curso. **Hoy:** solo existe
+elegir nivel; tipo de oponente y modo educativo faltan.
+
+**CU-J3 — Jugar la partida 🟢 (ya construido, versión digital)**
+Descripción: el jugador realiza jugadas (físicas, vía visión, o digitales) y el sistema
+responde con su propia jugada. Flujo principal: (1) el jugador mueve una pieza; (2) el sistema
+detecta/recibe el movimiento; (3) valida legalidad; (4) calcula la jugada de respuesta (vía la
+estrategia de oponente activa); (5) si corresponde, ejecuta la jugada en el brazo (🔭); (6)
+registra la jugada (🔭, vía Repository). Incluye: CU-S1 (percepción del tablero) cuando la
+partida es física. **Hoy:** el flujo digital completo ya funciona (`POST /partida/{id}/mover`);
+lo físico (visión en vivo + brazo) es HU1/HU9, parcial.
+
+**CU-J4 — Recibir explicación de cada jugada 🔭 (HU5)**
+Sin empezar. Depende de HU3 (modelo entrenado).
+
+**CU-J5 — Ver historial y progreso propio 🔭 (HU8)**
+Sin empezar — depende de que haya persistencia (Repository + base de datos).
+
+**CU-J6 — Ver visualización del razonamiento del modelo en vivo 🔭 (HU6 ampliada)**
+La versión mínima de HU6 (mostrar jugada + evaluación de Stockfish) ya tiene su backend listo
+(`analizar_posicion`, `obtener_variaciones`); el mapa de atención (Grad-CAM), la entropía y el
+WebSocket en vivo son la ampliación de tesis.
+
+### Actor: Sistema (casos de uso internos)
+
+**CU-S1 — Reconocer el tablero mediante visión 🟢 (HU1, en curso)**
+Descripción: el sistema captura una imagen y la traduce a FEN. Flujo principal: (1) captura
+imagen; (2) corrige perspectiva; (3) clasifica las 64 casillas; (4) compara con el FEN anterior
+para detectar la jugada. **Hoy:** (1)-(3) construidos y probados (`backend/servicios/vision/`);
+(4) —comparar con el FEN anterior para aislar qué jugada se hizo— todavía no está escrito.
+
+**CU-S2 — Ejecutar la jugada en el brazo robótico 🔭 (HU9 ampliada)**
+Hoy existe una versión mucho más chica: resaltar visualmente origen/destino en una escena
+estática de PyBullet, sin cinemática ni pick-and-place.
+
+**CU-S3 — Generar señal de entrenamiento 🔭**
+Depende de que exista persistencia de partidas (Repository, sección 4.3).
+
+### Actor: Administrador 🔭
+
+**CU-A1 a CU-A6** — disparar reentrenamiento, evaluar/promover modelo, ver panel de errores,
+configurar comportamiento del sistema, administrar sesiones/participantes, configurar
+ejecución física. Ninguno tiene código construido todavía; son alcance de tesis, mapeados a
+HU4, HU8, HU10 y HU11 en sus versiones ampliadas.
 
 ---
 
-## 8. HU2 en detalle — el motor de ajedrez (tarea de Hebert)
+## 11. Catálogo de Requisitos Funcionales
 
-Vos preguntaste específicamente qué es esto, así que vamos al detalle. **La idea central: no
-programás un motor de ajedrez — integrás uno que ya existe (Stockfish) y le construís una
-capa alrededor.**
+Agrupados por módulo. Estado real a la fecha de esta revisión, no aspiracional.
 
-### Qué tenés que lograr al final
+**Módulo 1 — Motor de Ajedrez — 🟢 completo (HU2)**
+RF01. Calcular la jugada mediante Stockfish (`calcular_jugada(fen, nivel)`). ✅
+RF02. Configurar el nivel de dificultad del motor entre 0 y 20. ✅
+RF03. Evaluar la posición en centipawns y detectar mate (`analizar_posicion`). ✅
+RF04. Listar variantes candidatas mediante MultiPV (`obtener_variaciones`). ✅
+RF05. Validar que toda jugada aceptada sea legal antes de ejecutarla. ✅
 
-Un servicio que reciba una posición de tablero y devuelva la jugada que hay que hacer:
+**Módulo 2 — Visión — 🟨 en curso (HU1)**
+RF06. Capturar la imagen del tablero mediante una cámara fija. ⬜ (hoy se prueba con fotos ya
+tomadas, no con una cámara conectada en vivo)
+RF07. Corregir la perspectiva de la imagen a una vista cenital. ✅ `detectar_esquinas_tablero` + `enderezar_tablero`
+RF08. Segmentar la imagen corregida en 64 casillas. ✅ `dividir_en_casillas`
+RF09. Clasificar la pieza (o ausencia) en cada casilla mediante un modelo entrenado. ✅ CNN, 90% test — damas siguen siendo el punto débil
+RF10. Generar el FEN correspondiente a la imagen reconocida. ✅ `reconocer_tablero`
+RF11. Detectar el movimiento comparando el FEN anterior con el actual. ⬜ no escrito todavía
 
-```python
-def calcular_jugada(posicion_fen: str, nivel_dificultad: int) -> str:
-    """
-    posicion_fen: posición actual del tablero en notación FEN
-    nivel_dificultad: 0-20, qué tan fuerte juega Stockfish
-    devuelve: la jugada elegida, en notación UCI (ej. "e2e4")
-    """
-```
+**Módulo 3 — Aprendizaje — 🟨 en curso (HU3), resto sin empezar (HU4)**
+RF12. Pipeline que transforme PGN en tensores y etiquetas. ✅ `training/data_pipeline.py`
+RF13. Entrenar un modelo por bandas de nivel/estilo. ⬜
+RF14. Reentrenar en lotes controlados y versionados. ⬜
+RF15. Evaluar cada versión candidata antes de promoverla. ⬜
+RF16. Guardar checkpoints versionados en Drive. ⬜
+RF17. No modificar el modelo en producción durante una partida. ✅ (por diseño — regla de `CLAUDE.md`, todavía no hay "producción" que modificar)
 
-### Pasos concretos
+**Módulo 4 — Educativo — ⬜ sin empezar (HU5)**
+RF18-RF20.
 
-1. **Instalar Stockfish** (el programa en sí, no la librería de Python):
-   - Linux: `sudo apt install stockfish`
-   - O bajar el binario directo de stockfishchess.org/download/
-   - Anotar la ruta donde quedó instalado (ej. `/usr/games/stockfish`)
+**Módulo 5 — Visualización del Razonamiento — 🟨 base mínima, resto 🔭 (HU6 ampliada)**
+RF21. Exponer jugadas candidatas con probabilidad. Parcial — `obtener_variaciones` da candidatas de Stockfish, no del modelo propio (no existe todavía).
+RF22-RF24 (Grad-CAM, entropía, WebSocket en vivo). ⬜ 🔭
 
-2. **Instalar la librería que lo conecta con Python:**
-   ```bash
-   pip install chess
-   ```
-   Esto es `python-chess` — no instala Stockfish, solo permite hablarle desde Python.
+**Módulo 6 — Control del Brazo — 🟨 base mínima, resto 🔭 (HU9 ampliada)**
+RF25-RF27, RF29 (calibración XYZ, cinemática inversa, pick-and-place, validar en simulador). ⬜/🟨 —
+hoy solo existe `resaltar_jugada` (marcar visualmente origen/destino), sin cinemática real.
+RF28 (alternar simulado/real sin cambios en el resto — Strategy 4.1). Interfaz a definir, sin implementar.
 
-3. **Escribir el servicio mínimo** (`backend/servicios/motor/motor_ajedrez.py`):
+**Módulo 7 — Partidas Online — 🟢 mayormente construido (trabajo adelantado + HU10)**
+RF30. Crear y consultar una partida. ✅
+RF31. Seleccionar tipo de oponente y nivel al crear. Parcial — solo nivel, falta tipo de oponente (Strategy 4.1).
+RF32. Validar y aplicar cada movimiento. ✅
+RF33. Actualizar el tablero en tiempo real para todos los clientes conectados. ⬜ 🔭 (hoy es de un solo cliente, sin WebSocket)
+RF34. Registrar cada jugada como dato candidato para reentrenamiento. ⬜ (depende de Repository + persistencia)
+
+**Módulo 8 — Seguimiento y Progreso — ⬜ sin empezar (HU8)**
+RF35-RF37.
+
+**Módulo 9 — Administración — ⬜ sin empezar (HU10/HU11, panel completo es 🔭)**
+RF38-RF42.
+
+---
+
+## 12. Notas de Factibilidad
+
+- El mapa de atención (Grad-CAM) depende de que la arquitectura de la CNN tenga capas
+  convolucionales identificables; si la arquitectura cambia radicalmente, hay que revisar que
+  la técnica siga aplicando. Aplica al clasificador de piezas de HU1 y a un futuro modelo de
+  HU3/HU4 — ambos son CNN, así que la técnica es viable en principio.
+- La personalización por oponente individual (que el modelo aprenda el estilo de una persona
+  específica) no es viable en el tiempo de esta tesis por volumen de datos insuficiente por
+  jugador; se adopta el enfoque por bandas de nivel/estilo (tipo Maia) como alternativa
+  acotada, y la personalización 1-a-1 queda documentada como trabajo futuro.
+- Los módulos de Visualización del Razonamiento y Control del Brazo amplían el alcance
+  original de HU6 y HU9 respectivamente — no subestimar su esfuerzo si se decide encararlos
+  ya: son fácilmente la mitad del trabajo restante de todo el proyecto.
+
+---
+
+## 13. Las 11 HU del sprint actual, divididas por sprint y persona
+
+| Sprint | HU | Descripción | Puntos | Responsable | Depende de | Módulo (sección 11) |
+|---|---|---|---|---|---|---|
+| **1** | HU1 | Reconocimiento de Tablero y Piezas | 8 | Hebert | — | Módulo 2 |
+| **1** | HU2 | Motor de Jugadas y Niveles de Dificultad | 3 | Hebert | — | Módulo 1 |
+| **1** | HU3 | Entrenamiento del Modelo con Partidas de Referencia | 5 | Luis Ángel | — | Módulo 3 |
+| **2** | HU6 | Visualización del Razonamiento en Tiempo Real | 5 | Hebert | HU1 | Módulo 5 |
+| **2** | HU4 | Reentrenamiento y Evaluación del Modelo | 5 | Luis Ángel | HU3 | Módulo 3 |
+| **2** | HU5 | Modo Educativo | 5 | Luis Ángel | HU3 | Módulo 4 |
+| **2** | HU10 | Configuración de Partida | 3 | Luis Ángel | HU2 | Módulo 7, 9 |
+| **3** | HU9 | Interconexión con el Brazo Robótico (simulado) | 8 | Hebert | HU2 | Módulo 6 |
+| **3** | HU7 | Rostro y Expresiones del Sistema | 3 | Luis Ángel | HU6 | — |
+| **3** | HU8 | Panel de Progreso | 3 | Luis Ángel | — | Módulo 8 |
+| **3** | HU11 | Administración de Sesiones y Participantes | 3 | Luis Ángel | — | Módulo 9 |
+
+**Por qué este orden:** HU1 y HU2 no dependen de nada, así que arrancan ya. HU6 (visualización)
+necesita que HU1 exista primero para tener algo que mostrar. HU9 (el brazo) va al final a
+propósito — es la pieza de mayor riesgo (8 puntos, depende del kit y del simulador), y conviene
+tener todo lo demás sólido antes de meterse ahí.
+
+Estado real de avance — ver `docs/plan_sprints.md`, que es el tablero de seguimiento vivo (se
+actualiza a medida que se completan tareas); este documento no repite ese detalle para no
+tener dos lugares que puedan desincronizarse.
+
+---
+
+## 14. HU2 en detalle — el motor de ajedrez (tarea de Hebert)
+
+**Ya hecho.** Queda como referencia de cómo se construyó. La idea central: no programás un
+motor de ajedrez — integrás uno que ya existe (Stockfish) y le construís una capa alrededor.
+
+### Pasos que se siguieron
+
+1. **Instalar Stockfish** (el programa en sí, no la librería de Python) y anotar la ruta.
+2. **Instalar `python-chess`** (`pip install chess`) — no instala Stockfish, solo permite
+   hablarle desde Python.
+3. **Escribir el servicio** (`backend/servicios/motor/motor_ajedrez.py`):
    ```python
    import chess
    import chess.engine
 
-   RUTA_STOCKFISH = "/usr/games/stockfish"  # ajustar a tu instalación
-
-   def calcular_jugada(posicion_fen: str, nivel_dificultad: int) -> str:
-       tablero = chess.Board(posicion_fen)
-       with chess.engine.SimpleEngine.popen_uci(RUTA_STOCKFISH) as motor:
-           motor.configure({"Skill Level": nivel_dificultad})  # 0 a 20
-           resultado = motor.play(tablero, chess.engine.Limit(time=2.0))
-           return resultado.move.uci()
+   def calcular_jugada(fen: str, nivel: int = 20, tiempo_limite: float = 1.0) -> str:
+       tablero = chess.Board(fen)
+       with chess.engine.SimpleEngine.popen_uci("stockfish") as motor:
+           motor.configure({"Skill Level": nivel})
+           resultado = motor.play(tablero, chess.engine.Limit(time=tiempo_limite))
+           return tablero.san(resultado.move)
    ```
-
-4. **Probarlo con posiciones conocidas** antes de conectarlo a nada más:
-   ```python
-   posicion_inicial = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-   print(calcular_jugada(posicion_inicial, nivel_dificultad=10))
-   ```
-
-5. **Exponerlo en una ruta** (`backend/rutas/ruta_jugada.py`):
-   ```python
-   from fastapi import APIRouter
-   from backend.servicios.motor.motor_ajedrez import calcular_jugada
-
-   router = APIRouter()
-
-   @router.post("/partida/{id_partida}/jugada")
-   def endpoint_calcular_jugada(id_partida: int, posicion_fen: str, nivel_dificultad: int):
-       jugada = calcular_jugada(posicion_fen, nivel_dificultad)
-       # guardar en la tabla `jugada` (decidido_por='motor')
-       return {"jugada": jugada}
-   ```
-
-6. **Guardar cada jugada en la tabla `jugada`** — esto alimenta después el dataset de HU4 y
-   el panel de progreso de HU8.
+4. **Probado con posiciones conocidas** (aperturas + mate en 1) antes de conectarlo a nada más.
+5. **Expuesto vía rutas** — hoy `POST /jugada` y `POST /analisis` en `backend/main.py`.
 
 ### Qué NO hacer todavía en HU2
 
-- No mezclar el modelo de aprendizaje acá — HU2 es solo Stockfish. El modelo (HU3) es un
-  servicio aparte que se conecta después.
-- No te preocupes por el brazo ni por PyBullet — eso es HU9, sprint 3.
-- No optimices el tiempo de cálculo todavía — 2 segundos por jugada es el objetivo ya
-  definido en el PAPs, no hace falta afinar más por ahora.
+- No mezclar el modelo de aprendizaje acá — HU2 es solo Stockfish.
+- No preocuparse por el brazo ni por PyBullet — eso es HU9.
+- No optimizar el tiempo de cálculo — 1 segundo por jugada ya es suficiente para la demo.
 
 ---
 
-## 9. HU1 en detalle — resumen (Hebert, en paralelo o después de HU2)
+## 15. HU1 en detalle — visión (Hebert)
 
-- Instalar OpenCV: `pip install opencv-python`
-- Armar un set de 15-20 fotos de un tablero real en distintas condiciones de luz.
-- Servicio `reconocer_tablero(imagen) -> str`: detecta las 64 casillas (transformación de
-  perspectiva + grilla), identifica qué pieza hay en cada una, arma el string FEN.
-- No hace falta reconocimiento perfecto en el primer intento — empezá con un tablero con
-  piezas bien diferenciadas antes de casos difíciles.
+**En curso.** Servicio `reconocer_tablero(imagen) -> fen` en `backend/servicios/vision/`:
+
+- `tablero.py` — `detectar_esquinas_tablero` (contorno de 4 lados vía Canny + approxPolyDP),
+  `enderezar_tablero` (perspectiva), `dividir_en_casillas`. Probado contra fotos reales del
+  dataset público "Chess Pieces" de Roboflow (licencia dominio público,
+  `training/dataset_tablero/`, ignorado por git).
+- `modelo_piezas.py` — arquitectura de la CNN y su preprocesamiento, compartidos entre
+  `training/entrenar_clasificador_piezas.py` (la entrena) y `piezas.py` (la usa en producción),
+  para que ninguno de los dos dependa del otro.
+- `piezas.py` — carga el checkpoint entrenado y clasifica una casilla. 90% accuracy en test tras
+  balancear clases; las damas (la clase con menos ejemplos) siguen siendo la pieza menos
+  confiable.
+- `reconocimiento.py` — junta todo en `reconocer_tablero(imagen, turno="w") -> fen`. El turno
+  se recibe como parámetro porque una sola foto no alcanza para saber de quién es; enroque y
+  al paso quedan siempre en su valor por defecto por la misma razón.
+
+**Pendiente de HU1:** capturar desde una cámara fija en vivo (RF06) y detectar la jugada
+comparando el FEN anterior con el actual (RF11) — hoy se prueba contra fotos ya tomadas, no
+contra una cámara conectada.
 
 ---
 
-## 10. HU3 en detalle — para que Luis Ángel tenga su guía también
+## 16. HU3 en detalle — entrenamiento del modelo (Luis Ángel)
 
-1. Bajar un mes de partidas de database.lichess.org (no el dataset completo).
-2. Escribir `pipeline_datos.py`: usa `python-chess` para leer el PGN, y por cada posición
-   jugada genera el tablero antes (como tensor) + la jugada del humano (como etiqueta).
+1. Bajar un mes de partidas de database.lichess.org (no el dataset completo). ✅
+2. `training/data_pipeline.py`: usa `python-chess` para leer el PGN, y por cada posición
+   jugada genera el tablero antes (como tensor) + la jugada del humano (como etiqueta). ✅
 3. Subir esto a **Google Colab** (GPU gratis) y probar con un subconjunto chico (100-200
-   partidas) antes de escalar al mes completo.
-4. Entrenar una primera versión simple del modelo — el objetivo de Sprint 1 es que el
-   pipeline funcione de punta a punta, no lograr precisión alta todavía.
-5. **Guardar los checkpoints en Google Drive**, no solo en la sesión de Colab.
+   partidas) antes de escalar al mes completo. ⬜ pendiente
+4. Entrenar una primera versión simple del modelo — el objetivo es que el pipeline funcione de
+   punta a punta, no lograr precisión alta todavía. ⬜ pendiente
+5. **Guardar los checkpoints en Google Drive**, no solo en la sesión de Colab. ⬜ pendiente
 
 ---
 
-## 11. Sobre el simulador del brazo — no es para ahora
+## 17. Sobre el simulador y el brazo — HU9, no es para ahora
 
-Esto es HU9, **Sprint 3**, no Sprint 1. Cuando llegues ahí:
+Cuando llegue el momento de encarar esto (Sprint 3):
 
-- El simulador es **PyBullet** (`pip install pybullet`), ya decidido.
-- PyBullet necesita un archivo **URDF** (descripción del brazo: segmentos, medidas,
-  articulaciones) — el kit de FabriCreator no lo trae listo, hay que construirlo.
-- **Mientras no tengan el URDF exacto**, se puede probar la lógica de control con uno de los
-  brazos de ejemplo que ya vienen incluidos en PyBullet, y cambiarlo por el real cuando esté
-  listo. No hace falta esperar el kit para empezar a programar esta parte.
+- El simulador es **PyBullet** (`pip install pybullet`), ya en uso — hoy con una escena
+  estática de tablero 3D que resalta origen/destino (`backend/servicios/simulacion/escena.py`),
+  sin brazo articulado.
+- PyBullet necesita un archivo **URDF** (descripción del brazo) — el kit no lo trae listo, hay
+  que construirlo. Mientras no esté el URDF exacto, se puede probar la lógica de control con
+  uno de los brazos de ejemplo que ya vienen incluidos en PyBullet.
+- El patrón Strategy que corresponde acá es el **ejecutor de movimientos** (sección 4.1) —
+  `EjecutorSimulado` ya existe en espíritu (`resaltar_jugada`); `EjecutorReal` (ESP32 + PCA9685)
+  es alcance de tesis, no de este sprint.
 
 ---
 
-## 12. Cómo no interferirse — reglas de trabajo en paralelo
+## 18. Cómo no interferirse — reglas de trabajo en paralelo
 
 - **Una rama de git por HU**, no por persona: `feature/hu1-vision`, `feature/hu2-motor`,
   `feature/hu3-modelo`.
@@ -375,12 +648,13 @@ Esto es HU9, **Sprint 3**, no Sprint 1. Cuando llegues ahí:
 
 ---
 
-## 13. Checklist de cierre de Sprint 1
+## 19. Checklist de cierre del sprint actual
 
-- [ ] `calcular_jugada` funciona y devuelve jugadas legales para al menos 10 posiciones de
+- [x] `calcular_jugada` funciona y devuelve jugadas legales para al menos 10 posiciones de
       prueba distintas (Hebert).
-- [ ] `reconocer_tablero` reconoce correctamente al menos un tablero de prueba fijo (Hebert).
-- [ ] Pipeline de datos de Lichess corre de punta a punta con un subconjunto chico, y hay
-      al menos una primera versión del modelo entrenada y guardada en Drive (Luis Ángel).
+- [x] `reconocer_tablero` reconoce un tablero de prueba real de punta a punta (Hebert) — con
+      la limitación conocida de las damas, documentada en `docs/plan_sprints.md`.
+- [ ] Pipeline de datos de Lichess corre de punta a punta en Colab con un subconjunto chico, y
+      hay al menos una primera versión del modelo entrenada y guardada en Drive (Luis Ángel).
 - [ ] Las 4 tablas de la base de datos existen y las jugadas de prueba quedan guardadas ahí.
-- [ ] Los dos servicios (visión y motor) ya se hablan entre sí usando FEN como formato común.
+- [x] Los dos servicios (visión y motor) ya se hablan entre sí usando FEN como formato común.

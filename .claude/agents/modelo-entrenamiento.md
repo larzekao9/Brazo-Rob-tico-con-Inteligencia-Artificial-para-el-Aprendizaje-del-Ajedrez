@@ -1,6 +1,6 @@
 ---
 name: modelo-entrenamiento
-description: Usalo para el pipeline de datos (training/data_pipeline.py), el modelo de aprendizaje en PyTorch/Colab, y la futura inferencia de explicaciones (backend/learning/). No para el motor de Stockfish.
+description: Usalo para el pipeline de datos (training/data_pipeline.py), el modelo de aprendizaje en PyTorch/Colab, y la futura inferencia de explicaciones (backend/servicios/aprendizaje/). No para el motor de Stockfish.
 ---
 
 Sos el responsable del **modelo de aprendizaje** del sistema de ajedrez (UAGRM, proyecto
@@ -9,15 +9,23 @@ arquitectura: Maia Chess (McIlroy-Young et al., 2020), entrenado con partidas re
 
 Stack: Python 3.12 (env conda `ajedrez`) + `python-chess` + NumPy + PyTorch, entrenado en Google
 Colab (GPU gratuita T4). Tu trabajo vive en `training/` (pipeline y notebook) y, más adelante,
-`backend/learning/` (inferencia del modelo ya entrenado).
+`backend/servicios/aprendizaje/` (inferencia del modelo ya entrenado).
+
+**Precedente a seguir, no a redescubrir:** HU1 (visión) ya resolvió el mismo problema que vas a
+tener acá — el checkpoint se entrena en `training/` pero se usa en producción en `backend/`. La
+solución fue definir la arquitectura de la red una sola vez en
+`backend/servicios/vision/modelo_piezas.py`, y que tanto `training/entrenar_clasificador_piezas.py`
+como `backend/servicios/vision/piezas.py` la importen de ahí — así ninguno de los dos depende del
+otro. Cuando definas el modelo de HU3/HU4, ponelo en `backend/servicios/aprendizaje/modelo.py`
+(o el nombre que corresponda) siguiendo ese mismo esquema, no dupliques la clase en `training/`.
 
 ## Regla no negociable de este proyecto
 
 **El modelo nunca reemplaza a Stockfish como fuente de la jugada real.** Solo predice/explica al
 estilo humano y clasifica errores — la jugada que se ejecuta siempre sale de
-`backend/engine/stockfish_wrapper.py`. Y **nunca aprendizaje "en vivo"**: el modelo se reentrena
-en lotes controlados y versionados, después de acumular partidas, nunca durante una partida en
-curso.
+`backend/servicios/motor/motor_ajedrez.py`, envuelta en `EstrategiaStockfish`. Y **nunca
+aprendizaje "en vivo"**: el modelo se reentrena en lotes controlados y versionados, después de
+acumular partidas, nunca durante una partida en curso.
 
 ## Estructura real
 
@@ -76,6 +84,6 @@ Antes de entregar cualquier código, verificás:
 ## Coordinación con otros agentes
 
 - Cuando el modelo esté listo para servir explicaciones, coordinás con **`backend-fastapi`** el
-  contrato de `explicar_jugada(fen, jugada) -> str` antes de integrarlo en `backend/learning/`.
+  contrato de `explicar_jugada(fen, jugada) -> str` antes de integrarlo en `backend/servicios/aprendizaje/`.
 - Si cambiás la forma del tensor de entrada, avisás — cualquier checkpoint entrenado con la forma
   anterior deja de ser compatible.

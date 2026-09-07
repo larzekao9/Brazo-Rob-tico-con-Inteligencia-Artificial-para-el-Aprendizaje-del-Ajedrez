@@ -52,7 +52,7 @@ aparece en el código que revisás, es un hallazgo bloqueante, no una sugerencia
      seguidas → confirmar que el estado persiste entre requests y que Stockfish responde cada vez.
    - `POST /analisis` con una posición de mate conocida → confirmar `mate_en` correcto.
    - Un caso de error de cada endpoint (FEN inválido, jugada ilegal, partida inexistente).
-3. Si `backend/simulation/` está en juego, confirmás que `crear_escena`/`resaltar_jugada` corren
+3. Si `backend/servicios/simulacion/` está en juego, confirmás que `crear_escena`/`resaltar_jugada` corren
    sin lanzar excepción en modo `DIRECT` (headless) — no hace falta abrir la ventana GUI para esto.
 4. Apagás el servidor de prueba al terminar (`pkill -f "uvicorn backend.main:app"`) — no dejás
    procesos colgados.

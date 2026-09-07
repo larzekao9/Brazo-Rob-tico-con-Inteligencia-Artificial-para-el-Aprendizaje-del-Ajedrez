@@ -1,6 +1,6 @@
 # Plan de implementación por sprint
 
-Basado en `PLAN_IMPLEMENTACION_COMPLETO.md` (secciones 7 a 11) y en el Product Backlog de 11
+Basado en `PLAN_IMPLEMENTACION_COMPLETO.md` (secciones 13 a 16) y en el Product Backlog de 11
 Historias de Usuario (51 puntos totales) definido junto con la documentación de SW2 y Taller
 de Grado I. Reemplaza la versión anterior de este archivo, que estaba basada en un borrador
 previo del plan (por área, sin las 11 HU balanceadas).
@@ -15,12 +15,12 @@ tablero funcionando sobre fotos de prueba, y el pipeline de datos corriendo de p
 | HU | Descripción | Puntos | Responsable | Estado |
 |---|---|---|---|---|
 | HU2 | Motor de Jugadas y Niveles de Dificultad | 3 | Hebert | ✅ Hecho |
-| HU1 | Reconocimiento de Tablero y Piezas | 8 | Hebert | ⬜ Pendiente |
+| HU1 | Reconocimiento de Tablero y Piezas | 8 | Hebert | 🟨 En curso |
 | HU3 | Entrenamiento del Modelo con Partidas de Referencia | 5 | Luis Ángel | 🟨 En curso |
 
 ### HU2 — Motor (Hebert) — ✅ Hecho
 - [x] Stockfish instalado y probado desde `python-chess`.
-- [x] `backend/engine/stockfish_wrapper.py`: `calcular_jugada(fen, nivel)`,
+- [x] `backend/servicios/motor/motor_ajedrez.py`: `calcular_jugada(fen, nivel)`,
       `analizar_posicion(fen, nivel)` (evaluación en centipawns + mate), `obtener_variaciones`
       (mejores jugadas candidatas vía MultiPV) — esto último adelanta trabajo útil para HU6.
 - [x] Tests con posiciones conocidas (aperturas + mate en 1).
@@ -35,11 +35,42 @@ tablero funcionando sobre fotos de prueba, y el pipeline de datos corriendo de p
       completo (paso pendiente antes de dar por cerrada la HU).
 - [ ] Primera versión entrenada del modelo, guardada en Google Drive.
 
-### HU1 — Visión (Hebert) — ⬜ Pendiente
-- [ ] Set de 15-20 fotos de tablero (luz y ángulo variados).
-- [ ] Detección de las 64 casillas (transformación de perspectiva + grilla, OpenCV).
-- [ ] Clasificación de pieza por casilla.
-- [ ] `reconocer_tablero(imagen) -> fen`.
+### HU1 — Visión (Hebert) — 🟨 En curso
+- [x] Set de fotos de tablero — en vez de sacar 15-20 propias, se usó el dataset público
+      "Chess Pieces" de Roboflow (licencia dominio público, `training/dataset_tablero/`,
+      ignorado por git): 289 fotos reales con piezas, distintas posiciones y algo de variación
+      de fondo/objetos en cuadro. Supera el mínimo pedido; no reemplaza sacar fotos del
+      tablero físico real del proyecto cuando esté disponible.
+- [x] Detección de las 64 casillas (transformación de perspectiva + grilla, OpenCV) —
+      `backend/servicios/vision/tablero.py`: `detectar_esquinas_tablero` (contorno de 4 lados
+      vía Canny + approxPolyDP), `enderezar_tablero` (perspectiva), `dividir_en_casillas`.
+      Probado contra 8 fotos reales del dataset (distintas posiciones) sin fallar ninguna; tests
+      automatizados con imagen sintética en `backend/servicios/vision/test_tablero.py`.
+- [x] Clasificación de pieza por casilla — `training/dataset_piezas.py` genera automáticamente
+      recortes de casilla etiquetados (reusa la detección de esquinas + las cajas del dataset de
+      Roboflow, proyectando la base de cada pieza a través de la misma transformación de
+      perspectiva). `training/entrenar_clasificador_piezas.py` entrena una CNN chica (3 bloques
+      conv+batchnorm+pool, PyTorch, entrada 64x64) sobre esos recortes — 13 clases (12 piezas +
+      "vacía"). Checkpoint en `training/checkpoints/clasificador_piezas.pt` (ignorado por git —
+      hay que correr el script de entrenamiento localmente para generarlo; si hace falta
+      compartirlo entre el equipo, por Drive, no por commit).
+
+      Primera versión: 88%/90% accuracy validación/test, pero fallaba sistemáticamente con las
+      damas (la clase con menos ejemplos, ~100 de 2869 anotaciones) y confundía caballo con
+      torre/alfil. Se corrigió con pesos por clase en la función de pérdida (inversamente
+      proporcional a la frecuencia), aumentación de datos (rotación leve + brillo/contraste, para
+      no depender tanto de las pocas sesiones de fotos reales del dataset) y más resolución de
+      entrada. Resultado: 90% accuracy en test, con **recall por clase mucho más parejo** —
+      dama pasó de prácticamente 0% a 73-80%, caballo de confundirse seguido a 81-91%.
+      **Limitación conocida que queda:** al compensar tanto el desbalance, ahora a veces confunde
+      el *color* de la dama (blanca vs negra) o predice una dama de más donde no hay — sigue
+      siendo la pieza menos confiable del clasificador. El resto (peones, torres, alfiles, reyes)
+      anda entre 82-100% de recall. Sirve como versión demostrable; seguir mejorando esto
+      (más fotos reales propias, no solo el dataset de Roboflow) queda para si sobra tiempo.
+- [x] `reconocer_tablero(imagen) -> fen` — `backend/servicios/vision/reconocimiento.py`, junta la detección
+      de esquinas + clasificación de piezas y arma el FEN completo. El turno ("w"/"b") se recibe
+      como parámetro porque una sola foto no alcanza para saber de quién es — tampoco se puede
+      inferir enroque ni al paso, quedan siempre en su valor por defecto ("-").
 
 **Definition of Done Sprint 1:** `calcular_jugada` en verde (cumplido); `data_pipeline.py`
 corre sobre 100-200 partidas reales en Colab sin errores; `reconocer_tablero` reconoce
@@ -81,7 +112,7 @@ progreso, administración de sesiones, e integración completa para la defensa.
 | HU11 | Administración de Sesiones y Participantes | 3 | Luis Ángel |
 
 ### Sobre el simulador ya iniciado
-Ya existe una versión temprana en `backend/simulation/escena.py` (escena de PyBullet con
+Ya existe una versión temprana en `backend/servicios/simulacion/escena.py` (escena de PyBullet con
 tablero 3D estático y `resaltar_jugada(desde, hasta)`, sin cinemática inversa ni animación de
 brazo — deliberadamente simple). Esto se adelantó mientras Visión estaba en pausa; queda como
 base para HU9, pero la cinemática real y la conexión con el ESP32 son trabajo de este sprint,
@@ -100,9 +131,11 @@ no algo ya cerrado.
 No estaba explícitamente en ninguna HU puntual, pero ya está construido y es una base útil
 para varias historias (especialmente HU10 y HU11):
 
-- `backend/models/partida.py`, `backend/game/servicio.py`, `backend/game/router.py`:
-  partida jugable en memoria (`crear_partida`, `obtener_partida`, `mover`), expuesta vía
-  `POST /partida`, `GET /partida/{id}`, `POST /partida/{id}/mover`.
+- `backend/modelos/partida.py`, `backend/servicios/partida/servicio_partida.py`,
+  `backend/rutas/ruta_partida.py`: partida jugable en memoria (`crear_partida`,
+  `obtener_partida`, `mover`, vía un `RepositorioPartidas` + una `EstrategiaJugada` — ver
+  sección 4 de `PLAN_IMPLEMENTACION_COMPLETO.md`), expuesta vía `POST /partida`,
+  `GET /partida/{id}`, `POST /partida/{id}/mover`.
 - Tablero interactivo en React (`frontend/src/components/Tablero.jsx`).
 
 **Pendiente conocido sobre esto:** el humano siempre juega blancas, no hay persistencia entre
@@ -122,11 +155,17 @@ quedan para si sobra tiempo.
   `board.parse_san()` / `move.uci()`).
 - Cualquier tarea que no se pueda completar en su sprint se avisa explícitamente antes de
   pasar al siguiente, no se arrastra en silencio.
-- **Excepción acordada a la sección 2 y 5 de `PLAN_IMPLEMENTACION_COMPLETO.md`:** el backend no
-  usa capas horizontales de primer nivel (`rutas/`, `servicios/`, `esquemas/`) ni nombres de
-  carpeta en español (`motor/`, `simulacion/`) como se planteó ahí. Se mantiene la organización
-  ya construida — módulos verticales por dominio (`backend/engine/`, `backend/game/`,
-  `backend/models/`, `backend/simulation/`), cada uno con su propia lógica y router adentro,
-  con nombres de funciones en español (`calcular_jugada`, `crear_partida`). Es una organización
-  igualmente válida en FastAPI; para el "Diagrama de Paquetes por capas" de SW2 se documenta
-  esta estructura tal cual está, en vez de reacomodar el código.
+- **Migración de arquitectura completada** (secciones 3, 4 y 8 de
+  `PLAN_IMPLEMENTACION_COMPLETO.md`): el backend pasó de módulos verticales
+  (`backend/engine/`, `backend/game/`, `backend/models/`, `backend/simulation/`, `backend/vision/`)
+  a capas horizontales en español (`backend/rutas/`, `backend/servicios/`, `backend/esquemas/`,
+  `backend/modelos/`, `backend/repositorios/`). De paso se implementaron los 3 patrones de
+  diseño acordados: **Strategy** + **Factory Method** (`backend/servicios/estrategias/`, quién
+  decide la jugada) y **Repository** (`backend/repositorios/repositorio_partida.py`, reemplaza
+  el dict en memoria que vivía suelto en el servicio). Se aprovechó para también resolver un
+  acoplamiento raro que había quedado en HU1 (`backend/vision/piezas.py` dependía de
+  `training/entrenar_clasificador_piezas.py`, al revés de lo esperable): ahora ambos importan la
+  arquitectura de la CNN desde `backend/servicios/vision/modelo_piezas.py`, sin que ninguno
+  dependa del otro. Toda la suite de tests corrida después de cada paso, sin regresiones — los
+  únicos tests que siguen fallando son los que ya fallaban antes por huecos de esta máquina
+  (sin binario de `stockfish`, sin `pybullet` compilable sin Visual Studio).

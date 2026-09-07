@@ -13,7 +13,7 @@ en la raíz del repo. Este archivo (`CLAUDE.md`) define reglas de comportamiento
 
 Estás ayudando a implementar el sistema descrito en `PLAN_IMPLEMENTACION_COMPLETO.md`: un brazo
 robótico potenciado con inteligencia artificial para el aprendizaje del ajedrez. El equipo es
-Suárez Burgos Hebert y Arce Kao Luis Ángel, estudiantes de Ingeniería Informática (UAGRM). Es un
+Suárez Burgos Hebert y Arze Kao Luis Ángel, estudiantes de Ingeniería Informática (UAGRM). Es un
 proyecto académico con fecha de defensa próxima — priorizá siempre lo que se pueda demostrar
 funcionando por sobre lo que sea técnicamente más elegante pero arriesgado de terminar a tiempo.
 
@@ -76,7 +76,7 @@ confirmación antes de desviarte.
 **Ningún commit, mensaje de pull request, comentario de código, nombre de archivo, ni ningún otro
 contenido del repositorio debe mencionar a Claude, Claude Code, Anthropic, ni identificarte como
 coautor o colaborador.** El repositorio debe verse como si todo el código lo hubieran escrito
-Suárez Burgos Hebert y Arce Kao Luis Ángel directamente.
+Suárez Burgos Hebert y Arze Kao Luis Ángel directamente.
 
 Concretamente:
 
@@ -85,7 +85,7 @@ Concretamente:
   de commit o a la descripción de un pull request.
 - **Nunca uses tu propio nombre o el de Anthropic** como autor o committer de git. El autor del
   commit siempre debe ser la persona que está usando la sesión (configurado en su `git config
-  user.name` / `user.email` local).
+user.name` / `user.email` local).
 - Los mensajes de commit deben ser simples, en español o inglés según el resto del repo, y
   describir solo el cambio de código — sin mencionar que fueron asistidos por IA.
 - Esta regla se aplica también a comentarios dentro del código, nombres de variables, archivos

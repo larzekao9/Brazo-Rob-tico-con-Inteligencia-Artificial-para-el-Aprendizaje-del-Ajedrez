@@ -1,4 +1,4 @@
-from backend.simulation import cerrar_escena, crear_escena, resaltar_jugada
+from backend.servicios.simulacion import cerrar_escena, crear_escena, resaltar_jugada
 
 
 def test_crear_escena_devuelve_64_casillas():

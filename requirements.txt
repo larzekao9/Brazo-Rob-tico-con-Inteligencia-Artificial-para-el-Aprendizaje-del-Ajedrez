@@ -4,6 +4,8 @@ fastapi==0.141.1
 uvicorn==0.52.4
 jinja2==3.1.6
 python-multipart==0.0.32
-httpx==0.28.1
+httpx2==2.12.0
 numpy==2.5.2
 zstandard==0.25.0
+opencv-python==4.14.0.94
+torch==2.14.0

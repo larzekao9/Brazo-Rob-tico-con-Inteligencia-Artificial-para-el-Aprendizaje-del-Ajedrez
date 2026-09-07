@@ -1,20 +1,26 @@
-"""Orquesta partidas jugables: aplica la jugada humana y responde con Stockfish.
+"""Orquesta partidas jugables: aplica la jugada humana y responde con la
+estrategia de jugada activa.
 
-Las partidas viven solo en memoria del proceso — alcanza para la demo de estas
-3 semanas, no hace falta persistencia todavía.
+Las partidas viven en un `RepositorioPartidasEnMemoria` (solo en memoria del
+proceso) — alcanza para la demo de estas semanas, no hace falta persistencia
+todavía. Quién decide la jugada de respuesta es la estrategia que devuelva
+`crear_estrategia_jugada` — hoy siempre Stockfish, mañana también el modelo
+propio o un jugador humano, sin tocar este archivo (ver
+PLAN_IMPLEMENTACION_COMPLETO.md, secciones 4.1 y 4.3).
 """
 from __future__ import annotations
 
-from backend.engine.stockfish_wrapper import calcular_jugada
-from backend.models.partida import Partida
+from backend.modelos.partida import Partida
+from backend.repositorios.repositorio_partida import RepositorioPartidas, RepositorioPartidasEnMemoria
+from backend.servicios.estrategias.fabrica_estrategias import crear_estrategia_jugada
 
-_partidas: dict[str, Partida] = {}
+_repositorio: RepositorioPartidas = RepositorioPartidasEnMemoria()
 
 
 def crear_partida(nivel: int = 20) -> Partida:
     """Crea una partida nueva con el tablero en la posición inicial."""
     partida = Partida(nivel=nivel)
-    _partidas[partida.id] = partida
+    _repositorio.guardar(partida)
     return partida
 
 
@@ -24,13 +30,11 @@ def obtener_partida(partida_id: str) -> Partida:
     Raises:
         KeyError: si no existe una partida con ese id.
     """
-    if partida_id not in _partidas:
-        raise KeyError(f"No existe una partida con id {partida_id}")
-    return _partidas[partida_id]
+    return _repositorio.obtener(partida_id)
 
 
 def mover(partida_id: str, jugada_uci: str) -> dict:
-    """Aplica la jugada del humano (UCI) y responde con la jugada de Stockfish.
+    """Aplica la jugada del humano (UCI) y responde con la jugada de la estrategia activa.
 
     Raises:
         KeyError: si no existe una partida con ese id.
@@ -48,7 +52,8 @@ def mover(partida_id: str, jugada_uci: str) -> dict:
 
     jugada_motor_san = None
     if not partida.terminada:
-        jugada_motor_san = calcular_jugada(partida.fen, nivel=partida.nivel)
+        estrategia = crear_estrategia_jugada("motor", nivel=partida.nivel)
+        jugada_motor_san = estrategia.decidir_jugada(partida.fen)
         partida.tablero.push_san(jugada_motor_san)
 
     return {

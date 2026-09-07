@@ -1,7 +1,7 @@
 import chess
 import pytest
 
-from backend.engine import analizar_posicion, calcular_jugada, obtener_variaciones
+from backend.servicios.motor import analizar_posicion, calcular_jugada, obtener_variaciones
 
 POSICION_INICIAL = chess.STARTING_FEN
 # Mate en 1 para las blancas: Damas en h5, torre puede dar mate.
