@@ -33,6 +33,16 @@ def obtener_partida(partida_id: str) -> Partida:
     return _repositorio.obtener(partida_id)
 
 
+def listar_partidas() -> list[Partida]:
+    """Devuelve todas las partidas jugadas mientras este proceso está corriendo.
+
+    Es un registro real (HU8/HU11) mientras el backend sigue arriba — no
+    sobrevive un reinicio, porque `RepositorioPartidasEnMemoria` no persiste
+    a disco. Ver sección 4.3 y 7 de PLAN_IMPLEMENTACION_COMPLETO.md.
+    """
+    return _repositorio.listar()
+
+
 def mover(partida_id: str, jugada_uci: str) -> dict:
     """Aplica la jugada del humano (UCI) y responde con la jugada de la estrategia activa.
 
@@ -61,4 +71,5 @@ def mover(partida_id: str, jugada_uci: str) -> dict:
         "jugada_motor": jugada_motor_san,
         "terminada": partida.terminada,
         "resultado": partida.resultado,
+        "jugadas": partida.jugadas_san,
     }

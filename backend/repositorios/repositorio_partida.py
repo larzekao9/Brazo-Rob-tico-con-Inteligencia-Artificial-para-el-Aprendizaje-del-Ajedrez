@@ -23,11 +23,17 @@ class RepositorioPartidas(ABC):
             KeyError: si no existe una partida con ese id.
         """
 
+    @abstractmethod
+    def listar(self) -> list[Partida]:
+        """Devuelve todas las partidas guardadas, más reciente primero."""
+
 
 class RepositorioPartidasEnMemoria(RepositorioPartidas):
     """Guarda las partidas en un dict del proceso — se pierden al reiniciar.
 
-    Alcanza para la demo de estas semanas. El día que llegue HU11 con
+    Esto ya es un registro real (todas las partidas que se juegan mientras
+    el backend está corriendo quedan acá, consultables), solo que no
+    sobrevive un reinicio del servidor. El día que llegue HU11 con
     PostgreSQL (sección 7 del plan), se agrega `RepositorioPartidasPostgres`
     con esta misma interfaz, sin tocar `servicio_partida.py` ni las rutas.
     """
@@ -42,3 +48,6 @@ class RepositorioPartidasEnMemoria(RepositorioPartidas):
         if partida_id not in self._partidas:
             raise KeyError(f"No existe una partida con id {partida_id}")
         return self._partidas[partida_id]
+
+    def listar(self) -> list[Partida]:
+        return list(reversed(self._partidas.values()))

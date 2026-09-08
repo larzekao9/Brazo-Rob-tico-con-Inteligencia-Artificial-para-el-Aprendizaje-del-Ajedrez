@@ -28,3 +28,19 @@ def test_repositorios_distintos_no_comparten_estado() -> None:
 
     with pytest.raises(KeyError):
         repositorio_b.obtener(partida.id)
+
+
+def test_listar_devuelve_todas_las_guardadas_mas_reciente_primero() -> None:
+    repositorio = RepositorioPartidasEnMemoria()
+    primera = Partida()
+    segunda = Partida()
+
+    repositorio.guardar(primera)
+    repositorio.guardar(segunda)
+
+    assert repositorio.listar() == [segunda, primera]
+
+
+def test_listar_vacio_si_no_hay_partidas_guardadas() -> None:
+    repositorio = RepositorioPartidasEnMemoria()
+    assert repositorio.listar() == []

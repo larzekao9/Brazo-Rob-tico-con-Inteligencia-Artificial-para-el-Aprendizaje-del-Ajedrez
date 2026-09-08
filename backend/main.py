@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.rutas.ruta_jugada import router as jugada_router
 from backend.rutas.ruta_partida import router as partida_router
+from backend.rutas.ruta_vision import router as vision_router
 
 FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
@@ -24,6 +25,7 @@ app.add_middleware(
 
 app.include_router(jugada_router)
 app.include_router(partida_router)
+app.include_router(vision_router)
 
 
 @app.get("/health")

@@ -15,7 +15,7 @@ tablero funcionando sobre fotos de prueba, y el pipeline de datos corriendo de p
 | HU | Descripción | Puntos | Responsable | Estado |
 |---|---|---|---|---|
 | HU2 | Motor de Jugadas y Niveles de Dificultad | 3 | Hebert | ✅ Hecho |
-| HU1 | Reconocimiento de Tablero y Piezas | 8 | Hebert | 🟨 En curso |
+| HU1 | Reconocimiento de Tablero y Piezas | 8 | Hebert | ✅ Hecho |
 | HU3 | Entrenamiento del Modelo con Partidas de Referencia | 5 | Luis Ángel | 🟨 En curso |
 
 ### HU2 — Motor (Hebert) — ✅ Hecho
@@ -35,7 +35,7 @@ tablero funcionando sobre fotos de prueba, y el pipeline de datos corriendo de p
       completo (paso pendiente antes de dar por cerrada la HU).
 - [ ] Primera versión entrenada del modelo, guardada en Google Drive.
 
-### HU1 — Visión (Hebert) — 🟨 En curso
+### HU1 — Visión (Hebert) — ✅ Hecho (con limitación conocida en las damas)
 - [x] Set de fotos de tablero — en vez de sacar 15-20 propias, se usó el dataset público
       "Chess Pieces" de Roboflow (licencia dominio público, `training/dataset_tablero/`,
       ignorado por git): 289 fotos reales con piezas, distintas posiciones y algo de variación
@@ -71,6 +71,14 @@ tablero funcionando sobre fotos de prueba, y el pipeline de datos corriendo de p
       de esquinas + clasificación de piezas y arma el FEN completo. El turno ("w"/"b") se recibe
       como parámetro porque una sola foto no alcanza para saber de quién es — tampoco se puede
       inferir enroque ni al paso, quedan siempre en su valor por defecto ("-").
+- [x] Captura desde cámara (RF06) — `backend/servicios/vision/camara.py::capturar_foto_tablero(indice_camara)`,
+      vía `cv2.VideoCapture`. Probado contra la cámara real de esta máquina (no solo el caso de
+      error), funciona. Todavía no está conectado a un endpoint HTTP ni a una pantalla que
+      muestre la foto en vivo — eso es HU6 ("mostrar la imagen capturada"), no esto.
+- [x] Detección de la jugada por diff de FEN (RF11) — `backend/servicios/vision/deteccion_movimiento.py::detectar_jugada(fen_antes, fen_despues)`:
+      prueba todas las jugadas legales de la posición "antes" y devuelve la que reproduce
+      exactamente la ubicación de piezas de "después". No usa nada de IA — es la forma estándar
+      de resolver esto, más confiable que tratar de leer la jugada directo de la imagen.
 
 **Definition of Done Sprint 1:** `calcular_jugada` en verde (cumplido); `data_pipeline.py`
 corre sobre 100-200 partidas reales en Colab sin errores; `reconocer_tablero` reconoce

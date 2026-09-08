@@ -319,11 +319,13 @@ ajedrez-robotico/
 │   │   │   └── fabrica_estrategias.py
 │   │   ├── partida/                # orquesta partidas jugables — HU10, trabajo adelantado
 │   │   │   └── servicio_partida.py
-│   │   ├── vision/                 # HU1 — Hebert
+│   │   ├── vision/                 # HU1 — Hebert (completa)
 │   │   │   ├── modelo_piezas.py    # arquitectura de la CNN, compartida con training/
 │   │   │   ├── tablero.py
 │   │   │   ├── piezas.py
-│   │   │   └── reconocimiento.py
+│   │   │   ├── reconocimiento.py
+│   │   │   ├── camara.py            # RF06, captura desde cámara fija
+│   │   │   └── deteccion_movimiento.py  # RF11, jugada por diff de FEN
 │   │   ├── motor/                  # HU2 — Hebert
 │   │   │   └── motor_ajedrez.py
 │   │   ├── aprendizaje/            # HU3, HU4 — Luis Ángel (🔭 inferencia.py todavía no existe)
@@ -431,11 +433,12 @@ WebSocket en vivo son la ampliación de tesis.
 
 ### Actor: Sistema (casos de uso internos)
 
-**CU-S1 — Reconocer el tablero mediante visión 🟢 (HU1, en curso)**
+**CU-S1 — Reconocer el tablero mediante visión 🟢 (HU1, hecho)**
 Descripción: el sistema captura una imagen y la traduce a FEN. Flujo principal: (1) captura
 imagen; (2) corrige perspectiva; (3) clasifica las 64 casillas; (4) compara con el FEN anterior
-para detectar la jugada. **Hoy:** (1)-(3) construidos y probados (`backend/servicios/vision/`);
-(4) —comparar con el FEN anterior para aislar qué jugada se hizo— todavía no está escrito.
+para detectar la jugada. Los 4 pasos están construidos y probados
+(`backend/servicios/vision/`) — falta conectar (1) a un endpoint HTTP que dispare todo el flujo
+de punta a punta ante una foto real (alcance de HU6, no de este caso de uso en sí).
 
 **CU-S2 — Ejecutar la jugada en el brazo robótico 🔭 (HU9 ampliada)**
 Hoy existe una versión mucho más chica: resaltar visualmente origen/destino en una escena
@@ -464,14 +467,13 @@ RF03. Evaluar la posición en centipawns y detectar mate (`analizar_posicion`). 
 RF04. Listar variantes candidatas mediante MultiPV (`obtener_variaciones`). ✅
 RF05. Validar que toda jugada aceptada sea legal antes de ejecutarla. ✅
 
-**Módulo 2 — Visión — 🟨 en curso (HU1)**
-RF06. Capturar la imagen del tablero mediante una cámara fija. ⬜ (hoy se prueba con fotos ya
-tomadas, no con una cámara conectada en vivo)
+**Módulo 2 — Visión — ✅ hecho (HU1)**
+RF06. Capturar la imagen del tablero mediante una cámara fija. ✅ `capturar_foto_tablero` (`cv2.VideoCapture`) — falta conectarlo a un endpoint/pantalla (HU6)
 RF07. Corregir la perspectiva de la imagen a una vista cenital. ✅ `detectar_esquinas_tablero` + `enderezar_tablero`
 RF08. Segmentar la imagen corregida en 64 casillas. ✅ `dividir_en_casillas`
 RF09. Clasificar la pieza (o ausencia) en cada casilla mediante un modelo entrenado. ✅ CNN, 90% test — damas siguen siendo el punto débil
 RF10. Generar el FEN correspondiente a la imagen reconocida. ✅ `reconocer_tablero`
-RF11. Detectar el movimiento comparando el FEN anterior con el actual. ⬜ no escrito todavía
+RF11. Detectar el movimiento comparando el FEN anterior con el actual. ✅ `detectar_jugada(fen_antes, fen_despues)`
 
 **Módulo 3 — Aprendizaje — 🟨 en curso (HU3), resto sin empezar (HU4)**
 RF12. Pipeline que transforme PGN en tensores y etiquetas. ✅ `training/data_pipeline.py`
@@ -601,10 +603,14 @@ motor de ajedrez — integrás uno que ya existe (Stockfish) y le construís una
 - `reconocimiento.py` — junta todo en `reconocer_tablero(imagen, turno="w") -> fen`. El turno
   se recibe como parámetro porque una sola foto no alcanza para saber de quién es; enroque y
   al paso quedan siempre en su valor por defecto por la misma razón.
+- `camara.py` — `capturar_foto_tablero(indice_camara)` (RF06), vía `cv2.VideoCapture`. Probado
+  contra la cámara real de la máquina de Hebert, no solo el caso de error.
+- `deteccion_movimiento.py` — `detectar_jugada(fen_antes, fen_despues)` (RF11): prueba todas las
+  jugadas legales de la posición "antes" y devuelve la que reproduce exactamente la ubicación
+  de piezas de "después". Sin IA — más confiable que tratar de leer la jugada de la imagen.
 
-**Pendiente de HU1:** capturar desde una cámara fija en vivo (RF06) y detectar la jugada
-comparando el FEN anterior con el actual (RF11) — hoy se prueba contra fotos ya tomadas, no
-contra una cámara conectada.
+**HU1 completa.** Lo que queda es cablear esto a un endpoint HTTP y a una pantalla que muestre
+la foto en vivo — eso es HU6, no una tarea suelta de HU1.
 
 ---
 

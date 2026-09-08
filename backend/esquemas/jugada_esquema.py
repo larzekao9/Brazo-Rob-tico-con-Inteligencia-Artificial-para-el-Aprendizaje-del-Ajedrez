@@ -25,3 +25,6 @@ class AnalisisResponse(BaseModel):
     jugada: str | None
     evaluacion_cp: int | None
     mate_en: int | None
+    profundidad: int | None = None
+    nodos: int | None = None
+    variacion_principal: list[str] = Field(default_factory=list)

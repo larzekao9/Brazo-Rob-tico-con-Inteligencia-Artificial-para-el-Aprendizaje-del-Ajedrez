@@ -44,7 +44,10 @@ def analizar_posicion(fen: str, nivel: int = 20, tiempo_limite: float = 1.0) -> 
     Returns:
         dict con "jugada" (SAN de la mejor jugada), "evaluacion_cp"
         (centipawns desde el punto de vista del jugador a mover, None si hay
-        mate forzado) y "mate_en" (jugadas hasta el mate, None si no aplica).
+        mate forzado), "mate_en" (jugadas hasta el mate, None si no aplica),
+        "profundidad" y "nodos" (cuánto pudo buscar Stockfish en el tiempo
+        dado, None si el motor no los reportó) y "variacion_principal"
+        (la línea completa que analizó, en SAN, no solo la primera jugada).
     """
     _validar_nivel(nivel)
     tablero = chess.Board(fen)
@@ -54,10 +57,20 @@ def analizar_posicion(fen: str, nivel: int = 20, tiempo_limite: float = 1.0) -> 
         score = info["score"].pov(tablero.turn)
         variacion = info.get("pv") or []
         mejor_jugada = variacion[0] if variacion else None
+
+        variacion_principal = []
+        tablero_variacion = tablero.copy()
+        for jugada in variacion:
+            variacion_principal.append(tablero_variacion.san(jugada))
+            tablero_variacion.push(jugada)
+
         return {
             "jugada": tablero.san(mejor_jugada) if mejor_jugada else None,
             "evaluacion_cp": score.score(),
             "mate_en": score.mate(),
+            "profundidad": info.get("depth"),
+            "nodos": info.get("nodes"),
+            "variacion_principal": variacion_principal,
         }
 
 

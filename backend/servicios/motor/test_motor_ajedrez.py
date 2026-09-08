@@ -38,6 +38,14 @@ def test_analizar_posicion_detecta_mate_forzado() -> None:
     assert resultado["jugada"] == "Qxf7#"
 
 
+def test_analizar_posicion_incluye_profundidad_nodos_y_variacion() -> None:
+    resultado = analizar_posicion(POSICION_INICIAL, nivel=10, tiempo_limite=0.3)
+    assert resultado["profundidad"] is not None
+    assert resultado["nodos"] is not None
+    assert len(resultado["variacion_principal"]) >= 1
+    assert resultado["variacion_principal"][0] == resultado["jugada"]
+
+
 def test_obtener_variaciones_devuelve_multiples_jugadas() -> None:
     variaciones = obtener_variaciones(POSICION_INICIAL, nivel=10, num_variaciones=3, tiempo_limite=0.2)
     assert len(variaciones) == 3
