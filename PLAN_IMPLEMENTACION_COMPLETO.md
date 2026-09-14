@@ -352,7 +352,7 @@ ajedrez-robotico/
 │   │   └── simulacion/             # HU9 — Hebert
 │   │       └── escena.py
 ├── training/
-│   ├── colab_entrenamiento.ipynb   # HU3, corre en Colab — pendiente ejecutarlo con GPU real
+│   ├── colab_entrenamiento.ipynb   # HU3, corrido en Colab con GPU (2026-09-14) — checkpoint en Drive
 │   ├── data_pipeline.py            # HU3, PGN de Lichess -> tensores
 │   ├── dataset_piezas.py           # HU1, auto-etiqueta casillas para entrenar el clasificador
 │   ├── entrenar_clasificador_piezas.py
@@ -496,12 +496,12 @@ RF09. Clasificar la pieza (o ausencia) en cada casilla mediante un modelo entren
 RF10. Generar el FEN correspondiente a la imagen reconocida. ✅ `reconocer_tablero`
 RF11. Detectar el movimiento comparando el FEN anterior con el actual. ✅ `detectar_jugada(fen_antes, fen_despues)`
 
-**Módulo 3 — Aprendizaje — 🟨 en curso (HU3), resto sin empezar (HU4)**
+**Módulo 3 — Aprendizaje — ✅ HU3 hecho, resto sin empezar (HU4)**
 RF12. Pipeline que transforme PGN en tensores y etiquetas. ✅ `training/data_pipeline.py`
-RF13. Entrenar un modelo por bandas de nivel/estilo. ⬜
+RF13. Entrenar un modelo por bandas de nivel/estilo. ⬜ — hoy es un solo modelo genérico (200 partidas), sin separar por nivel/estilo todavía
 RF14. Reentrenar en lotes controlados y versionados. ⬜
-RF15. Evaluar cada versión candidata antes de promoverla. ⬜
-RF16. Guardar checkpoints versionados en Drive. ⬜
+RF15. Evaluar cada versión candidata antes de promoverla. ⬜ — solo hay accuracy de validación, ninguna promoción
+RF16. Guardar checkpoints versionados en Drive. 🟨 primer checkpoint guardado (`modelo_jugadas_v1_2026-09-14.pt`, nombrado por fecha) — falta un criterio real de versionado/promoción (HU4)
 RF17. No modificar el modelo en producción durante una partida. ✅ (por diseño — regla de `CLAUDE.md`, todavía no hay "producción" que modificar)
 
 **Módulo 4 — Educativo — ⬜ sin empezar (HU5)**
@@ -635,7 +635,7 @@ la foto en vivo — eso es HU6, no una tarea suelta de HU1.
 
 ---
 
-## 16. HU3 en detalle — entrenamiento del modelo (Luis Ángel)
+## 16. HU3 en detalle — entrenamiento del modelo (Luis Ángel) — ✅ Hecho
 
 1. Bajar un mes de partidas de database.lichess.org (no el dataset completo). ✅
 2. `training/data_pipeline.py`: usa `python-chess` para leer el PGN, y por cada posición
@@ -645,10 +645,12 @@ la foto en vivo — eso es HU6, no una tarea suelta de HU1.
    HU1, compartida entre entrenamiento e inferencia. ✅
 4. `training/colab_entrenamiento.ipynb`: clona el repo, baja el PGN, prueba el pipeline con un
    subconjunto chico (200 partidas) antes de escalar al mes completo, entrena unas pocas épocas
-   y guarda el checkpoint (versionado por fecha) en Google Drive. ✅ escrito — ⬜ **pendiente
-   correrlo en una sesión real de Colab con GPU**, eso no se puede hacer desde la máquina local.
+   y guarda el checkpoint (versionado por fecha) en Google Drive. ✅ escrito y corrido en Colab
+   con GPU real (2026-09-14), de punta a punta sin errores.
 5. Entrenar una primera versión simple del modelo — el objetivo es que el pipeline funcione de
-   punta a punta, no lograr precisión alta todavía. ⬜ pendiente (depende del punto 4)
+   punta a punta, no lograr precisión alta todavía. ✅ `modelo_jugadas_v1_2026-09-14.pt` en
+   Drive (200 partidas, 10 épocas). Accuracy de validación baja, como se esperaba con tan pocas
+   partidas — escalar al mes completo y evaluar en serio es HU4, no esta HU.
 
 ---
 
@@ -685,8 +687,9 @@ Cuando llegue el momento de encarar esto (Sprint 3):
       prueba distintas (Hebert).
 - [x] `reconocer_tablero` reconoce un tablero de prueba real de punta a punta (Hebert) — con
       la limitación conocida de las damas, documentada en `docs/plan_sprints.md`.
-- [ ] Pipeline de datos de Lichess corre de punta a punta en Colab con un subconjunto chico, y
-      hay al menos una primera versión del modelo entrenada y guardada en Drive (Luis Ángel).
+- [x] Pipeline de datos de Lichess corre de punta a punta en Colab con un subconjunto chico, y
+      hay al menos una primera versión del modelo entrenada y guardada en Drive (Luis Ángel) —
+      `modelo_jugadas_v1_2026-09-14.pt`, 200 partidas, corrido en Colab con GPU el 2026-09-14.
 - [x] Las 4 tablas de la base de datos existen (`backend/modelos/tablas_orm.py`, probado contra
       SQLite en `backend/repositorios/test_repositorio_partida_postgres.py`) — falta correrlo
       contra un Postgres real levantado (`DATABASE_URL`) para la validación final antes de la

@@ -16,7 +16,7 @@ tablero funcionando sobre fotos de prueba, y el pipeline de datos corriendo de p
 |---|---|---|---|---|
 | HU2 | Motor de Jugadas y Niveles de Dificultad | 3 | Hebert | ✅ Hecho |
 | HU1 | Reconocimiento de Tablero y Piezas | 8 | Hebert | ✅ Hecho |
-| HU3 | Entrenamiento del Modelo con Partidas de Referencia | 5 | Luis Ángel | 🟨 En curso |
+| HU3 | Entrenamiento del Modelo con Partidas de Referencia | 5 | Luis Ángel | ✅ Hecho |
 
 ### HU2 — Motor (Hebert) — ✅ Hecho
 - [x] Stockfish instalado y probado desde `python-chess`.
@@ -26,7 +26,7 @@ tablero funcionando sobre fotos de prueba, y el pipeline de datos corriendo de p
 - [x] Tests con posiciones conocidas (aperturas + mate en 1).
 - [x] Expuesto vía `POST /jugada` y `POST /analisis` en el backend.
 
-### HU3 — Modelo (Luis Ángel) — 🟨 En curso
+### HU3 — Modelo (Luis Ángel) — ✅ Hecho
 - [x] Un mes de partidas de Lichess descargado (2017-02, 1.8 GB comprimido; el pipeline lee
       en streaming, no hace falta descomprimir entero).
 - [x] `training/data_pipeline.py`: `board_to_tensor` y `pgn_to_samples` — validado localmente
@@ -41,11 +41,12 @@ tablero funcionando sobre fotos de prueba, y el pipeline de datos corriendo de p
       database.lichess.org, arma un subconjunto de 200 partidas, entrena `RedPrediccionJugadas`
       unas pocas épocas y guarda el checkpoint versionado por fecha en Google Drive
       (`MyDrive/ajedrez_checkpoints/`).
-- [ ] **Pendiente ejecutar el notebook en Colab** (requiere sesión interactiva con GPU, no se
-      puede correr desde acá) y confirmar que corre de punta a punta sin errores — paso
-      pendiente antes de dar por cerrada la HU.
-- [ ] Primera versión entrenada del modelo, guardada en Google Drive (resultado del punto
-      anterior).
+- [x] Notebook ejecutado en Colab con GPU (2026-09-14): corrió de punta a punta sin errores.
+- [x] Primera versión entrenada, guardada en Google Drive:
+      `MyDrive/ajedrez_checkpoints/modelo_jugadas_v1_2026-09-14.pt` (200 partidas, 10 épocas).
+      Accuracy de validación baja, como se esperaba con tan pocas partidas (ver nota en el
+      notebook) — esta corrida valida el pipeline de punta a punta, no busca precisión todavía;
+      escalar a más partidas y evaluar en serio es HU4.
 
 ### HU1 — Visión (Hebert) — ✅ Hecho (con limitación conocida en las damas)
 - [x] Set de fotos de tablero — en vez de sacar 15-20 propias, se usó el dataset público
@@ -92,9 +93,9 @@ tablero funcionando sobre fotos de prueba, y el pipeline de datos corriendo de p
       exactamente la ubicación de piezas de "después". No usa nada de IA — es la forma estándar
       de resolver esto, más confiable que tratar de leer la jugada directo de la imagen.
 
-**Definition of Done Sprint 1:** `calcular_jugada` en verde (cumplido); `data_pipeline.py`
-corre sobre 100-200 partidas reales en Colab sin errores; `reconocer_tablero` reconoce
-correctamente al menos un tablero de prueba fijo.
+**Definition of Done Sprint 1 — ✅ cumplido:** `calcular_jugada` en verde; `data_pipeline.py`
+corrió sobre 200 partidas reales en Colab sin errores, con checkpoint entrenado guardado en
+Drive; `reconocer_tablero` reconoce correctamente al menos un tablero de prueba fijo.
 
 ---
 
