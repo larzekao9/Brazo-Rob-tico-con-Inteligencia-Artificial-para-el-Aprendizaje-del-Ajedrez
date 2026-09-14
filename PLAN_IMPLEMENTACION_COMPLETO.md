@@ -89,8 +89,9 @@ módulo de Hebert y el de Luis Ángel.
       habla en FEN entre sí; nadie inventa su propio formato de tablero.
 - [x] Crear el archivo `requirements.txt` vacío y decidir juntos cada versión a medida que
       la agreguen (no dejar ninguna dependencia "sin fijar").
-- [ ] Crear las 4 tablas mínimas de la base de datos (sección 7) — esto lo hace una sola
-      persona, no las dos por separado, para evitar migraciones en conflicto.
+- [x] Crear las 4 tablas mínimas de la base de datos (sección 7) — `backend/modelos/tablas_orm.py`
+      + `backend/database.py::crear_tablas`. Se crean solas la primera vez que el backend arranca
+      con `DATABASE_URL` seteada (no hace falta correr una migración a mano).
 
 ---
 
@@ -163,13 +164,19 @@ Se usa para desacoplar el acceso a datos de la lógica de servicios, de modo que
 no dependan directamente de SQLAlchemy ni de la estructura exacta de las tablas:
 
 - **`RepositorioPartida` implementado** — `backend/repositorios/repositorio_partida.py`:
-  interfaz `RepositorioPartidas` (`guardar`, `obtener`) con `RepositorioPartidasEnMemoria` como
-  única implementación por ahora (el mismo dict que antes vivía suelto en el servicio, ahora
-  detrás de la interfaz). `RepositorioPartidasPostgres` se agrega recién cuando llegue HU11 con
-  la base de datos real — no hace falta instalar Postgres para tener el patrón funcionando hoy.
-- `RepositorioJugada` — 🔭 todavía no existe (no hay entidad `Jugada` persistida, ver sección 7).
+  interfaz `RepositorioPartidas` (`guardar`, `obtener`, `listar`) con dos implementaciones,
+  `RepositorioPartidasEnMemoria` (dict del proceso) y `RepositorioPartidasPostgres` (tabla
+  `partida`, sección 7). `crear_repositorio_partidas()` elige cuál instanciar: Postgres si
+  `DATABASE_URL` está seteada, memoria si no — así ninguna máquina del equipo necesita Postgres
+  corriendo solo para levantar el backend, pero alcanza con setear la variable de entorno para
+  que las partidas persistan de verdad.
+- `RepositorioJugada` — 🔭 todavía no existe (no hay entidad `Jugada` persistida más allá del
+  campo `jugadas_uci` de `partida`; la tabla `jugada` en sí ya está creada para RF34/HU4, ver
+  sección 7, pero nada la puebla todavía).
 - También facilita los tests unitarios: `backend/repositorios/test_repositorio_partida.py`
-  prueba el repositorio en memoria sin ninguna base de datos corriendo.
+  prueba el repositorio en memoria, y `test_repositorio_partida_postgres.py` prueba
+  `RepositorioPartidasPostgres` contra SQLite en memoria (mismas tablas, sin necesitar un
+  Postgres real corriendo) — sin ninguna base de datos externa en ningún caso.
 
 ### 4.4 Ya presentes en el código, sin haber sido nombrados (gratis para la documentación)
 
@@ -288,9 +295,19 @@ CREATE TABLE jugada (
 ya que su HU3 también necesita leer/escribir partidas para el dataset). Las tablas que faltan
 (`modelo_version` — con estado de promoción para el panel de administrador 🔭, `error_patron`,
 `progreso`, `usuario` para el login 🔭) se agregan recién cuando lleguen a HU4, HU8 y a la
-etapa de tesis correspondiente — no antes. **Hoy esto todavía no está creado:** las partidas
-viven en memoria del proceso, detrás del `RepositorioPartidasEnMemoria` de la sección 4.3 — el
-Repository ya está armado, solo falta la implementación con Postgres real.
+etapa de tesis correspondiente — no antes.
+
+**Hecho:** las 4 tablas están definidas en `backend/modelos/tablas_orm.py` (SQLAlchemy) y se
+crean solas al arrancar el backend si `DATABASE_URL` está seteada (`backend/database.py`). Dos
+adaptaciones respecto al SQL de arriba, documentadas en el docstring de `tablas_orm.py`:
+`partida.id` es TEXT (el uuid que ya generaba el dataclass `Partida`, no un INTEGER
+autoincremental) y `partida` suma `fen`, `nivel`, `tipo_oponente` y `jugadas_uci` — hoy no
+existe ningún flujo de sesión/participante que los provea desde `sesion`, así que viven en la
+partida directamente hasta que HU10/HU11 armen ese flujo. Si `DATABASE_URL` no está seteada
+(la mayoría de las máquinas del equipo, hoy), el backend sigue igual que antes: partidas en
+memoria del proceso, detrás de `RepositorioPartidasEnMemoria` (sección 4.3) — nadie necesita
+tener Postgres instalado solo para levantar el backend y probar. La tabla `jugada` ya existe
+pero todavía no la puebla nada (queda para RF34/HU4).
 
 ---
 
@@ -301,10 +318,10 @@ ajedrez-robotico/
 ├── requirements.txt
 ├── backend/
 │   ├── main.py                     # arranca la app FastAPI
-│   ├── database.py                 # conexión a PostgreSQL (🔭, hoy no existe — todo en memoria)
+│   ├── database.py                 # conexión a PostgreSQL — activa solo si DATABASE_URL está seteada
 │   ├── modelos/                    # capa de Modelos de datos
-│   │   ├── partida.py
-│   │   └── jugada.py
+│   │   ├── partida.py              # entidad de dominio (dataclass), la usan servicios y rutas
+│   │   └── tablas_orm.py           # las 4 tablas (SQLAlchemy), las usa el Repository de Postgres
 │   ├── esquemas/                   # capa de Esquemas (Pydantic)
 │   │   ├── partida_esquema.py
 │   │   └── jugada_esquema.py
@@ -328,13 +345,14 @@ ajedrez-robotico/
 │   │   │   └── deteccion_movimiento.py  # RF11, jugada por diff de FEN
 │   │   ├── motor/                  # HU2 — Hebert
 │   │   │   └── motor_ajedrez.py
-│   │   ├── aprendizaje/            # HU3, HU4 — Luis Ángel (🔭 inferencia.py todavía no existe)
-│   │   │   └── inferencia.py
+│   │   ├── aprendizaje/            # HU3, HU4 — Luis Ángel
+│   │   │   ├── modelo_jugadas.py   # arquitectura de la CNN, compartida con training/
+│   │   │   └── inferencia.py       # 🔭 todavía no existe (HU4, depende del checkpoint entrenado)
 │   │   ├── educativo/              # HU5 — Luis Ángel (🔭 no existe todavía)
 │   │   └── simulacion/             # HU9 — Hebert
 │   │       └── escena.py
 ├── training/
-│   ├── colab_entrenamiento.ipynb   # 🔭 no existe todavía, HU3
+│   ├── colab_entrenamiento.ipynb   # HU3, corre en Colab — pendiente ejecutarlo con GPU real
 │   ├── data_pipeline.py            # HU3, PGN de Lichess -> tensores
 │   ├── dataset_piezas.py           # HU1, auto-etiqueta casillas para entrenar el clasificador
 │   ├── entrenar_clasificador_piezas.py
@@ -349,9 +367,10 @@ ajedrez-robotico/
 ```
 
 **Estado real hoy vs. este destino:** migrado. El árbol de arriba es exactamente cómo está
-`backend/` hoy, con dos excepciones marcadas 🔭: `database.py` (no hay base de datos, todo en
-memoria vía el Repository de la sección 4.3) y las carpetas de HU3/HU4/HU5
-(`aprendizaje/`, `educativo/`) que todavía no tienen código porque esas HU no empezaron.
+`backend/` hoy — `database.py` y `modelos/tablas_orm.py` ya existen y crean las 4 tablas solas
+si `DATABASE_URL` está seteada (si no, todo sigue en memoria vía el Repository de la sección
+4.3). Sigue pendiente 🔭 la carpeta de HU5 (`educativo/`), que todavía no tiene código porque
+esa HU no empezó; `aprendizaje/` ya tiene `modelo_jugadas.py` (HU3).
 
 ---
 
@@ -408,8 +427,10 @@ Descripción: el jugador elige contra qué/quién juega y con qué ajustes. Prec
 completado (🔭) / ninguna en la versión mínima actual. Flujo principal: (1) el jugador elige
 tipo de oponente (Stockfish, modelo propio, u otro jugador); (2) elige nivel de dificultad;
 (3) elige si activa el modo educativo; (4) el sistema crea la partida (`POST /partida`) y
-muestra el tablero inicial. Postcondición: partida creada y en curso. **Hoy:** solo existe
-elegir nivel; tipo de oponente y modo educativo faltan.
+muestra el tablero inicial. Postcondición: partida creada y en curso. **Hoy:** elegir nivel y
+tipo de oponente ya funcionan en el backend (aunque `tipo_oponente` solo admite `"motor"` hasta
+que HU3/HU4 den un modelo entrenado); falta el selector en el frontend y el modo educativo
+(depende de HU5).
 
 **CU-J3 — Jugar la partida 🟢 (ya construido, versión digital)**
 Descripción: el jugador realiza jugadas (físicas, vía visión, o digitales) y el sistema
@@ -497,7 +518,7 @@ RF28 (alternar simulado/real sin cambios en el resto — Strategy 4.1). Interfaz
 
 **Módulo 7 — Partidas Online — 🟢 mayormente construido (trabajo adelantado + HU10)**
 RF30. Crear y consultar una partida. ✅
-RF31. Seleccionar tipo de oponente y nivel al crear. Parcial — solo nivel, falta tipo de oponente (Strategy 4.1).
+RF31. Seleccionar tipo de oponente y nivel al crear. ✅ backend (`POST /partida` valida `tipo_oponente` contra la Strategy 4.1) — falta el selector en el frontend.
 RF32. Validar y aplicar cada movimiento. ✅
 RF33. Actualizar el tablero en tiempo real para todos los clientes conectados. ⬜ 🔭 (hoy es de un solo cliente, sin WebSocket)
 RF34. Registrar cada jugada como dato candidato para reentrenamiento. ⬜ (depende de Repository + persistencia)
@@ -619,11 +640,15 @@ la foto en vivo — eso es HU6, no una tarea suelta de HU1.
 1. Bajar un mes de partidas de database.lichess.org (no el dataset completo). ✅
 2. `training/data_pipeline.py`: usa `python-chess` para leer el PGN, y por cada posición
    jugada genera el tablero antes (como tensor) + la jugada del humano (como etiqueta). ✅
-3. Subir esto a **Google Colab** (GPU gratis) y probar con un subconjunto chico (100-200
-   partidas) antes de escalar al mes completo. ⬜ pendiente
-4. Entrenar una primera versión simple del modelo — el objetivo es que el pipeline funcione de
-   punta a punta, no lograr precisión alta todavía. ⬜ pendiente
-5. **Guardar los checkpoints en Google Drive**, no solo en la sesión de Colab. ⬜ pendiente
+3. `backend/servicios/aprendizaje/modelo_jugadas.py`: arquitectura de la red
+   (`RedPrediccionJugadas`) que consume esos tensores — misma idea que `modelo_piezas.py` de
+   HU1, compartida entre entrenamiento e inferencia. ✅
+4. `training/colab_entrenamiento.ipynb`: clona el repo, baja el PGN, prueba el pipeline con un
+   subconjunto chico (200 partidas) antes de escalar al mes completo, entrena unas pocas épocas
+   y guarda el checkpoint (versionado por fecha) en Google Drive. ✅ escrito — ⬜ **pendiente
+   correrlo en una sesión real de Colab con GPU**, eso no se puede hacer desde la máquina local.
+5. Entrenar una primera versión simple del modelo — el objetivo es que el pipeline funcione de
+   punta a punta, no lograr precisión alta todavía. ⬜ pendiente (depende del punto 4)
 
 ---
 
@@ -662,5 +687,8 @@ Cuando llegue el momento de encarar esto (Sprint 3):
       la limitación conocida de las damas, documentada en `docs/plan_sprints.md`.
 - [ ] Pipeline de datos de Lichess corre de punta a punta en Colab con un subconjunto chico, y
       hay al menos una primera versión del modelo entrenada y guardada en Drive (Luis Ángel).
-- [ ] Las 4 tablas de la base de datos existen y las jugadas de prueba quedan guardadas ahí.
+- [x] Las 4 tablas de la base de datos existen (`backend/modelos/tablas_orm.py`, probado contra
+      SQLite en `backend/repositorios/test_repositorio_partida_postgres.py`) — falta correrlo
+      contra un Postgres real levantado (`DATABASE_URL`) para la validación final antes de la
+      defensa, ver nota abajo.
 - [x] Los dos servicios (visión y motor) ya se hablan entre sí usando FEN como formato común.

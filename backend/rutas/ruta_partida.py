@@ -25,6 +25,7 @@ def _a_estado(partida: Partida) -> EstadoPartidaResponse:
     return EstadoPartidaResponse(
         id=partida.id,
         tipo=partida.tipo,
+        tipo_oponente=partida.tipo_oponente,
         nivel=partida.nivel,
         creada_en=partida.creada_en,
         fen=partida.fen,
@@ -38,6 +39,7 @@ def _a_resumen(partida: Partida) -> ResumenPartidaResponse:
     return ResumenPartidaResponse(
         id=partida.id,
         tipo=partida.tipo,
+        tipo_oponente=partida.tipo_oponente,
         nivel=partida.nivel,
         creada_en=partida.creada_en,
         fen=partida.fen,
@@ -49,7 +51,10 @@ def _a_resumen(partida: Partida) -> ResumenPartidaResponse:
 
 @router.post("", response_model=EstadoPartidaResponse)
 def crear(request: CrearPartidaRequest) -> EstadoPartidaResponse:
-    partida = crear_partida(nivel=request.nivel)
+    try:
+        partida = crear_partida(nivel=request.nivel, tipo_oponente=request.tipo_oponente)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     return _a_estado(partida)
 
 

@@ -4,6 +4,7 @@ from backend.modelos.partida import Partida
 def test_partida_nueva_tiene_valores_por_defecto() -> None:
     partida = Partida()
     assert partida.tipo == "digital"
+    assert partida.tipo_oponente == "motor"
     assert partida.nivel == 20
     assert not partida.terminada
     assert partida.resultado is None

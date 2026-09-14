@@ -1,25 +1,37 @@
 """Orquesta partidas jugables: aplica la jugada humana y responde con la
 estrategia de jugada activa.
 
-Las partidas viven en un `RepositorioPartidasEnMemoria` (solo en memoria del
-proceso) — alcanza para la demo de estas semanas, no hace falta persistencia
-todavía. Quién decide la jugada de respuesta es la estrategia que devuelva
-`crear_estrategia_jugada` — hoy siempre Stockfish, mañana también el modelo
-propio o un jugador humano, sin tocar este archivo (ver
-PLAN_IMPLEMENTACION_COMPLETO.md, secciones 4.1 y 4.3).
+Las partidas viven detrás de `RepositorioPartidas` (patrón Repository, sección
+4.3) — en memoria del proceso por defecto, o en Postgres si `DATABASE_URL`
+está seteada (`crear_repositorio_partidas`, sección 7). Quién decide la
+jugada de respuesta es la estrategia que devuelva `crear_estrategia_jugada`
+— hoy siempre Stockfish, mañana también el modelo propio o un jugador
+humano, sin tocar este archivo (ver PLAN_IMPLEMENTACION_COMPLETO.md,
+secciones 4.1 y 4.3).
 """
 from __future__ import annotations
 
 from backend.modelos.partida import Partida
-from backend.repositorios.repositorio_partida import RepositorioPartidas, RepositorioPartidasEnMemoria
-from backend.servicios.estrategias.fabrica_estrategias import crear_estrategia_jugada
+from backend.repositorios.repositorio_partida import RepositorioPartidas, crear_repositorio_partidas
+from backend.servicios.estrategias.fabrica_estrategias import TIPOS_SOPORTADOS, crear_estrategia_jugada
 
-_repositorio: RepositorioPartidas = RepositorioPartidasEnMemoria()
+_repositorio: RepositorioPartidas = crear_repositorio_partidas()
 
 
-def crear_partida(nivel: int = 20) -> Partida:
-    """Crea una partida nueva con el tablero en la posición inicial."""
-    partida = Partida(nivel=nivel)
+def crear_partida(nivel: int = 20, tipo_oponente: str = "motor") -> Partida:
+    """Crea una partida nueva con el tablero en la posición inicial.
+
+    Raises:
+        ValueError: si `tipo_oponente` no es un tipo soportado todavía (ver
+            `fabrica_estrategias.TIPOS_SOPORTADOS`) — se valida acá, al crear
+            la partida, para no dejar que falle recién en la primera jugada.
+    """
+    if tipo_oponente not in TIPOS_SOPORTADOS:
+        raise ValueError(
+            f"Tipo de oponente '{tipo_oponente}' no soportado todavía "
+            f"(disponibles: {sorted(TIPOS_SOPORTADOS)})"
+        )
+    partida = Partida(nivel=nivel, tipo_oponente=tipo_oponente)
     _repositorio.guardar(partida)
     return partida
 
@@ -62,7 +74,7 @@ def mover(partida_id: str, jugada_uci: str) -> dict:
 
     jugada_motor_san = None
     if not partida.terminada:
-        estrategia = crear_estrategia_jugada("motor", nivel=partida.nivel)
+        estrategia = crear_estrategia_jugada(partida.tipo_oponente, nivel=partida.nivel)
         jugada_motor_san = estrategia.decidir_jugada(partida.fen)
         partida.tablero.push_san(jugada_motor_san)
 

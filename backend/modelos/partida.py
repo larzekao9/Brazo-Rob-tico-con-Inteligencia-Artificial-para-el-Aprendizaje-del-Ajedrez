@@ -10,7 +10,11 @@ import chess
 
 @dataclass
 class Partida:
-    """Una partida en curso. El humano juega blancas, Stockfish juega negras.
+    """Una partida en curso. El humano juega blancas.
+
+    `tipo_oponente` selecciona qué `EstrategiaJugada` responde las jugadas del
+    humano (HU10, ver PLAN_IMPLEMENTACION_COMPLETO.md, sección 4.1) — hoy solo
+    `"motor"` (Stockfish) está implementado.
 
     `tipo` distingue si el humano jugó tocando el tablero físico (detectado
     por visión, HU1/HU9) o directamente en la interfaz digital — hoy siempre
@@ -20,6 +24,7 @@ class Partida:
 
     tablero: chess.Board = field(default_factory=chess.Board)
     nivel: int = 20
+    tipo_oponente: str = "motor"
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
     tipo: str = "digital"
     creada_en: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())

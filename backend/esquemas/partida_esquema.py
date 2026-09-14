@@ -7,9 +7,15 @@ from backend.servicios.motor.motor_ajedrez import NIVEL_MAX, NIVEL_MIN
 
 
 class CrearPartidaRequest(BaseModel):
-    """Cuerpo de entrada para POST /partida."""
+    """Cuerpo de entrada para POST /partida.
+
+    `tipo_oponente` hoy solo admite `"motor"` (Stockfish) — pedir cualquier
+    otro valor devuelve 400 (ver `fabrica_estrategias.TIPOS_SOPORTADOS`);
+    `"modelo"` queda disponible en cuanto HU3/HU4 den un modelo entrenado.
+    """
 
     nivel: int = Field(default=NIVEL_MAX, ge=NIVEL_MIN, le=NIVEL_MAX)
+    tipo_oponente: str = "motor"
 
 
 class EstadoPartidaResponse(BaseModel):
@@ -17,6 +23,7 @@ class EstadoPartidaResponse(BaseModel):
 
     id: str
     tipo: str
+    tipo_oponente: str
     nivel: int
     creada_en: str
     fen: str
@@ -30,6 +37,7 @@ class ResumenPartidaResponse(BaseModel):
 
     id: str
     tipo: str
+    tipo_oponente: str
     nivel: int
     creada_en: str
     fen: str

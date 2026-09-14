@@ -31,9 +31,21 @@ tablero funcionando sobre fotos de prueba, y el pipeline de datos corriendo de p
       en streaming, no hace falta descomprimir entero).
 - [x] `training/data_pipeline.py`: `board_to_tensor` y `pgn_to_samples` — validado localmente
       con partidas sintéticas y reales.
-- [ ] Correr el pipeline en Google Colab con 100-200 partidas antes de escalar al mes
-      completo (paso pendiente antes de dar por cerrada la HU).
-- [ ] Primera versión entrenada del modelo, guardada en Google Drive.
+- [x] `backend/servicios/aprendizaje/modelo_jugadas.py`: arquitectura de la CNN
+      (`RedPrediccionJugadas`, 3 bloques conv+batchnorm+relu, sin pooling porque el tablero ya
+      es 8x8) y `tensor_a_entrada_red` (permuta (8,8,12) -> (12,8,8)), compartidos entre
+      entrenamiento e inferencia — mismo patrón que `modelo_piezas.py` de HU1. Test de forma en
+      `backend/servicios/aprendizaje/test_modelo_jugadas.py` (se salta si no hay `torch`
+      instalado localmente, como en esta máquina — el entrenamiento en sí corre en Colab).
+- [x] `training/colab_entrenamiento.ipynb` creado: clona el repo, baja el PGN de
+      database.lichess.org, arma un subconjunto de 200 partidas, entrena `RedPrediccionJugadas`
+      unas pocas épocas y guarda el checkpoint versionado por fecha en Google Drive
+      (`MyDrive/ajedrez_checkpoints/`).
+- [ ] **Pendiente ejecutar el notebook en Colab** (requiere sesión interactiva con GPU, no se
+      puede correr desde acá) y confirmar que corre de punta a punta sin errores — paso
+      pendiente antes de dar por cerrada la HU.
+- [ ] Primera versión entrenada del modelo, guardada en Google Drive (resultado del punto
+      anterior).
 
 ### HU1 — Visión (Hebert) — ✅ Hecho (con limitación conocida en las damas)
 - [x] Set de fotos de tablero — en vez de sacar 15-20 propias, se usó el dataset público
@@ -103,7 +115,15 @@ entrenado con evaluación real, modo educativo básico, y configuración de part
 - [ ] HU4: clasificación de patrones de error + reentrenamiento en lotes versionados +
       evaluación mediante partidas digitales simultáneas.
 - [ ] HU5: explicación de jugadas y errores frecuentes, principios básicos del ajedrez.
-- [ ] HU10: selección de nivel de dificultad y tipo de oponente desde la interfaz.
+- [x] HU10 (backend): `POST /partida` acepta `tipo_oponente` (RF31) y lo valida al crear la
+      partida contra `fabrica_estrategias.TIPOS_SOPORTADOS`, en vez de fallar recién en la
+      primera jugada — hoy solo `"motor"` está soportado, pedir otro devuelve 400 explícito.
+      `Partida.tipo_oponente` se guarda y `mover()` ya lo usa para elegir la estrategia, en vez
+      de tener `"motor"` harcodeado. Queda listo para que `EstrategiaModelo` (HU3/HU4) se sume
+      sin tocar `servicio_partida.py` ni las rutas — solo agregar el tipo a la fábrica.
+- [ ] HU10 (frontend): selector de tipo de oponente en la pantalla de configuración de partida
+      — pendiente en `ProyectGrupal_Taller_SW2_Frontend` (submódulo `frontend/`, repo aparte).
+- [ ] HU10: modo educativo — todavía no tiene ni campo ni comportamiento; depende de HU5.
 
 ---
 
@@ -140,14 +160,21 @@ No estaba explícitamente en ninguna HU puntual, pero ya está construido y es u
 para varias historias (especialmente HU10 y HU11):
 
 - `backend/modelos/partida.py`, `backend/servicios/partida/servicio_partida.py`,
-  `backend/rutas/ruta_partida.py`: partida jugable en memoria (`crear_partida`,
+  `backend/rutas/ruta_partida.py`: partida jugable en memoria por defecto (`crear_partida`,
   `obtener_partida`, `mover`, vía un `RepositorioPartidas` + una `EstrategiaJugada` — ver
   sección 4 de `PLAN_IMPLEMENTACION_COMPLETO.md`), expuesta vía `POST /partida`,
   `GET /partida/{id}`, `POST /partida/{id}/mover`.
 - Tablero interactivo en React (`frontend/src/components/Tablero.jsx`).
+- **Base de datos (sección 2 y 7):** `backend/database.py` + `backend/modelos/tablas_orm.py`
+  (las 4 tablas) + `RepositorioPartidasPostgres`. Si se levanta un Postgres local y se setea
+  `DATABASE_URL`, `servicio_partida.py` empieza a persistir ahí solo (sin tocar código); si no,
+  sigue igual que antes, en memoria. Probado contra SQLite en memoria (mismas tablas, sin
+  tipos específicos de Postgres) — **falta probarlo contra un Postgres real** antes de la
+  defensa, por si aparece alguna diferencia de dialecto que SQLite no detecta.
 
-**Pendiente conocido sobre esto:** el humano siempre juega blancas, no hay persistencia entre
-reinicios del servidor, y la promoción de peón siempre es a dama. Ninguno bloquea la demo;
+**Pendiente conocido sobre esto:** el humano siempre juega blancas, la promoción de peón
+siempre es a dama, y la tabla `jugada` (detalle por movimiento, para RF34/HU4) todavía no la
+puebla nadie — hoy solo se persiste el estado de la partida completa. Ninguno bloquea la demo;
 quedan para si sobra tiempo.
 
 ---

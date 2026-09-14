@@ -66,6 +66,11 @@ def test_obtener_partida_inexistente_devuelve_404() -> None:
     assert respuesta.status_code == 404
 
 
+def test_crear_partida_con_tipo_oponente_no_soportado_devuelve_400() -> None:
+    respuesta = cliente.post("/partida", json={"nivel": 5, "tipo_oponente": "modelo"})
+    assert respuesta.status_code == 400
+
+
 def test_mover_partida_responde_con_jugada_del_motor() -> None:
     partida_id = cliente.post("/partida", json={"nivel": 5}).json()["id"]
     respuesta = cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "e2e4"})

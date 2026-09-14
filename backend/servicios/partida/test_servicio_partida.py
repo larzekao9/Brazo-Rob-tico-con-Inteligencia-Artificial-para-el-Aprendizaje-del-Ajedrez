@@ -7,6 +7,13 @@ def test_crear_partida_arranca_en_posicion_inicial() -> None:
     partida = crear_partida(nivel=5)
     assert partida.fen.startswith("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w")
     assert not partida.terminada
+    assert partida.tipo_oponente == "motor"
+
+
+def test_crear_partida_con_tipo_oponente_no_soportado_lanza_valueerror() -> None:
+    # Se valida al crear, sin necesidad de Stockfish corriendo (HU10).
+    with pytest.raises(ValueError):
+        crear_partida(nivel=5, tipo_oponente="modelo")
 
 
 def test_obtener_partida_inexistente_lanza_keyerror() -> None:
