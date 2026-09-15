@@ -1,6 +1,24 @@
+import cv2
+import numpy as np
 import pytest
 
-from training.capturar_dataset_propio import fen_piezas_a_ocupacion
+import training.capturar_dataset_propio as capturar_dataset_propio
+from training.capturar_dataset_propio import capturar_muestras, fen_piezas_a_ocupacion
+
+# Mismo enfoque que backend/servicios/vision/test_tablero.py: un cuadrilátero
+# de color uniforme alcanza para que detectar_esquinas_tablero lo encuentre,
+# sin depender de una foto real.
+_ESQUINAS_TABLERO_SINTETICO = np.array(
+    [[150, 80], [750, 40], [780, 620], [120, 660]], dtype=np.int32
+)
+
+
+def _crear_foto_de_prueba(tmp_path):
+    imagen = np.full((700, 900, 3), 200, dtype=np.uint8)
+    cv2.fillConvexPoly(imagen, _ESQUINAS_TABLERO_SINTETICO, (60, 60, 60))
+    ruta = tmp_path / "foto_prueba.jpg"
+    cv2.imwrite(str(ruta), imagen)
+    return ruta
 
 
 def test_posicion_inicial_estandar() -> None:
@@ -42,3 +60,21 @@ def test_fila_que_no_suma_8_columnas_lanza_valueerror() -> None:
 def test_caracter_invalido_lanza_valueerror() -> None:
     with pytest.raises(ValueError):
         fen_piezas_a_ocupacion("xnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR")
+
+
+def test_capturar_muestras_con_archivo_guarda_64_casillas_y_control(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(capturar_dataset_propio, "CARPETA_DATASET", tmp_path)
+    ruta_foto = _crear_foto_de_prueba(tmp_path)
+
+    cantidad = capturar_muestras("8/8/8/8/8/8/8/8", str(ruta_foto))
+
+    assert cantidad == 64
+    assert (tmp_path / "vacia").is_dir()
+    assert len(list((tmp_path / "vacia").glob("*.png"))) == 64
+    assert (tmp_path / "_ultima_captura.jpg").exists()
+
+
+def test_capturar_muestras_con_archivo_inexistente_lanza_valueerror(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(capturar_dataset_propio, "CARPETA_DATASET", tmp_path)
+    with pytest.raises(ValueError):
+        capturar_muestras("8/8/8/8/8/8/8/8", str(tmp_path / "no-existe.jpg"))

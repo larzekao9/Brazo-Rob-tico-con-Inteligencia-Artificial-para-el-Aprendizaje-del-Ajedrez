@@ -17,14 +17,38 @@ para juntar más ejemplos de esas piezas (las que menos aparecen) podés armar
 posiciones "imposibles" a propósito, con varias damas o reyes de cada color
 repartidos por el tablero.
 
-Uso:
-    python -m training.capturar_dataset_propio "<fen_de_piezas>"
+No hace falta elegir en qué carpeta va cada foto ni nada parecido — el
+script arma solo las 64 casillas ya separadas por clase a partir de UNA
+sola foto del tablero completo más el FEN que le pasás.
 
-Ejemplo (posición inicial estándar):
-    python -m training.capturar_dataset_propio "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR"
+Dos formas de usarlo:
 
-Corré esto varias veces — cambiando el ángulo del celular y/o la posición de
-las piezas entre foto y foto — para juntar variedad antes de reentrenar con
+1) Con una foto que ya sacaste (RECOMENDADO): sacá la foto con la cámara
+   normal del celular (mejor calidad, sin apuro, tablero quieto — nada de
+   cámara virtual en vivo, que puede sacar la foto mientras todavía estás
+   moviendo el celular). Pasala a la compu (por cable, WhatsApp a vos
+   mismo, Google Fotos, lo que uses) y corré:
+
+       python -m training.capturar_dataset_propio "<fen_de_piezas>" "<ruta_a_la_foto.jpg>"
+
+2) Con la cámara en vivo configurada por CAMARA_FUENTE (más rápido pero
+   más frágil — ver el problema de timing más arriba):
+
+       python -m training.capturar_dataset_propio "<fen_de_piezas>"
+
+Ejemplo (posición inicial estándar, foto ya sacada):
+    python -m training.capturar_dataset_propio "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR" "C:/Users/USUARIO/Downloads/tablero1.jpg"
+
+Cada corrida también guarda `training/dataset_propio/_ultima_captura.jpg`
+(el tablero ya enderezado, con la grilla 8x8 dibujada encima) — ABRILA
+SIEMPRE antes de confiar en las 64 casillas que se acaban de guardar. Si
+esa imagen sale borrosa, cortada, o mal alineada con la grilla, las
+casillas de esa corrida tampoco sirven — borralas de
+`training/dataset_propio/` (buscá por la marca de tiempo en el nombre del
+archivo, todas empiezan igual) y repetí la captura.
+
+Corré esto varias veces — cambiando el ángulo y/o la posición de las
+piezas entre foto y foto — para juntar variedad antes de reentrenar con
 `training/reentrenar_con_dataset_propio.py`.
 """
 from __future__ import annotations
@@ -37,7 +61,12 @@ import cv2
 
 from backend.servicios.vision.camara import capturar_foto_tablero
 from backend.servicios.vision.modelo_piezas import CLASE_VACIA
-from backend.servicios.vision.tablero import detectar_esquinas_tablero, dividir_en_casillas, enderezar_tablero
+from backend.servicios.vision.tablero import (
+    detectar_esquinas_tablero,
+    dibujar_grilla_debug,
+    dividir_en_casillas,
+    enderezar_tablero,
+)
 
 CARPETA_DATASET = Path("training/dataset_propio")
 
@@ -81,23 +110,44 @@ def fen_piezas_a_ocupacion(fen_piezas: str) -> dict[str, str]:
     return ocupacion
 
 
-def capturar_muestras(fen_piezas: str) -> int:
-    """Saca una foto del tablero real y guarda sus 64 casillas ya etiquetadas.
+def capturar_muestras(fen_piezas: str, ruta_imagen: str | None = None) -> int:
+    """Guarda las 64 casillas ya etiquetadas de una foto del tablero real.
+
+    Args:
+        fen_piezas: qué pieza hay en cada casilla ocupada, en FEN de piezas.
+        ruta_imagen: si se pasa, lee la foto de ese archivo (recomendado —
+            una foto ya sacada con la cámara normal del celular). Si no,
+            saca una foto nueva de la cámara en vivo configurada por
+            `CAMARA_FUENTE`.
 
     Returns:
         Cantidad de casillas guardadas (64, salvo error de escritura).
 
     Raises:
-        ValueError: si `fen_piezas` es inválido, o si no se detectó el
-            tablero en la foto (mismo error que `detectar_esquinas_tablero`).
-        RuntimeError: si no se pudo capturar la foto (cámara).
+        ValueError: si `fen_piezas` es inválido, si `ruta_imagen` no se pudo
+            leer, o si no se detectó el tablero en la foto (mismo error que
+            `detectar_esquinas_tablero`).
+        RuntimeError: si no se pudo capturar la foto (cámara en vivo).
     """
     ocupacion_esperada = fen_piezas_a_ocupacion(fen_piezas)
 
-    print("Sacando foto (misma cámara configurada por CAMARA_FUENTE)...")
-    imagen = capturar_foto_tablero()
+    if ruta_imagen is not None:
+        print(f"Leyendo foto: {ruta_imagen}")
+        imagen = cv2.imread(ruta_imagen)
+        if imagen is None:
+            raise ValueError(f"No se pudo leer la imagen: {ruta_imagen}")
+    else:
+        print("Sacando foto (misma cámara configurada por CAMARA_FUENTE)...")
+        imagen = capturar_foto_tablero()
+
     esquinas = detectar_esquinas_tablero(imagen)
     plano = enderezar_tablero(imagen, esquinas)
+
+    CARPETA_DATASET.mkdir(parents=True, exist_ok=True)
+    ruta_control = CARPETA_DATASET / "_ultima_captura.jpg"
+    cv2.imwrite(str(ruta_control), dibujar_grilla_debug(plano))
+    print(f"Imagen de control guardada en {ruta_control} — revisala antes de confiar en las casillas.")
+
     casillas = dividir_en_casillas(plano)
 
     marca_tiempo = int(time.time())
@@ -113,12 +163,12 @@ def capturar_muestras(fen_piezas: str) -> int:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print('Uso: python -m training.capturar_dataset_propio "<fen_de_piezas>"')
-        print('Ejemplo: python -m training.capturar_dataset_propio "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR"')
+    if len(sys.argv) not in (2, 3):
+        print('Uso: python -m training.capturar_dataset_propio "<fen_de_piezas>" ["<ruta_a_la_foto.jpg>"]')
+        print('Ejemplo: python -m training.capturar_dataset_propio "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR" "C:/fotos/tablero1.jpg"')
         sys.exit(1)
     try:
-        cantidad = capturar_muestras(sys.argv[1])
+        cantidad = capturar_muestras(sys.argv[1], sys.argv[2] if len(sys.argv) == 3 else None)
     except (ValueError, RuntimeError) as error:
         print(f"Error: {error}")
         sys.exit(1)
