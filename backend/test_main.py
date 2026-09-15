@@ -138,3 +138,14 @@ def test_vision_reconocer_responde_200_o_422_si_no_ve_tablero() -> None:
     # encontró ninguno en la imagen (422), nunca un error interno sin manejar.
     respuesta = cliente.post("/vision/reconocer", json={"turno": "w"})
     assert respuesta.status_code in (200, 422)
+
+
+@pytest.mark.skipif(not CAMARA_DISPONIBLE, reason="No hay cámara conectada en esta máquina")
+@pytest.mark.skipif(not RUTA_CHECKPOINT.exists(), reason="No hay checkpoint entrenado en esta máquina")
+def test_mover_desde_foto_responde_200_o_422_si_no_coincide_ninguna_jugada() -> None:
+    # No depende de que la cámara esté apuntando a un tablero físico real en la
+    # posición inicial — solo confirma que el endpoint no rompe con un error
+    # interno sin manejar, sea que detecte una jugada válida (200) o no (422).
+    partida_id = cliente.post("/partida", json={"nivel": 5}).json()["id"]
+    respuesta = cliente.post(f"/partida/{partida_id}/mover-desde-foto")
+    assert respuesta.status_code in (200, 422)

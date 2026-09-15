@@ -16,6 +16,9 @@ import chess
 from backend.modelos.partida import Partida
 from backend.repositorios.repositorio_partida import RepositorioPartidas, crear_repositorio_partidas
 from backend.servicios.estrategias.fabrica_estrategias import TIPOS_SOPORTADOS, crear_estrategia_jugada
+from backend.servicios.vision.camara import capturar_foto_tablero
+from backend.servicios.vision.deteccion_movimiento import detectar_jugada
+from backend.servicios.vision.reconocimiento import reconocer_tablero
 
 _repositorio: RepositorioPartidas = crear_repositorio_partidas()
 
@@ -101,3 +104,43 @@ def mover(partida_id: str, jugada_uci: str) -> dict:
         "resultado": partida.resultado,
         "jugadas": partida.jugadas_san,
     }
+
+
+def mover_desde_foto(partida_id: str) -> dict:
+    """Detecta la jugada hecha en el tablero físico (RF11) y la aplica igual que `mover()`.
+
+    Flujo: (1) el FEN actual de la partida es la posición "antes"; (2) saca
+    una foto nueva de la cámara fija; (3) la reconoce a FEN ("después");
+    (4) `detectar_jugada` prueba todas las jugadas legales desde "antes" y
+    devuelve cuál reproduce "después" exactamente; (5) se aplica con la
+    misma lógica que una jugada hecha a clics (incluida la respuesta de la
+    estrategia activa).
+
+    Raises:
+        KeyError: si no existe una partida con ese id.
+        RuntimeError: si no se pudo capturar la foto (cámara).
+        FileNotFoundError: si falta el checkpoint del clasificador de piezas.
+        ValueError: si la partida ya terminó, si no se reconoció un tablero
+            válido en la foto, o si ninguna jugada legal explica el cambio
+            entre "antes" y "después" (ej. se movió más de una pieza, o la
+            foto se sacó a mitad del movimiento).
+    """
+    partida = obtener_partida(partida_id)
+    if partida.terminada:
+        raise ValueError("La partida ya terminó")
+
+    fen_antes = partida.fen
+    tablero_antes = chess.Board(fen_antes)
+    turno_despues = "b" if tablero_antes.turn == chess.WHITE else "w"
+
+    imagen = capturar_foto_tablero()
+    fen_despues = reconocer_tablero(imagen, turno=turno_despues)
+
+    jugada_san = detectar_jugada(fen_antes, fen_despues)
+    if jugada_san is None:
+        raise ValueError(
+            "No se pudo determinar qué jugada se hizo — la foto no coincide "
+            "con ninguna jugada legal desde la posición anterior"
+        )
+    jugada_uci = tablero_antes.parse_san(jugada_san).uci()
+    return mover(partida_id, jugada_uci)

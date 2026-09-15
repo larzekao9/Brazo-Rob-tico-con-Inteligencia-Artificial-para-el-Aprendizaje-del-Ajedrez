@@ -1,6 +1,12 @@
 import pytest
 
-from backend.servicios.partida.servicio_partida import crear_partida, mover, obtener_partida
+from backend.servicios.partida import servicio_partida
+from backend.servicios.partida.servicio_partida import (
+    crear_partida,
+    mover,
+    mover_desde_foto,
+    obtener_partida,
+)
 
 
 def test_crear_partida_arranca_en_posicion_inicial() -> None:
@@ -64,3 +70,45 @@ def test_mover_en_partida_ya_terminada_lanza_valueerror() -> None:
 
     with pytest.raises(ValueError):
         mover(partida.id, "a2a3")
+
+
+def test_mover_desde_foto_detecta_y_aplica_la_jugada(monkeypatch: pytest.MonkeyPatch) -> None:
+    partida = crear_partida(nivel=5)
+    # Simula que la cámara/reconocimiento ya vieron la posición tras 1. e4 —
+    # detectar_jugada no usa el turno de fen_despues, así que el valor exacto no importa acá.
+    fen_despues_e4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
+    monkeypatch.setattr(servicio_partida, "capturar_foto_tablero", lambda: None)
+    monkeypatch.setattr(servicio_partida, "reconocer_tablero", lambda imagen, turno: fen_despues_e4)
+
+    resultado = mover_desde_foto(partida.id)
+
+    assert resultado["jugadas"][0] == "e4"
+    assert resultado["jugada_motor"] is not None  # requiere Stockfish
+
+
+def test_mover_desde_foto_sin_jugada_legal_que_coincida_lanza_valueerror(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    partida = crear_partida(nivel=5)
+    # Posición imposible de alcanzar con una sola jugada legal desde la inicial.
+    fen_irreconciliable = "8/8/8/8/8/8/8/8 b - - 0 1"
+    monkeypatch.setattr(servicio_partida, "capturar_foto_tablero", lambda: None)
+    monkeypatch.setattr(servicio_partida, "reconocer_tablero", lambda imagen, turno: fen_irreconciliable)
+
+    with pytest.raises(ValueError):
+        mover_desde_foto(partida.id)
+
+
+def test_mover_desde_foto_en_partida_ya_terminada_lanza_valueerror() -> None:
+    partida = crear_partida(nivel=1)
+    for jugada_san in ["f3", "e5", "g4", "Qh4#"]:
+        partida.tablero.push_san(jugada_san)
+    assert partida.terminada
+
+    with pytest.raises(ValueError):
+        mover_desde_foto(partida.id)
+
+
+def test_mover_desde_foto_en_partida_inexistente_lanza_keyerror() -> None:
+    with pytest.raises(KeyError):
+        mover_desde_foto("no-existe")

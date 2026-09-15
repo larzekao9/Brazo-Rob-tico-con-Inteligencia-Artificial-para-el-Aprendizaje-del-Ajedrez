@@ -15,6 +15,7 @@ from backend.servicios.partida.servicio_partida import (
     crear_partida,
     listar_partidas,
     mover,
+    mover_desde_foto,
     obtener_partida,
 )
 
@@ -90,4 +91,18 @@ def mover_partida(partida_id: str, request: MoverRequest) -> ResultadoMovimiento
         raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+    return ResultadoMovimientoResponse(**resultado)
+
+
+@router.post("/{partida_id}/mover-desde-foto", response_model=ResultadoMovimientoResponse)
+def mover_partida_desde_foto(partida_id: str) -> ResultadoMovimientoResponse:
+    """Detecta la jugada hecha en el tablero físico (cámara fija) y la aplica (RF11)."""
+    try:
+        resultado = mover_desde_foto(partida_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except (RuntimeError, FileNotFoundError) as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     return ResultadoMovimientoResponse(**resultado)
