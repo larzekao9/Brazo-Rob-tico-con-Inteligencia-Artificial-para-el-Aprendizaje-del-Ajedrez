@@ -115,9 +115,14 @@ entrenado con evaluación real, modo educativo básico, y configuración de part
       de tablero conectado (`POST /vision/reconocer`) y botón "Usar esta posición" para seguir
       jugando digitalmente desde ahí (`POST /partida` con `fen_inicial`) — cierra RF06/RF11 de
       punta a punta en la interfaz, no solo en el backend.
-- [ ] HU6 (falta): exponer `obtener_variaciones` (RF21) en un endpoint y un widget en Sala de
-      Control con las jugadas candidatas de Stockfish — es lo único que queda de la versión base
-      de HU6. El panel de comparación modelo-vs-Stockfish (ver nota de diseño abajo) es la
+- [x] HU6 (RF21): `analizar_posicion` pide MultiPV y devuelve `variantes_candidatas` (jugada +
+      evaluación) junto al resto del análisis, en una sola llamada a Stockfish; Sala de Control
+      las muestra en un widget nuevo ("JUGADAS CANDIDATAS"). **Con esto se cierra la versión
+      base de HU6** — lo que queda es 🔭 (ampliación de tesis).
+- [x] Stockfish instalado localmente sin admin: binario oficial descargado a `tools/stockfish/`
+      (ignorado por git), `STOCKFISH_PATH` configurable por variable de entorno — toda la suite
+      de tests pasa en esta máquina (antes fallaban 14-15 por no tener el binario).
+- El panel de comparación modelo-vs-Stockfish (ver nota de diseño abajo) sigue siendo la
       ampliación de HU6 y queda bloqueado hasta que HU4 dé un modelo conectable.
 - [ ] HU4: clasificación de patrones de error + reentrenamiento en lotes versionados +
       evaluación mediante partidas digitales simultáneas. Ver `CLAUDE.md` (regla 1) y
