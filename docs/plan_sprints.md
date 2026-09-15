@@ -84,14 +84,18 @@ tablero funcionando sobre fotos de prueba, y el pipeline de datos corriendo de p
       de esquinas + clasificación de piezas y arma el FEN completo. El turno ("w"/"b") se recibe
       como parámetro porque una sola foto no alcanza para saber de quién es — tampoco se puede
       inferir enroque ni al paso, quedan siempre en su valor por defecto ("-").
-- [x] Captura desde cámara (RF06) — `backend/servicios/vision/camara.py::capturar_foto_tablero(indice_camara)`,
-      vía `cv2.VideoCapture`. Probado contra la cámara real de esta máquina (no solo el caso de
-      error), funciona. Todavía no está conectado a un endpoint HTTP ni a una pantalla que
-      muestre la foto en vivo — eso es HU6 ("mostrar la imagen capturada"), no esto.
+- [x] Captura desde cámara (RF06) — `backend/servicios/vision/camara.py::capturar_foto_tablero(fuente)`,
+      vía `cv2.VideoCapture`. Configurable por `CAMARA_FUENTE` (índice local o URL de red — celular
+      por USB con DroidCam/Iriun, o por WiFi/hotspot con IP Webcam). Conectado a `GET /vision/foto`
+      (imagen en vivo en Sala de Control) y a `POST /vision/reconocer` — HU6 cerrada en su versión
+      base.
 - [x] Detección de la jugada por diff de FEN (RF11) — `backend/servicios/vision/deteccion_movimiento.py::detectar_jugada(fen_antes, fen_despues)`:
       prueba todas las jugadas legales de la posición "antes" y devuelve la que reproduce
       exactamente la ubicación de piezas de "después". No usa nada de IA — es la forma estándar
-      de resolver esto, más confiable que tratar de leer la jugada directo de la imagen.
+      de resolver esto, más confiable que tratar de leer la jugada directo de la imagen. Conectada
+      a `POST /partida/{id}/mover-desde-foto` (`servicio_partida.mover_desde_foto`) y al botón
+      "Detecté un movimiento físico" en Sala de Control — mover una pieza en el tablero real ya
+      actualiza la partida digital sin tocar la pantalla, probado en vivo contra la cámara real.
 
 **Definition of Done Sprint 1 — ✅ cumplido:** `calcular_jugada` en verde; `data_pipeline.py`
 corrió sobre 200 partidas reales en Colab sin errores, con checkpoint entrenado guardado en
