@@ -12,10 +12,15 @@ class CrearPartidaRequest(BaseModel):
     `tipo_oponente` hoy solo admite `"motor"` (Stockfish) — pedir cualquier
     otro valor devuelve 400 (ver `fabrica_estrategias.TIPOS_SOPORTADOS`);
     `"modelo"` queda disponible en cuanto HU3/HU4 den un modelo entrenado.
+
+    `fen_inicial` es opcional: si se manda, la partida arranca en esa
+    posición en vez de la inicial estándar — es lo que usa el botón "Usar
+    esta posición" tras escanear un tablero físico (`POST /vision/reconocer`).
     """
 
     nivel: int = Field(default=NIVEL_MAX, ge=NIVEL_MIN, le=NIVEL_MAX)
     tipo_oponente: str = "motor"
+    fen_inicial: str | None = None
 
 
 class EstadoPartidaResponse(BaseModel):

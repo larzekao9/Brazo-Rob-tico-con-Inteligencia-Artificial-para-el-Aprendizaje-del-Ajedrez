@@ -66,6 +66,21 @@ def test_obtener_partida_inexistente_devuelve_404() -> None:
     assert respuesta.status_code == 404
 
 
+def test_crear_partida_con_fen_inicial_arranca_ahi() -> None:
+    # Simula el botón "Usar esta posición" tras POST /vision/reconocer.
+    fen_escaneado = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
+    respuesta = cliente.post("/partida", json={"nivel": 5, "fen_inicial": fen_escaneado})
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert cuerpo["fen"] == fen_escaneado
+    assert cuerpo["jugadas"] == []
+
+
+def test_crear_partida_con_fen_inicial_invalido_devuelve_400() -> None:
+    respuesta = cliente.post("/partida", json={"nivel": 5, "fen_inicial": "esto no es un fen"})
+    assert respuesta.status_code == 400
+
+
 def test_crear_partida_con_tipo_oponente_no_soportado_devuelve_400() -> None:
     respuesta = cliente.post("/partida", json={"nivel": 5, "tipo_oponente": "modelo"})
     assert respuesta.status_code == 400

@@ -11,6 +11,8 @@ secciones 4.1 y 4.3).
 """
 from __future__ import annotations
 
+import chess
+
 from backend.modelos.partida import Partida
 from backend.repositorios.repositorio_partida import RepositorioPartidas, crear_repositorio_partidas
 from backend.servicios.estrategias.fabrica_estrategias import TIPOS_SOPORTADOS, crear_estrategia_jugada
@@ -18,20 +20,34 @@ from backend.servicios.estrategias.fabrica_estrategias import TIPOS_SOPORTADOS, 
 _repositorio: RepositorioPartidas = crear_repositorio_partidas()
 
 
-def crear_partida(nivel: int = 20, tipo_oponente: str = "motor") -> Partida:
-    """Crea una partida nueva con el tablero en la posición inicial.
+def crear_partida(nivel: int = 20, tipo_oponente: str = "motor", fen_inicial: str | None = None) -> Partida:
+    """Crea una partida nueva.
+
+    Por defecto arranca en la posición inicial estándar. Si se pasa
+    `fen_inicial` (por ejemplo, el FEN que devolvió `POST /vision/reconocer`
+    al escanear un tablero físico), la partida arranca ahí en cambio — así
+    se puede seguir jugando digitalmente una posición que se armó sobre un
+    tablero real.
 
     Raises:
         ValueError: si `tipo_oponente` no es un tipo soportado todavía (ver
-            `fabrica_estrategias.TIPOS_SOPORTADOS`) — se valida acá, al crear
-            la partida, para no dejar que falle recién en la primera jugada.
+            `fabrica_estrategias.TIPOS_SOPORTADOS`), o si `fen_inicial` no es
+            un FEN válido — ambos se validan acá, al crear la partida, para
+            no dejar que fallen recién en la primera jugada.
     """
     if tipo_oponente not in TIPOS_SOPORTADOS:
         raise ValueError(
             f"Tipo de oponente '{tipo_oponente}' no soportado todavía "
             f"(disponibles: {sorted(TIPOS_SOPORTADOS)})"
         )
-    partida = Partida(nivel=nivel, tipo_oponente=tipo_oponente)
+    if fen_inicial is None:
+        partida = Partida(nivel=nivel, tipo_oponente=tipo_oponente)
+    else:
+        try:
+            tablero = chess.Board(fen_inicial)
+        except ValueError as error:
+            raise ValueError(f"FEN inicial inválido: {fen_inicial}") from error
+        partida = Partida(tablero=tablero, nivel=nivel, tipo_oponente=tipo_oponente, fen_inicial=fen_inicial)
     _repositorio.guardar(partida)
     return partida
 

@@ -16,6 +16,19 @@ def test_crear_partida_con_tipo_oponente_no_soportado_lanza_valueerror() -> None
         crear_partida(nivel=5, tipo_oponente="modelo")
 
 
+def test_crear_partida_con_fen_inicial_arranca_en_esa_posicion() -> None:
+    # Posición tras 1. e4 e5 — simula lo que devolvería /vision/reconocer.
+    fen_tablero_escaneado = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
+    partida = crear_partida(nivel=5, fen_inicial=fen_tablero_escaneado)
+    assert partida.fen == fen_tablero_escaneado
+    assert partida.jugadas_san == []  # todavía no se jugó nada *desde* que se cargó
+
+
+def test_crear_partida_con_fen_inicial_invalido_lanza_valueerror() -> None:
+    with pytest.raises(ValueError):
+        crear_partida(nivel=5, fen_inicial="esto no es un fen")
+
+
 def test_obtener_partida_inexistente_lanza_keyerror() -> None:
     with pytest.raises(KeyError):
         obtener_partida("no-existe")

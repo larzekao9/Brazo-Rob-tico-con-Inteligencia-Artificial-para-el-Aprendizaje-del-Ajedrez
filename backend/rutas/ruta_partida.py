@@ -52,7 +52,11 @@ def _a_resumen(partida: Partida) -> ResumenPartidaResponse:
 @router.post("", response_model=EstadoPartidaResponse)
 def crear(request: CrearPartidaRequest) -> EstadoPartidaResponse:
     try:
-        partida = crear_partida(nivel=request.nivel, tipo_oponente=request.tipo_oponente)
+        partida = crear_partida(
+            nivel=request.nivel,
+            tipo_oponente=request.tipo_oponente,
+            fen_inicial=request.fen_inicial,
+        )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     return _a_estado(partida)
