@@ -60,8 +60,12 @@ def detectar_esquinas_tablero(imagen: np.ndarray) -> np.ndarray:
 
     area_imagen = imagen.shape[0] * imagen.shape[1]
     for contorno in sorted(contornos, key=cv2.contourArea, reverse=True):
-        perimetro = cv2.arcLength(contorno, True)
-        aproximado = cv2.approxPolyDP(contorno, 0.02 * perimetro, True)
+        # El casco convexo elimina muescas hacia adentro (ej. la bisagra de un
+        # tablero plegable, o una sombra) que si no rompen la aproximación a 4
+        # lados — un tablero real siempre es un rectángulo convexo.
+        casco = cv2.convexHull(contorno)
+        perimetro = cv2.arcLength(casco, True)
+        aproximado = cv2.approxPolyDP(casco, 0.03 * perimetro, True)
         if len(aproximado) == 4 and cv2.contourArea(aproximado) > 0.1 * area_imagen:
             return _ordenar_esquinas(aproximado.reshape(4, 2).astype(np.float32))
 
