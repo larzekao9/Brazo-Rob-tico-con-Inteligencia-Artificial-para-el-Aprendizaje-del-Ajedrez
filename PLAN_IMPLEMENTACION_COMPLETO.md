@@ -668,8 +668,15 @@ motor de ajedrez — integrás uno que ya existe (Stockfish) y le construís una
   jugadas legales de la posición "antes" y devuelve la que reproduce exactamente la ubicación
   de piezas de "después". Sin IA — más confiable que tratar de leer la jugada de la imagen.
 
-**HU1 completa.** Lo que queda es cablear esto a un endpoint HTTP y a una pantalla que muestre
-la foto en vivo — eso es HU6, no una tarea suelta de HU1.
+**HU1 completa** en el sentido de que cada etapa (esquinas, clasificación, armado de FEN, diff
+de jugada) está construida y probada por separado. **Limitación real descubierta después:** no
+hay ningún test automatizado que corra `reconocer_tablero` de punta a punta contra una foto real
+con el clasificador entrenado — `test_reconocimiento.py` solo prueba el armado del FEN con datos
+inventados a mano. Al revisar ~40 fotos reales del dataset de test de Roboflow (el mismo dominio
+con el que se entrenó, no un tablero ajeno) ninguna reconstruyó una posición coherente de punta a
+punta — el 90% de accuracy documentado es por casilla individual, no del tablero completo
+reconstruido. Reconocer un tablero jugable de forma consistente, incluso en el dominio de
+entrenamiento, queda como trabajo pendiente real, no cerrado como sugería este documento antes.
 
 ---
 

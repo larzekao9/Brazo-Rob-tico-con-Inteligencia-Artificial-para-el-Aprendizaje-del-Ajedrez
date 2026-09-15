@@ -1,4 +1,5 @@
 import cv2
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
@@ -136,8 +137,23 @@ def test_vision_reconocer_responde_200_o_422_si_no_ve_tablero() -> None:
     # No depende de que la cámara esté apuntando a un tablero real — solo confirma
     # que el endpoint no rompe: reconoce un tablero válido (200) o avisa que no
     # encontró ninguno en la imagen (422), nunca un error interno sin manejar.
-    respuesta = cliente.post("/vision/reconocer", json={"turno": "w"})
+    respuesta = cliente.post("/vision/reconocer", data={"turno": "w"})
     assert respuesta.status_code in (200, 422)
+
+
+def test_vision_reconocer_con_foto_subida_sin_tablero_devuelve_422() -> None:
+    # Una imagen sin ningún tablero — confirma que la ruta de "foto subida"
+    # (en vez de la cámara fija) procesa el archivo. No necesita cámara ni
+    # checkpoint entrenado: falla antes, al no encontrar las 4 esquinas.
+    imagen = np.full((200, 200, 3), 128, dtype=np.uint8)
+    exito, buffer = cv2.imencode(".jpg", imagen)
+    assert exito
+    respuesta = cliente.post(
+        "/vision/reconocer",
+        data={"turno": "w"},
+        files={"foto_subida": ("foto.jpg", buffer.tobytes(), "image/jpeg")},
+    )
+    assert respuesta.status_code == 422
 
 
 @pytest.mark.skipif(not CAMARA_DISPONIBLE, reason="No hay cámara conectada en esta máquina")

@@ -3,9 +3,10 @@ el tablero (HU1, RF06/RF10)."""
 from __future__ import annotations
 
 import cv2
-from fastapi import APIRouter, HTTPException, Response
+import numpy as np
+from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
 
-from backend.esquemas.vision_esquema import ReconocerTableroRequest, ReconocerTableroResponse
+from backend.esquemas.vision_esquema import ReconocerTableroResponse
 from backend.servicios.vision.camara import capturar_foto_tablero
 from backend.servicios.vision.reconocimiento import reconocer_tablero
 
@@ -26,14 +27,31 @@ def foto() -> Response:
 
 
 @router.post("/reconocer", response_model=ReconocerTableroResponse)
-def reconocer(request: ReconocerTableroRequest) -> ReconocerTableroResponse:
-    """Captura una foto de la cámara fija y reconoce el tablero, devolviendo su FEN."""
+async def reconocer(
+    turno: str = Form("w"),
+    foto_subida: UploadFile | None = File(None),
+) -> ReconocerTableroResponse:
+    """Reconoce el tablero y devuelve su FEN.
+
+    Si se manda `foto_subida` (una imagen ya sacada — ej. de la galería del
+    celular, o una que ya se probó y se sabe que reconoce bien), la usa en
+    vez de sacar una foto nueva de la cámara fija. Sirve para no depender de
+    que la cámara en vivo acierte el encuadre justo en el momento de mostrar
+    el sistema — se puede tener una foto ya lista de antemano.
+    """
+    if foto_subida is not None:
+        datos = await foto_subida.read()
+        imagen = cv2.imdecode(np.frombuffer(datos, np.uint8), cv2.IMREAD_COLOR)
+        if imagen is None:
+            raise HTTPException(status_code=422, detail="No se pudo leer la imagen subida")
+    else:
+        try:
+            imagen = capturar_foto_tablero()
+        except RuntimeError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+
     try:
-        imagen = capturar_foto_tablero()
-    except RuntimeError as error:
-        raise HTTPException(status_code=503, detail=str(error)) from error
-    try:
-        fen = reconocer_tablero(imagen, turno=request.turno)
+        fen = reconocer_tablero(imagen, turno=turno)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     except FileNotFoundError as error:
