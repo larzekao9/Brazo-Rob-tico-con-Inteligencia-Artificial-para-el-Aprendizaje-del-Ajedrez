@@ -225,6 +225,11 @@ no dependan directamente de SQLAlchemy ni de la estructura exacta de las tablas:
   su validador; el modelo propio nunca aprende en vivo durante una partida (ver `CLAUDE.md`,
   reglas técnicas obligatorias). **🟢** Ya vigente.
 
+  La independencia es en tiempo de inferencia (el modelo jugando una partida), no en el proceso
+  de entrenamiento: durante HU4, usar la evaluación de Stockfish como señal adicional para pesar
+  mejor los casos de entrenamiento (ej. preferir los casos donde la jugada humana registrada
+  coincide con lo que Stockfish también favorecía) es una técnica válida y no rompe esta regla.
+
 ---
 
 ## 6. Stack Tecnológico Completo

@@ -35,6 +35,12 @@ confirmación antes de desviarte.
    de Razonamiento Neuronal, HU6 ampliada, y la retroalimentación técnica al jugador, HU5) — nunca
    como una validación que el modelo necesite para poder jugar. Cuando el jugador elige
    `tipo_oponente = "motor"`, Stockfish sigue siendo quien decide, como siempre.
+
+   Esta comparación también sirve como señal durante el entrenamiento (HU4) — por ejemplo, para
+   pesar mejor los casos donde la jugada humana registrada coincide con lo que Stockfish también
+   favorecía. Eso no rompe la independencia: la independencia aplica al momento de jugar
+   (inferencia), no al proceso de entrenamiento, donde apoyarse en una referencia externa fuerte
+   es una técnica válida y reconocida.
 2. **Nunca implementar aprendizaje "en vivo" durante una partida en curso.** El modelo solo se
    reentrena en lotes controlados y versionados, después de acumular partidas, nunca de forma
    directa mientras el sistema está en uso.
