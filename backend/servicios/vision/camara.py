@@ -23,6 +23,7 @@ celular:
 from __future__ import annotations
 
 import os
+import time
 
 import cv2
 import numpy as np
@@ -63,9 +64,15 @@ def capturar_foto_tablero(fuente: int | str | None = None) -> np.ndarray:
         # pedir la resolución explícitamente antes de leer lo evita.
         camara.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         camara.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-        exito, imagen = camara.read()
-        if not exito:
-            raise RuntimeError(f"No se pudo capturar una foto de la fuente {fuente_resuelta!r}")
-        return imagen
+        # Las cámaras virtuales a veces fallan el primer frame justo después
+        # de abrirse (necesitan un instante para "calentar") — un par de
+        # reintentos cortos alcanza, sin agregar demora perceptible a una
+        # cámara física que siempre responde a la primera.
+        for intento in range(3):
+            exito, imagen = camara.read()
+            if exito:
+                return imagen
+            time.sleep(0.3)
+        raise RuntimeError(f"No se pudo capturar una foto de la fuente {fuente_resuelta!r}")
     finally:
         camara.release()
