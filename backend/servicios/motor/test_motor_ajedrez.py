@@ -46,9 +46,18 @@ def test_analizar_posicion_incluye_profundidad_nodos_y_variacion() -> None:
     assert resultado["variacion_principal"][0] == resultado["jugada"]
 
 
-def test_obtener_variaciones_devuelve_multiples_jugadas() -> None:
+def test_obtener_variaciones_devuelve_multiples_jugadas_con_evaluacion() -> None:
     variaciones = obtener_variaciones(POSICION_INICIAL, nivel=10, num_variaciones=3, tiempo_limite=0.2)
     assert len(variaciones) == 3
     tablero = chess.Board(POSICION_INICIAL)
-    for jugada_san in variaciones:
-        assert tablero.parse_san(jugada_san) in tablero.legal_moves
+    for variante in variaciones:
+        assert tablero.parse_san(variante["jugada"]) in tablero.legal_moves
+        assert "evaluacion_cp" in variante
+        assert "mate_en" in variante
+
+
+def test_analizar_posicion_incluye_variantes_candidatas() -> None:
+    resultado = analizar_posicion(POSICION_INICIAL, nivel=10, tiempo_limite=0.3, num_variaciones=3)
+    assert len(resultado["variantes_candidatas"]) == 3
+    # la primera variante candidata es la misma jugada que "jugada" (la mejor)
+    assert resultado["variantes_candidatas"][0]["jugada"] == resultado["jugada"]

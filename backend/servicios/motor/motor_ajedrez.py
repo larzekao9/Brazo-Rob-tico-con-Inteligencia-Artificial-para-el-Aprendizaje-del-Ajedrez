@@ -1,10 +1,16 @@
 """Wrapper sobre Stockfish (vía python-chess) para calcular y analizar jugadas."""
 from __future__ import annotations
 
+import os
+
 import chess
 import chess.engine
 
-STOCKFISH_PATH = "stockfish"
+# Por defecto asume que "stockfish" está en el PATH del sistema (instalado con el
+# paquete del sistema operativo). Si no, `STOCKFISH_PATH` en el entorno puede
+# apuntar directo al ejecutable (ej. el binario oficial en `tools/stockfish/`,
+# para no necesitar permisos de administrador en la máquina de cada quien).
+STOCKFISH_PATH = os.environ.get("STOCKFISH_PATH", "stockfish")
 
 # Rango del parámetro "Skill Level" de Stockfish.
 NIVEL_MIN = 0
@@ -38,24 +44,35 @@ def calcular_jugada(fen: str, nivel: int = 20, tiempo_limite: float = 1.0) -> st
         return tablero.san(resultado.move)
 
 
-def analizar_posicion(fen: str, nivel: int = 20, tiempo_limite: float = 1.0) -> dict:
+def analizar_posicion(
+    fen: str, nivel: int = 20, tiempo_limite: float = 1.0, num_variaciones: int = 3
+) -> dict:
     """Analiza una posición y devuelve la evaluación de Stockfish.
+
+    Pide de una sola vez `num_variaciones` líneas (MultiPV) — así la mejor
+    jugada y las candidatas alternativas (RF21) salen de un único análisis,
+    sin abrir el proceso de Stockfish dos veces.
 
     Returns:
         dict con "jugada" (SAN de la mejor jugada), "evaluacion_cp"
         (centipawns desde el punto de vista del jugador a mover, None si hay
         mate forzado), "mate_en" (jugadas hasta el mate, None si no aplica),
         "profundidad" y "nodos" (cuánto pudo buscar Stockfish en el tiempo
-        dado, None si el motor no los reportó) y "variacion_principal"
-        (la línea completa que analizó, en SAN, no solo la primera jugada).
+        dado, None si el motor no los reportó), "variacion_principal" (la
+        línea completa que analizó la mejor jugada, en SAN) y
+        "variantes_candidatas" (lista de `{"jugada", "evaluacion_cp",
+        "mate_en"}` con las siguientes mejores alternativas, de mejor a
+        peor — ver `obtener_variaciones` para la misma información como
+        función independiente).
     """
     _validar_nivel(nivel)
     tablero = chess.Board(fen)
     with chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH) as motor:
         motor.configure({"Skill Level": nivel})
-        info = motor.analyse(tablero, chess.engine.Limit(time=tiempo_limite))
-        score = info["score"].pov(tablero.turn)
-        variacion = info.get("pv") or []
+        lineas = motor.analyse(tablero, chess.engine.Limit(time=tiempo_limite), multipv=num_variaciones)
+        mejor_linea = lineas[0]
+        score = mejor_linea["score"].pov(tablero.turn)
+        variacion = mejor_linea.get("pv") or []
         mejor_jugada = variacion[0] if variacion else None
 
         variacion_principal = []
@@ -68,16 +85,33 @@ def analizar_posicion(fen: str, nivel: int = 20, tiempo_limite: float = 1.0) -> 
             "jugada": tablero.san(mejor_jugada) if mejor_jugada else None,
             "evaluacion_cp": score.score(),
             "mate_en": score.mate(),
-            "profundidad": info.get("depth"),
-            "nodos": info.get("nodes"),
+            "profundidad": mejor_linea.get("depth"),
+            "nodos": mejor_linea.get("nodes"),
             "variacion_principal": variacion_principal,
+            "variantes_candidatas": _lineas_a_variantes(lineas, tablero),
         }
+
+
+def _lineas_a_variantes(lineas: list[dict], tablero: chess.Board) -> list[dict]:
+    """Convierte las líneas de un análisis MultiPV en `{"jugada", "evaluacion_cp", "mate_en"}`."""
+    variantes = []
+    for linea in lineas:
+        pv = linea.get("pv") or []
+        if not pv:
+            continue
+        score_linea = linea["score"].pov(tablero.turn)
+        variantes.append({
+            "jugada": tablero.san(pv[0]),
+            "evaluacion_cp": score_linea.score(),
+            "mate_en": score_linea.mate(),
+        })
+    return variantes
 
 
 def obtener_variaciones(
     fen: str, nivel: int = 20, num_variaciones: int = 3, tiempo_limite: float = 1.0
-) -> list[str]:
-    """Devuelve las mejores jugadas candidatas para una posición.
+) -> list[dict]:
+    """Devuelve las mejores jugadas candidatas para una posición, con su evaluación (RF21).
 
     Args:
         fen: posición en notación FEN.
@@ -86,7 +120,8 @@ def obtener_variaciones(
         tiempo_limite: tiempo máximo de cálculo en segundos.
 
     Returns:
-        Lista de jugadas en notación SAN, ordenadas de mejor a peor.
+        Lista de `{"jugada": str, "evaluacion_cp": int | None, "mate_en": int | None}`,
+        ordenada de mejor a peor.
     """
     _validar_nivel(nivel)
     tablero = chess.Board(fen)
@@ -97,4 +132,4 @@ def obtener_variaciones(
             chess.engine.Limit(time=tiempo_limite),
             multipv=num_variaciones,
         )
-        return [tablero.san(linea["pv"][0]) for linea in lineas if linea.get("pv")]
+        return _lineas_a_variantes(lineas, tablero)

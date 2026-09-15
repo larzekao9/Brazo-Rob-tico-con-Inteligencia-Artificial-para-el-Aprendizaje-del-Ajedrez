@@ -19,6 +19,14 @@ class JugadaResponse(BaseModel):
     jugada: str
 
 
+class VarianteCandidata(BaseModel):
+    """Una jugada candidata dentro de `variantes_candidatas` (RF21)."""
+
+    jugada: str
+    evaluacion_cp: int | None
+    mate_en: int | None
+
+
 class AnalisisResponse(BaseModel):
     """Cuerpo de salida para /analisis."""
 
@@ -28,3 +36,4 @@ class AnalisisResponse(BaseModel):
     profundidad: int | None = None
     nodos: int | None = None
     variacion_principal: list[str] = Field(default_factory=list)
+    variantes_candidatas: list[VarianteCandidata] = Field(default_factory=list)

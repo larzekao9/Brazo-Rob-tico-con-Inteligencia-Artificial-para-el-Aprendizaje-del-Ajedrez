@@ -17,6 +17,10 @@ training/dataset_tablero/
 frontend/node_modules/
 frontend/dist/
 
+# Binarios de terceros descargados localmente (ej. Stockfish, sin necesitar
+# admin para instalarlo) — cada quien lo baja con su propio script, no se commitea
+tools/
+
 # Sistema
 .DS_Store
 
