@@ -1,4 +1,8 @@
 {
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
   "permissions": {
     "allow": [
       "Bash(python:*)",
@@ -14,7 +18,10 @@
       "Bash(find:*)",
       "Bash(grep:*)",
       "Bash(ls:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)"
     ],
     "deny": [
       "Bash(rm -rf:*)",
@@ -22,9 +29,7 @@
       "Bash(git push --force:*)"
     ]
   },
-  "enabledMcpServers": ["code-review-graph"],
-  "attribution": {
-    "commit": "",
-    "pr": ""
-  }
+  "enabledMcpServers": [
+    "code-review-graph"
+  ]
 }
