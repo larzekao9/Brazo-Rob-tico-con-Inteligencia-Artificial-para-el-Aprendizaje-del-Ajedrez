@@ -25,9 +25,16 @@ Estas decisiones ya están tomadas y documentadas en el PAPs del proyecto. No la
 las cambies por tu cuenta — si creés que alguna no es viable, decilo explícitamente y esperá
 confirmación antes de desviarte.
 
-1. **Stockfish es siempre la fuente de la jugada real.** El modelo de aprendizaje propio predice
-   y explica al estilo humano, pero nunca reemplaza a Stockfish como quien decide qué jugada se
-   ejecuta.
+1. **El modelo propio decide sus propias jugadas por su cuenta — no depende de Stockfish para
+   decidir ni para validar su razonamiento.** Cuando el jugador elige `tipo_oponente = "modelo"`,
+   es el modelo entrenado (HU3/HU4) quien determina qué jugada se ejecuta, sin consultar a
+   Stockfish. Entrenar un modelo que igual dependiera de otro motor para decidir no tendría
+   sentido — ese es justo el aporte de tesis. Stockfish se usa como **oráculo de comparación**:
+   para cada jugada del modelo se puede calcular también qué habría jugado Stockfish y la
+   diferencia de evaluación, como métrica de qué tan entrenado está el modelo (alimenta el panel
+   de Razonamiento Neuronal, HU6 ampliada, y la retroalimentación técnica al jugador, HU5) — nunca
+   como una validación que el modelo necesite para poder jugar. Cuando el jugador elige
+   `tipo_oponente = "motor"`, Stockfish sigue siendo quien decide, como siempre.
 2. **Nunca implementar aprendizaje "en vivo" durante una partida en curso.** El modelo solo se
    reentrena en lotes controlados y versionados, después de acumular partidas, nunca de forma
    directa mientras el sistema está en uso.

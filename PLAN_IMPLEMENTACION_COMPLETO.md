@@ -1,4 +1,4 @@
-# Plan de Implementación Completo — Brazo Robótico con IA para Ajedrez
+# Plan de Implementación Completo — Plataforma de Ajedrez Potenciada por Inteligencia Artificial
 
 Equipo: Suárez Burgos Hebert · Arze Kao Luis Ángel
 
@@ -31,6 +31,8 @@ sprint real, este documento es la arquitectura y el backlog completo del proyect
 
 ## 1. Objetivo General y Alcance
 
+**Nombre del proyecto: "Plataforma de Ajedrez Potenciada por Inteligencia Artificial".**
+
 Desarrollar una plataforma de ajedrez con inteligencia artificial que combine un motor de
 cálculo consolidado (Stockfish) con un modelo de aprendizaje propio entrenado sobre partidas
 humanas, capaz de jugar y explicar jugadas al estilo humano, retroalimentarse en lotes
@@ -39,15 +41,26 @@ mediante un brazo robótico simulado y, a futuro, real. El software es el cerebr
 decisión, aprendizaje, explicación); el brazo robótico es el cuerpo — un anexo de ejecución
 física y de valor demostrativo, no el centro del proyecto.
 
+### Dónde concentrar el esfuerzo
+
+El componente central de este proyecto es el sistema de inteligencia artificial (HU3, HU4,
+HU5): el motor que aprende de partidas humanas, se retroalimenta con datos propios, y actúa
+como entrenador dando feedback técnico. Es ahí donde debe concentrarse la mayor profundidad de
+documentación, pruebas y pulido. El brazo robótico (HU9) es una interacción física
+complementaria — debe funcionar y verse bien en la demo, pero no debe consumir tiempo de
+desarrollo a costa del núcleo de IA. No hace falta cinemática perfecta ni un brazo elegante:
+alcanza con que ejecute la jugada de forma confiable.
+
 ### Objetivos específicos
 
 - Diseñar la arquitectura del sistema en capas (patrón MVC), separando percepción, decisión,
   aprendizaje, ejecución y presentación.
 - Construir el módulo de reconocimiento de tablero y piezas mediante visión por computadora.
-- Integrar el motor Stockfish como fuente única de la jugada legal y real, configurable por
-  niveles de dificultad.
-- Entrenar un modelo de aprendizaje automático que prediga y explique jugadas al estilo
-  humano, por bandas de nivel/estilo.
+- Integrar el motor Stockfish como uno de los oponentes disponibles (configurable por niveles
+  de dificultad) y como oráculo de comparación para medir qué tan entrenado está el modelo
+  propio — no como validador del que el modelo dependa para decidir.
+- Entrenar un modelo de aprendizaje automático que decida, prediga y explique jugadas al estilo
+  humano por su cuenta, por bandas de nivel/estilo, sin depender de Stockfish para razonar.
 - Reentrenar el modelo en lotes controlados y versionados, usando partidas de referencia
   (Lichess) y partidas jugadas en línea.
 - Desarrollar un módulo de visualización que muestre, en tiempo real, el razonamiento del
@@ -57,6 +70,8 @@ física y de valor demostrativo, no el centro del proyecto.
 - Ofrecer una plataforma web donde cualquier jugador pueda jugar en línea contra el motor o el
   modelo, y donde un administrador pueda gestionar modelos, sesiones y configuración del
   sistema. **🔭**
+- Habilitar un entorno de práctica y competencia entre jugadores humanos (emparejamiento por
+  nivel, torneos, ranking) que dé continuidad a la formación más allá de jugar contra la IA. **🔭**
 - Validar el sistema con pruebas piloto documentadas.
 
 ### Alcance
@@ -66,12 +81,16 @@ ajedrez online contra motor/modelo; pipeline de entrenamiento y reentrenamiento 
 panel de administración del modelo (entrenar, evaluar, versionar, promover); módulo de visión
 sobre tablero físico; módulo de visualización del razonamiento (mapa de atención, confianza);
 brazo robótico en simulador reflejando las jugadas; seguimiento de progreso del jugador;
-administración de sesiones y participantes para el contexto del curso.
+administración de sesiones y participantes para el contexto del curso. **🔭 Ampliación de
+visión (post-defensa SW2):** perfil y registro del jugador con historial; evaluación inicial de
+nivel para jugadores nuevos; emparejamiento (matchmaking) entre jugadores humanos por nivel
+similar; sistema de ranking; gestión de torneos, categorías y resultados; panel de la
+organización deportiva (Asociación) para publicar eventos y hacer seguimiento de participación.
 
 **Fuera de alcance (en cualquier horizonte, por ahora):** aprendizaje en vivo durante una
 partida en curso; ejecución sobre el brazo físico real (depende de la llegada del kit); modelo
 personalizado por oponente individual (se usa el enfoque por bandas de nivel/estilo, tipo
-Maia, no un modelo 1-a-1 por jugador); torneos o ranking competitivo entre jugadores.
+Maia, no un modelo 1-a-1 por jugador).
 
 ---
 
@@ -89,9 +108,8 @@ módulo de Hebert y el de Luis Ángel.
       habla en FEN entre sí; nadie inventa su propio formato de tablero.
 - [x] Crear el archivo `requirements.txt` vacío y decidir juntos cada versión a medida que
       la agreguen (no dejar ninguna dependencia "sin fijar").
-- [x] Crear las 4 tablas mínimas de la base de datos (sección 7) — `backend/modelos/tablas_orm.py`
-      + `backend/database.py::crear_tablas`. Se crean solas la primera vez que el backend arranca
-      con `DATABASE_URL` seteada (no hace falta correr una migración a mano).
+- [ ] Crear las 4 tablas mínimas de la base de datos (sección 7) — esto lo hace una sola
+      persona, no las dos por separado, para evitar migraciones en conflicto.
 
 ---
 
@@ -141,7 +159,11 @@ del código lo note, definiendo una interfaz común y varias implementaciones co
   `EstrategiaModelo` (cuando HU3/HU4 den un modelo entrenado) y `EstrategiaHumano` quedan como
   extensión futura de la misma interfaz — el jugador elige la estrategia activa por partida
   (`tipo_oponente`, contemplado en la tabla `sesion` de la sección 7, aunque HU10 todavía no
-  conecta esa elección a la API).
+  conecta esa elección a la API). **Importante:** `EstrategiaModelo.decidir_jugada` va a razonar
+  únicamente con la red entrenada propia — no va a llamar a `EstrategiaStockfish` internamente
+  para decidir ni para validar. La comparación contra Stockfish (ver regla 1 de `CLAUDE.md`) es
+  un cálculo aparte, en paralelo, para medir al modelo — no una dependencia de su camino de
+  decisión.
 - **Ejecutor de movimientos del brazo 🔭** — interfaz `ejecutar_movimiento(origen, destino,
   captura)`, con una implementación `EjecutorSimulado` (PyBullet, la que ya existe en
   `backend/servicios/simulacion/escena.py`) y una `EjecutorReal` (ESP32 + PCA9685) a futuro.
@@ -164,19 +186,13 @@ Se usa para desacoplar el acceso a datos de la lógica de servicios, de modo que
 no dependan directamente de SQLAlchemy ni de la estructura exacta de las tablas:
 
 - **`RepositorioPartida` implementado** — `backend/repositorios/repositorio_partida.py`:
-  interfaz `RepositorioPartidas` (`guardar`, `obtener`, `listar`) con dos implementaciones,
-  `RepositorioPartidasEnMemoria` (dict del proceso) y `RepositorioPartidasPostgres` (tabla
-  `partida`, sección 7). `crear_repositorio_partidas()` elige cuál instanciar: Postgres si
-  `DATABASE_URL` está seteada, memoria si no — así ninguna máquina del equipo necesita Postgres
-  corriendo solo para levantar el backend, pero alcanza con setear la variable de entorno para
-  que las partidas persistan de verdad.
-- `RepositorioJugada` — 🔭 todavía no existe (no hay entidad `Jugada` persistida más allá del
-  campo `jugadas_uci` de `partida`; la tabla `jugada` en sí ya está creada para RF34/HU4, ver
-  sección 7, pero nada la puebla todavía).
+  interfaz `RepositorioPartidas` (`guardar`, `obtener`) con `RepositorioPartidasEnMemoria` como
+  única implementación por ahora (el mismo dict que antes vivía suelto en el servicio, ahora
+  detrás de la interfaz). `RepositorioPartidasPostgres` se agrega recién cuando llegue HU11 con
+  la base de datos real — no hace falta instalar Postgres para tener el patrón funcionando hoy.
+- `RepositorioJugada` — 🔭 todavía no existe (no hay entidad `Jugada` persistida, ver sección 7).
 - También facilita los tests unitarios: `backend/repositorios/test_repositorio_partida.py`
-  prueba el repositorio en memoria, y `test_repositorio_partida_postgres.py` prueba
-  `RepositorioPartidasPostgres` contra SQLite en memoria (mismas tablas, sin necesitar un
-  Postgres real corriendo) — sin ninguna base de datos externa en ningún caso.
+  prueba el repositorio en memoria sin ninguna base de datos corriendo.
 
 ### 4.4 Ya presentes en el código, sin haber sido nombrados (gratis para la documentación)
 
@@ -202,9 +218,12 @@ no dependan directamente de SQLAlchemy ni de la estructura exacta de las tablas:
   en el contexto del curso con la Asociación Departamental de Ajedrez. **🔭** No existe todavía
   ningún panel ni rol diferenciado — es HU10/HU11 en su versión mínima, y el panel completo de
   promoción de modelos es alcance de tesis.
-- **Motor/Modelo de IA** (actor no humano) — restringido por reglas de negocio fijas: Stockfish
-  es siempre quien valida/decide la jugada real ejecutada; el modelo propio nunca aprende en
-  vivo durante una partida (ver `CLAUDE.md`, reglas técnicas obligatorias). **🟢** Ya vigente.
+- **Motor/Modelo de IA** (actor no humano) — restringido por reglas de negocio fijas: cada
+  oponente decide sus propias jugadas de forma independiente (Stockfish cuando `tipo_oponente =
+  "motor"`, el modelo propio cuando `tipo_oponente = "modelo"`, sin que uno dependa del otro para
+  razonar); Stockfish se usa además como oráculo de comparación para medir al modelo, nunca como
+  su validador; el modelo propio nunca aprende en vivo durante una partida (ver `CLAUDE.md`,
+  reglas técnicas obligatorias). **🟢** Ya vigente.
 
 ---
 
@@ -295,19 +314,9 @@ CREATE TABLE jugada (
 ya que su HU3 también necesita leer/escribir partidas para el dataset). Las tablas que faltan
 (`modelo_version` — con estado de promoción para el panel de administrador 🔭, `error_patron`,
 `progreso`, `usuario` para el login 🔭) se agregan recién cuando lleguen a HU4, HU8 y a la
-etapa de tesis correspondiente — no antes.
-
-**Hecho:** las 4 tablas están definidas en `backend/modelos/tablas_orm.py` (SQLAlchemy) y se
-crean solas al arrancar el backend si `DATABASE_URL` está seteada (`backend/database.py`). Dos
-adaptaciones respecto al SQL de arriba, documentadas en el docstring de `tablas_orm.py`:
-`partida.id` es TEXT (el uuid que ya generaba el dataclass `Partida`, no un INTEGER
-autoincremental) y `partida` suma `fen`, `nivel`, `tipo_oponente` y `jugadas_uci` — hoy no
-existe ningún flujo de sesión/participante que los provea desde `sesion`, así que viven en la
-partida directamente hasta que HU10/HU11 armen ese flujo. Si `DATABASE_URL` no está seteada
-(la mayoría de las máquinas del equipo, hoy), el backend sigue igual que antes: partidas en
-memoria del proceso, detrás de `RepositorioPartidasEnMemoria` (sección 4.3) — nadie necesita
-tener Postgres instalado solo para levantar el backend y probar. La tabla `jugada` ya existe
-pero todavía no la puebla nada (queda para RF34/HU4).
+etapa de tesis correspondiente — no antes. **Hoy esto todavía no está creado:** las partidas
+viven en memoria del proceso, detrás del `RepositorioPartidasEnMemoria` de la sección 4.3 — el
+Repository ya está armado, solo falta la implementación con Postgres real.
 
 ---
 
@@ -318,10 +327,10 @@ ajedrez-robotico/
 ├── requirements.txt
 ├── backend/
 │   ├── main.py                     # arranca la app FastAPI
-│   ├── database.py                 # conexión a PostgreSQL — activa solo si DATABASE_URL está seteada
+│   ├── database.py                 # conexión a PostgreSQL (🔭, hoy no existe — todo en memoria)
 │   ├── modelos/                    # capa de Modelos de datos
-│   │   ├── partida.py              # entidad de dominio (dataclass), la usan servicios y rutas
-│   │   └── tablas_orm.py           # las 4 tablas (SQLAlchemy), las usa el Repository de Postgres
+│   │   ├── partida.py
+│   │   └── jugada.py
 │   ├── esquemas/                   # capa de Esquemas (Pydantic)
 │   │   ├── partida_esquema.py
 │   │   └── jugada_esquema.py
@@ -345,14 +354,13 @@ ajedrez-robotico/
 │   │   │   └── deteccion_movimiento.py  # RF11, jugada por diff de FEN
 │   │   ├── motor/                  # HU2 — Hebert
 │   │   │   └── motor_ajedrez.py
-│   │   ├── aprendizaje/            # HU3, HU4 — Luis Ángel
-│   │   │   ├── modelo_jugadas.py   # arquitectura de la CNN, compartida con training/
-│   │   │   └── inferencia.py       # 🔭 todavía no existe (HU4, depende del checkpoint entrenado)
-│   │   ├── educativo/              # HU5 — Luis Ángel (🔭 no existe todavía)
+│   │   ├── aprendizaje/            # HU3, HU4 — Luis Ángel (🔭 inferencia.py todavía no existe)
+│   │   │   └── inferencia.py
+│   │   ├── retroalimentacion/      # HU5 — Luis Ángel (🔭 no existe todavía; antes "educativo/")
 │   │   └── simulacion/             # HU9 — Hebert
 │   │       └── escena.py
 ├── training/
-│   ├── colab_entrenamiento.ipynb   # HU3, corrido en Colab con GPU (2026-09-14) — checkpoint en Drive
+│   ├── colab_entrenamiento.ipynb   # 🔭 no existe todavía, HU3
 │   ├── data_pipeline.py            # HU3, PGN de Lichess -> tensores
 │   ├── dataset_piezas.py           # HU1, auto-etiqueta casillas para entrenar el clasificador
 │   ├── entrenar_clasificador_piezas.py
@@ -367,10 +375,9 @@ ajedrez-robotico/
 ```
 
 **Estado real hoy vs. este destino:** migrado. El árbol de arriba es exactamente cómo está
-`backend/` hoy — `database.py` y `modelos/tablas_orm.py` ya existen y crean las 4 tablas solas
-si `DATABASE_URL` está seteada (si no, todo sigue en memoria vía el Repository de la sección
-4.3). Sigue pendiente 🔭 la carpeta de HU5 (`educativo/`), que todavía no tiene código porque
-esa HU no empezó; `aprendizaje/` ya tiene `modelo_jugadas.py` (HU3).
+`backend/` hoy, con dos excepciones marcadas 🔭: `database.py` (no hay base de datos, todo en
+memoria vía el Repository de la sección 4.3) y las carpetas de HU3/HU4/HU5
+(`aprendizaje/`, `retroalimentacion/`) que todavía no tienen código porque esas HU no empezaron.
 
 ---
 
@@ -426,11 +433,9 @@ HU — es contenido nuevo que agrega esta visión de tesis.*
 Descripción: el jugador elige contra qué/quién juega y con qué ajustes. Precondición: CU-J1
 completado (🔭) / ninguna en la versión mínima actual. Flujo principal: (1) el jugador elige
 tipo de oponente (Stockfish, modelo propio, u otro jugador); (2) elige nivel de dificultad;
-(3) elige si activa el modo educativo; (4) el sistema crea la partida (`POST /partida`) y
-muestra el tablero inicial. Postcondición: partida creada y en curso. **Hoy:** elegir nivel y
-tipo de oponente ya funcionan en el backend (aunque `tipo_oponente` solo admite `"motor"` hasta
-que HU3/HU4 den un modelo entrenado); falta el selector en el frontend y el modo educativo
-(depende de HU5).
+(3) elige si activa la retroalimentación técnica; (4) el sistema crea la partida (`POST /partida`) y
+muestra el tablero inicial. Postcondición: partida creada y en curso. **Hoy:** solo existe
+elegir nivel; tipo de oponente y retroalimentación técnica faltan.
 
 **CU-J3 — Jugar la partida 🟢 (ya construido, versión digital)**
 Descripción: el jugador realiza jugadas (físicas, vía visión, o digitales) y el sistema
@@ -441,16 +446,22 @@ registra la jugada (🔭, vía Repository). Incluye: CU-S1 (percepción del tabl
 partida es física. **Hoy:** el flujo digital completo ya funciona (`POST /partida/{id}/mover`);
 lo físico (visión en vivo + brazo) es HU1/HU9, parcial.
 
-**CU-J4 — Recibir explicación de cada jugada 🔭 (HU5)**
-Sin empezar. Depende de HU3 (modelo entrenado).
+**CU-J4 — Recibir retroalimentación técnica de cada partida 🔭 (HU5)**
+Sin empezar. Depende de HU3 (modelo entrenado). El sistema actúa como entrenador: compara cada
+jugada contra la mejor alternativa de Stockfish e identifica el error concreto cometido. Es
+agnóstico a quién fue el oponente — aplica igual a partidas contra el motor, el modelo, o (🔭)
+contra otro jugador humano.
 
 **CU-J5 — Ver historial y progreso propio 🔭 (HU8)**
 Sin empezar — depende de que haya persistencia (Repository + base de datos).
 
 **CU-J6 — Ver visualización del razonamiento del modelo en vivo 🔭 (HU6 ampliada)**
-La versión mínima de HU6 (mostrar jugada + evaluación de Stockfish) ya tiene su backend listo
-(`analizar_posicion`, `obtener_variaciones`); el mapa de atención (Grad-CAM), la entropía y el
-WebSocket en vivo son la ampliación de tesis.
+La versión mínima de HU6 (mostrar jugada + evaluación de Stockfish, cuando el oponente es el
+motor) ya tiene su backend listo (`analizar_posicion`, `obtener_variaciones`). Cuando el oponente
+es el modelo propio, este panel además muestra la jugada que decidió el modelo por su cuenta
+junto a la comparación contra Stockfish (misma jugada o no, diferencia de evaluación) como
+métrica de qué tan entrenado está — no como parte de cómo el modelo decidió. El mapa de atención
+(Grad-CAM), la entropía y el WebSocket en vivo son la ampliación de tesis.
 
 ### Actor: Sistema (casos de uso internos)
 
@@ -496,19 +507,31 @@ RF09. Clasificar la pieza (o ausencia) en cada casilla mediante un modelo entren
 RF10. Generar el FEN correspondiente a la imagen reconocida. ✅ `reconocer_tablero`
 RF11. Detectar el movimiento comparando el FEN anterior con el actual. ✅ `detectar_jugada(fen_antes, fen_despues)`
 
-**Módulo 3 — Aprendizaje — ✅ HU3 hecho, resto sin empezar (HU4)**
+**Módulo 3 — Aprendizaje — 🟨 en curso (HU3), resto sin empezar (HU4)**
 RF12. Pipeline que transforme PGN en tensores y etiquetas. ✅ `training/data_pipeline.py`
-RF13. Entrenar un modelo por bandas de nivel/estilo. ⬜ — hoy es un solo modelo genérico (200 partidas), sin separar por nivel/estilo todavía
+RF13. Entrenar un modelo por bandas de nivel/estilo. ⬜
 RF14. Reentrenar en lotes controlados y versionados. ⬜
-RF15. Evaluar cada versión candidata antes de promoverla. ⬜ — solo hay accuracy de validación, ninguna promoción
-RF16. Guardar checkpoints versionados en Drive. 🟨 primer checkpoint guardado (`modelo_jugadas_v1_2026-09-14.pt`, nombrado por fecha) — falta un criterio real de versionado/promoción (HU4)
+RF15. Evaluar cada versión candidata antes de promoverla. ⬜
+RF16. Guardar checkpoints versionados en Drive. ⬜
 RF17. No modificar el modelo en producción durante una partida. ✅ (por diseño — regla de `CLAUDE.md`, todavía no hay "producción" que modificar)
 
-**Módulo 4 — Educativo — ⬜ sin empezar (HU5)**
-RF18-RF20.
+**Módulo 4 — Retroalimentación Técnica de Partidas (antes "Educativo") — ⬜ sin empezar (HU5)**
+RF18. Comparar cada jugada del jugador contra la mejor alternativa calculada por el motor
+(pérdida en centipawns), para identificar el error específico cometido. ⬜
+RF19. Explicar en lenguaje comprensible qué principio de juego debió aplicarse en esa jugada
+(desarrollo, control del centro, capturas, jaque mate). ⬜
+RF20. Transmitir principios básicos del ajedrez adaptados al nivel del participante. ⬜
+
+*Nota de diseño:* este servicio debe leer genéricamente de la tabla `jugada` por
+`partida_id`, sin asumir quién fue el oponente. El análisis comparativo contra Stockfish es
+agnóstico a si la partida fue contra el motor, contra el modelo propio, o (🔭, cuando exista
+la función de partidas entre jugadores) contra otra persona — el mismo servicio sirve para los
+tres casos sin desarrollo adicional. Esto es lo que reemplaza al rol de "entrenador humano" que
+aparecía en versiones anteriores de la propuesta: acá el entrenador es la propia IA dando
+feedback después de cada partida, no un rol humano separado en el sistema.
 
 **Módulo 5 — Visualización del Razonamiento — 🟨 base mínima, resto 🔭 (HU6 ampliada)**
-RF21. Exponer jugadas candidatas con probabilidad. Parcial — `obtener_variaciones` da candidatas de Stockfish, no del modelo propio (no existe todavía).
+RF21. Exponer jugadas candidatas con probabilidad. Parcial — `obtener_variaciones` da candidatas de Stockfish (para partidas contra el motor); las candidatas del modelo propio, con su comparación contra Stockfish como métrica de entrenamiento (no como validación), quedan para cuando HU3/HU4 den un modelo entrenado.
 RF22-RF24 (Grad-CAM, entropía, WebSocket en vivo). ⬜ 🔭
 
 **Módulo 6 — Control del Brazo — 🟨 base mínima, resto 🔭 (HU9 ampliada)**
@@ -518,7 +541,7 @@ RF28 (alternar simulado/real sin cambios en el resto — Strategy 4.1). Interfaz
 
 **Módulo 7 — Partidas Online — 🟢 mayormente construido (trabajo adelantado + HU10)**
 RF30. Crear y consultar una partida. ✅
-RF31. Seleccionar tipo de oponente y nivel al crear. ✅ backend (`POST /partida` valida `tipo_oponente` contra la Strategy 4.1) — falta el selector en el frontend.
+RF31. Seleccionar tipo de oponente y nivel al crear. Parcial — solo nivel, falta tipo de oponente (Strategy 4.1).
 RF32. Validar y aplicar cada movimiento. ✅
 RF33. Actualizar el tablero en tiempo real para todos los clientes conectados. ⬜ 🔭 (hoy es de un solo cliente, sin WebSocket)
 RF34. Registrar cada jugada como dato candidato para reentrenamiento. ⬜ (depende de Repository + persistencia)
@@ -528,6 +551,16 @@ RF35-RF37.
 
 **Módulo 9 — Administración — ⬜ sin empezar (HU10/HU11, panel completo es 🔭)**
 RF38-RF42.
+
+**Módulo 10 — Plataforma y Comunidad — 🔭 visión de tesis, sin empezar**
+RF43. Registrar un jugador y mantener su perfil con historial de partidas y progreso. ⬜ 🔭
+RF44. Ofrecer una evaluación inicial (ejercicios o partidas de calibración) para estimar el
+nivel de un jugador nuevo. ⬜ 🔭
+RF45. Emparejar a dos jugadores humanos de nivel similar para una partida (matchmaking). ⬜ 🔭
+RF46. Mantener una clasificación (ranking) en base al desempeño en partidas y competencias. ⬜ 🔭
+RF47. Organizar torneos, definir categorías de participación y registrar resultados. ⬜ 🔭
+RF48. Ofrecer a la Asociación un panel para publicar eventos y consultar participación
+agregada. ⬜ 🔭
 
 ---
 
@@ -556,7 +589,7 @@ RF38-RF42.
 | **1** | HU3 | Entrenamiento del Modelo con Partidas de Referencia | 5 | Luis Ángel | — | Módulo 3 |
 | **2** | HU6 | Visualización del Razonamiento en Tiempo Real | 5 | Hebert | HU1 | Módulo 5 |
 | **2** | HU4 | Reentrenamiento y Evaluación del Modelo | 5 | Luis Ángel | HU3 | Módulo 3 |
-| **2** | HU5 | Modo Educativo | 5 | Luis Ángel | HU3 | Módulo 4 |
+| **2** | HU5 | Retroalimentación Técnica de Partidas | 5 | Luis Ángel | HU3 | Módulo 4 |
 | **2** | HU10 | Configuración de Partida | 3 | Luis Ángel | HU2 | Módulo 7, 9 |
 | **3** | HU9 | Interconexión con el Brazo Robótico (simulado) | 8 | Hebert | HU2 | Módulo 6 |
 | **3** | HU7 | Rostro y Expresiones del Sistema | 3 | Luis Ángel | HU6 | — |
@@ -635,22 +668,16 @@ la foto en vivo — eso es HU6, no una tarea suelta de HU1.
 
 ---
 
-## 16. HU3 en detalle — entrenamiento del modelo (Luis Ángel) — ✅ Hecho
+## 16. HU3 en detalle — entrenamiento del modelo (Luis Ángel)
 
 1. Bajar un mes de partidas de database.lichess.org (no el dataset completo). ✅
 2. `training/data_pipeline.py`: usa `python-chess` para leer el PGN, y por cada posición
    jugada genera el tablero antes (como tensor) + la jugada del humano (como etiqueta). ✅
-3. `backend/servicios/aprendizaje/modelo_jugadas.py`: arquitectura de la red
-   (`RedPrediccionJugadas`) que consume esos tensores — misma idea que `modelo_piezas.py` de
-   HU1, compartida entre entrenamiento e inferencia. ✅
-4. `training/colab_entrenamiento.ipynb`: clona el repo, baja el PGN, prueba el pipeline con un
-   subconjunto chico (200 partidas) antes de escalar al mes completo, entrena unas pocas épocas
-   y guarda el checkpoint (versionado por fecha) en Google Drive. ✅ escrito y corrido en Colab
-   con GPU real (2026-09-14), de punta a punta sin errores.
-5. Entrenar una primera versión simple del modelo — el objetivo es que el pipeline funcione de
-   punta a punta, no lograr precisión alta todavía. ✅ `modelo_jugadas_v1_2026-09-14.pt` en
-   Drive (200 partidas, 10 épocas). Accuracy de validación baja, como se esperaba con tan pocas
-   partidas — escalar al mes completo y evaluar en serio es HU4, no esta HU.
+3. Subir esto a **Google Colab** (GPU gratis) y probar con un subconjunto chico (100-200
+   partidas) antes de escalar al mes completo. ⬜ pendiente
+4. Entrenar una primera versión simple del modelo — el objetivo es que el pipeline funcione de
+   punta a punta, no lograr precisión alta todavía. ⬜ pendiente
+5. **Guardar los checkpoints en Google Drive**, no solo en la sesión de Colab. ⬜ pendiente
 
 ---
 
@@ -687,11 +714,7 @@ Cuando llegue el momento de encarar esto (Sprint 3):
       prueba distintas (Hebert).
 - [x] `reconocer_tablero` reconoce un tablero de prueba real de punta a punta (Hebert) — con
       la limitación conocida de las damas, documentada en `docs/plan_sprints.md`.
-- [x] Pipeline de datos de Lichess corre de punta a punta en Colab con un subconjunto chico, y
-      hay al menos una primera versión del modelo entrenada y guardada en Drive (Luis Ángel) —
-      `modelo_jugadas_v1_2026-09-14.pt`, 200 partidas, corrido en Colab con GPU el 2026-09-14.
-- [x] Las 4 tablas de la base de datos existen (`backend/modelos/tablas_orm.py`, probado contra
-      SQLite en `backend/repositorios/test_repositorio_partida_postgres.py`) — falta correrlo
-      contra un Postgres real levantado (`DATABASE_URL`) para la validación final antes de la
-      defensa, ver nota abajo.
+- [ ] Pipeline de datos de Lichess corre de punta a punta en Colab con un subconjunto chico, y
+      hay al menos una primera versión del modelo entrenada y guardada en Drive (Luis Ángel).
+- [ ] Las 4 tablas de la base de datos existen y las jugadas de prueba quedan guardadas ahí.
 - [x] Los dos servicios (visión y motor) ya se hablan entre sí usando FEN como formato común.
