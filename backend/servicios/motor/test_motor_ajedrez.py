@@ -32,6 +32,15 @@ def test_calcular_jugada_valida_nivel() -> None:
         calcular_jugada(POSICION_INICIAL, nivel=21)
 
 
+def test_calcular_jugada_rechaza_posicion_imposible_sin_llegar_a_stockfish() -> None:
+    # 9 damas blancas — sintácticamente es un FEN válido, pero imposible en una
+    # partida real. Sin la validación, esto hace que Stockfish se caiga en vez
+    # de devolver un error claro (visto en vivo con un FEN mal reconocido).
+    fen_imposible = "QQQQQQQQ/QPPPPPPP/8/8/8/8/8/K6k w - - 0 1"
+    with pytest.raises(ValueError):
+        calcular_jugada(fen_imposible, nivel=5)
+
+
 def test_analizar_posicion_detecta_mate_forzado() -> None:
     resultado = analizar_posicion(MATE_EN_UNO, nivel=20, tiempo_limite=0.5)
     assert resultado["mate_en"] == 1

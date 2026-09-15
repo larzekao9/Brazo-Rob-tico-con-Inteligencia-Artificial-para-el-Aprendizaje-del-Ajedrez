@@ -23,6 +23,23 @@ def _validar_nivel(nivel: int) -> int:
     return nivel
 
 
+def _validar_fen(fen: str) -> chess.Board:
+    """Construye el tablero y rechaza posiciones imposibles antes de tocar Stockfish.
+
+    Sin esto, una posición sintácticamente válida pero imposible (ej. 9
+    damas de un lado — puede pasar con un FEN mal reconocido por visión)
+    hace que Stockfish se caiga con un error de proceso en vez de devolver
+    un error claro y manejable.
+    """
+    try:
+        tablero = chess.Board(fen)
+    except ValueError as error:
+        raise ValueError(f"FEN inválido: {fen}") from error
+    if not tablero.is_valid():
+        raise ValueError(f"Posición imposible en una partida real: {fen}")
+    return tablero
+
+
 def calcular_jugada(fen: str, nivel: int = 20, tiempo_limite: float = 1.0) -> str:
     """Calcula la jugada elegida por Stockfish para una posición dada.
 
@@ -35,7 +52,7 @@ def calcular_jugada(fen: str, nivel: int = 20, tiempo_limite: float = 1.0) -> st
         La jugada elegida en notación SAN (ej. "e4", "Nf3").
     """
     _validar_nivel(nivel)
-    tablero = chess.Board(fen)
+    tablero = _validar_fen(fen)
     with chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH) as motor:
         motor.configure({"Skill Level": nivel})
         resultado = motor.play(tablero, chess.engine.Limit(time=tiempo_limite))
@@ -66,7 +83,7 @@ def analizar_posicion(
         función independiente).
     """
     _validar_nivel(nivel)
-    tablero = chess.Board(fen)
+    tablero = _validar_fen(fen)
     with chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH) as motor:
         motor.configure({"Skill Level": nivel})
         lineas = motor.analyse(tablero, chess.engine.Limit(time=tiempo_limite), multipv=num_variaciones)
@@ -124,7 +141,7 @@ def obtener_variaciones(
         ordenada de mejor a peor.
     """
     _validar_nivel(nivel)
-    tablero = chess.Board(fen)
+    tablero = _validar_fen(fen)
     with chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH) as motor:
         motor.configure({"Skill Level": nivel})
         lineas = motor.analyse(

@@ -35,6 +35,15 @@ def test_crear_partida_con_fen_inicial_invalido_lanza_valueerror() -> None:
         crear_partida(nivel=5, fen_inicial="esto no es un fen")
 
 
+def test_crear_partida_con_fen_inicial_imposible_lanza_valueerror() -> None:
+    # 9 damas blancas — sintácticamente válido, pero imposible en una partida
+    # real (visto en vivo con un FEN mal reconocido por visión, que hacía
+    # caer a Stockfish más adelante en vez de fallar acá con un error claro).
+    fen_imposible = "QQQQQQQQ/QPPPPPPP/8/8/8/8/8/K6k w - - 0 1"
+    with pytest.raises(ValueError):
+        crear_partida(nivel=5, fen_inicial=fen_imposible)
+
+
 def test_obtener_partida_inexistente_lanza_keyerror() -> None:
     with pytest.raises(KeyError):
         obtener_partida("no-existe")

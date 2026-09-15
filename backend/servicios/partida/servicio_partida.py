@@ -50,6 +50,13 @@ def crear_partida(nivel: int = 20, tipo_oponente: str = "motor", fen_inicial: st
             tablero = chess.Board(fen_inicial)
         except ValueError as error:
             raise ValueError(f"FEN inicial inválido: {fen_inicial}") from error
+        if not tablero.is_valid():
+            # Puede pasar con una posición mal reconocida por visión (ej.
+            # demasiadas piezas) — sintácticamente es un FEN válido, pero
+            # Stockfish se cae si se lo pasamos igual (ver motor_ajedrez.py).
+            raise ValueError(
+                f"La posición reconocida no es válida (imposible en una partida real): {fen_inicial}"
+            )
         partida = Partida(tablero=tablero, nivel=nivel, tipo_oponente=tipo_oponente, fen_inicial=fen_inicial)
     _repositorio.guardar(partida)
     return partida
