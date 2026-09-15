@@ -58,6 +58,11 @@ def capturar_foto_tablero(fuente: int | str | None = None) -> np.ndarray:
     try:
         if not camara.isOpened():
             raise RuntimeError(f"No se pudo abrir la cámara/fuente {fuente_resuelta!r}")
+        # Sin esto, algunas cámaras virtuales (ej. Iriun Webcam) devuelven un
+        # frame con un formato/tiling raro en vez de la imagen completa —
+        # pedir la resolución explícitamente antes de leer lo evita.
+        camara.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+        camara.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         exito, imagen = camara.read()
         if not exito:
             raise RuntimeError(f"No se pudo capturar una foto de la fuente {fuente_resuelta!r}")
