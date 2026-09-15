@@ -12,6 +12,12 @@ Entrena con la mezcla de ambos datasets (Roboflow + el propio) para no
 un riesgo real de hacer fine-tuning solo con las fotos nuevas, que además
 son muchas menos.
 
+El checkpoint se guarda según el accuracy contra un recorte apartado de TUS
+propias fotos (no contra el dataset de Roboflow) — es lo único que mide lo
+que realmente importa acá: que reconozca tu tablero. El accuracy contra
+Roboflow se sigue mostrando, pero solo como diagnóstico para detectar si el
+modelo está "olvidando" el dataset original, no para decidir si guardar.
+
 Requiere haber corrido `training/capturar_dataset_propio.py` varias veces
 antes (con distintos ángulos/posiciones) para tener algo en
 `training/dataset_propio/`.
@@ -21,6 +27,7 @@ Uso:
 """
 from __future__ import annotations
 
+import random
 from collections import Counter
 from pathlib import Path
 
@@ -38,6 +45,8 @@ CARPETA_DATASET_PROPIO = Path("training/dataset_propio")
 EPOCAS = 20
 TASA_APRENDIZAJE = 1e-4  # más chica que el entrenamiento original: es fine-tuning
 TAMANO_LOTE = 32
+PROPORCION_VALIDACION_PROPIA = 0.2
+SEMILLA = 42
 
 
 def _cargar_dataset_propio() -> list[tuple[cv2.typing.MatLike, str]]:
@@ -51,6 +60,29 @@ def _cargar_dataset_propio() -> list[tuple[cv2.typing.MatLike, str]]:
             if recorte is not None:
                 muestras.append((recorte, clase))
     return muestras
+
+
+def _separar_train_valid(
+    muestras: list[tuple[cv2.typing.MatLike, str]], proporcion_valid: float
+) -> tuple[list[tuple[cv2.typing.MatLike, str]], list[tuple[cv2.typing.MatLike, str]]]:
+    """Separa un recorte de validación por clase (no simplemente al azar del total),
+
+    para que una clase con pocos ejemplos (ej. rey) no quede sin ningún
+    ejemplo de validación solo por mala suerte del sorteo.
+    """
+    aleatorio = random.Random(SEMILLA)
+    por_clase: dict[str, list[tuple[cv2.typing.MatLike, str]]] = {}
+    for muestra in muestras:
+        por_clase.setdefault(muestra[1], []).append(muestra)
+
+    train: list[tuple[cv2.typing.MatLike, str]] = []
+    valid: list[tuple[cv2.typing.MatLike, str]] = []
+    for muestras_clase in por_clase.values():
+        aleatorio.shuffle(muestras_clase)
+        corte = max(1, int(len(muestras_clase) * proporcion_valid))
+        valid += muestras_clase[:corte]
+        train += muestras_clase[corte:]
+    return train, valid
 
 
 def _pesos_por_clase(muestras: list[tuple[cv2.typing.MatLike, str]]) -> torch.Tensor:
@@ -85,13 +117,22 @@ def reentrenar() -> None:
             "Conviene correr capturar_dataset_propio.py varias veces más antes de esto."
         )
 
-    muestras_train = muestras_originales + muestras_propias
-    muestras_valid = construir_dataset("training/dataset_tablero/valid")
+    muestras_propias_train, muestras_propias_valid = _separar_train_valid(
+        muestras_propias, PROPORCION_VALIDACION_PROPIA
+    )
+    print(
+        f"Propio train: {len(muestras_propias_train)} — "
+        f"Propio valid (apartado, no se entrena con esto): {len(muestras_propias_valid)}"
+    )
+
+    muestras_train = muestras_originales + muestras_propias_train
+    muestras_valid_roboflow = construir_dataset("training/dataset_tablero/valid")
 
     cargador_train = DataLoader(
         DatasetCasillas(muestras_train, augmentar=True), batch_size=TAMANO_LOTE, shuffle=True
     )
-    cargador_valid = DataLoader(DatasetCasillas(muestras_valid), batch_size=TAMANO_LOTE)
+    cargador_valid_roboflow = DataLoader(DatasetCasillas(muestras_valid_roboflow), batch_size=TAMANO_LOTE)
+    cargador_valid_propio = DataLoader(DatasetCasillas(muestras_propias_valid), batch_size=TAMANO_LOTE)
 
     checkpoint = torch.load(RUTA_CHECKPOINT, map_location=dispositivo, weights_only=False)
     modelo = RedClasificadoraPiezas(cantidad_clases=len(checkpoint["clases"])).to(dispositivo)
@@ -101,8 +142,12 @@ def reentrenar() -> None:
     pesos_clases = _pesos_por_clase(muestras_train).to(dispositivo)
     funcion_perdida = nn.CrossEntropyLoss(weight=pesos_clases)
 
-    mejor_accuracy = _evaluar(modelo, cargador_valid, dispositivo)
-    print(f"Accuracy de validación (dataset Roboflow) antes de reentrenar: {mejor_accuracy:.3f}")
+    mejor_accuracy_propio = _evaluar(modelo, cargador_valid_propio, dispositivo)
+    accuracy_roboflow_inicial = _evaluar(modelo, cargador_valid_roboflow, dispositivo)
+    print(
+        f"Antes de reentrenar — accuracy en TU tablero (lo que importa): {mejor_accuracy_propio:.3f} "
+        f"— accuracy en Roboflow (diagnóstico): {accuracy_roboflow_inicial:.3f}"
+    )
 
     for epoca in range(1, EPOCAS + 1):
         modelo.train()
@@ -116,16 +161,18 @@ def reentrenar() -> None:
             perdida_acumulada += perdida.item() * entradas.size(0)
 
         perdida_promedio = perdida_acumulada / len(muestras_train)
-        accuracy_valid = _evaluar(modelo, cargador_valid, dispositivo)
-        print(f"Época {epoca:2d}/{EPOCAS} — pérdida: {perdida_promedio:.4f} — accuracy valid (Roboflow): {accuracy_valid:.3f}")
+        accuracy_propio = _evaluar(modelo, cargador_valid_propio, dispositivo)
+        accuracy_roboflow = _evaluar(modelo, cargador_valid_roboflow, dispositivo)
+        print(
+            f"Época {epoca:2d}/{EPOCAS} — pérdida: {perdida_promedio:.4f} — "
+            f"tu tablero: {accuracy_propio:.3f} — Roboflow: {accuracy_roboflow:.3f}"
+        )
 
-        if accuracy_valid >= mejor_accuracy:
-            mejor_accuracy = accuracy_valid
+        if accuracy_propio >= mejor_accuracy_propio:
+            mejor_accuracy_propio = accuracy_propio
             torch.save({"pesos": modelo.state_dict(), "clases": checkpoint["clases"]}, RUTA_CHECKPOINT)
 
-    print(f"Checkpoint actualizado en {RUTA_CHECKPOINT} (accuracy Roboflow: {mejor_accuracy:.3f})")
-    print("Probá /vision/reconocer contra tu tablero real para confirmar la mejora — ")
-    print("el accuracy de arriba solo mide contra el dataset original, no el tuyo.")
+    print(f"Checkpoint actualizado en {RUTA_CHECKPOINT} — accuracy en tu tablero: {mejor_accuracy_propio:.3f}")
 
 
 if __name__ == "__main__":
