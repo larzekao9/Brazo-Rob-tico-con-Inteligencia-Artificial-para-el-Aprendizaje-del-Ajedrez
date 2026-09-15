@@ -108,13 +108,24 @@ entrenado con evaluación real, modo educativo básico, y configuración de part
 |---|---|---|---|
 | HU6 | Visualización del Razonamiento en Tiempo Real | 5 | Hebert |
 | HU4 | Reentrenamiento y Evaluación del Modelo | 5 | Luis Ángel |
-| HU5 | Modo Educativo | 5 | Luis Ángel |
+| HU5 | Retroalimentación Técnica de Partidas (antes "Modo Educativo") | 5 | Luis Ángel |
 | HU10 | Configuración de Partida | 3 | Luis Ángel |
 
-- [ ] HU6: interfaz que muestra la imagen capturada, el análisis de posición (ya disponible
-      vía `analizar_posicion`/`obtener_variaciones`) y la jugada elegida.
+- [x] HU6 (parcial): imagen capturada visible en pantalla (`GET /vision/foto`), reconocimiento
+      de tablero conectado (`POST /vision/reconocer`) y botón "Usar esta posición" para seguir
+      jugando digitalmente desde ahí (`POST /partida` con `fen_inicial`) — cierra RF06/RF11 de
+      punta a punta en la interfaz, no solo en el backend.
+- [ ] HU6 (falta): exponer `obtener_variaciones` (RF21) en un endpoint y un widget en Sala de
+      Control con las jugadas candidatas de Stockfish — es lo único que queda de la versión base
+      de HU6. El panel de comparación modelo-vs-Stockfish (ver nota de diseño abajo) es la
+      ampliación de HU6 y queda bloqueado hasta que HU4 dé un modelo conectable.
 - [ ] HU4: clasificación de patrones de error + reentrenamiento en lotes versionados +
-      evaluación mediante partidas digitales simultáneas.
+      evaluación mediante partidas digitales simultáneas. Ver `CLAUDE.md` (regla 1) y
+      `PLAN_IMPLEMENTACION_COMPLETO.md` (sección 5): el modelo decide solo, sin depender de
+      Stockfish para jugar; la evaluación de Stockfish sí se puede usar como señal de
+      entrenamiento (pesar mejor los casos donde coincide con la jugada humana registrada) y
+      como métrica para decidir si una versión candidata se promueve (RF15) — eso es lo que
+      alimentaría el panel de Razonamiento Neuronal cuando exista `EstrategiaModelo`.
 - [ ] HU5: explicación de jugadas y errores frecuentes, principios básicos del ajedrez.
 - [x] HU10 (backend): `POST /partida` acepta `tipo_oponente` (RF31) y lo valida al crear la
       partida contra `fabrica_estrategias.TIPOS_SOPORTADOS`, en vez de fallar recién en la
