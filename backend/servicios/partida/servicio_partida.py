@@ -81,6 +81,30 @@ def listar_partidas() -> list[Partida]:
     return _repositorio.listar()
 
 
+def jugadas_legales_desde(partida_id: str, casilla: str) -> list[str]:
+    """Devuelve las casillas destino a las que se puede mover la pieza parada en `casilla`.
+
+    Sirve para resaltar en el tablero del frontend las jugadas válidas al
+    seleccionar una pieza (HU3) — usa el tablero real de la partida, nunca
+    Stockfish, así que no hace falta tener el motor corriendo.
+
+    Raises:
+        KeyError: si no existe una partida con ese id.
+        ValueError: si `casilla` no es una casilla válida (ej. "e2").
+    """
+    partida = obtener_partida(partida_id)
+    try:
+        origen = chess.parse_square(casilla)
+    except ValueError as error:
+        raise ValueError(f"Casilla inválida: {casilla}") from error
+    destinos = {
+        chess.square_name(jugada.to_square)
+        for jugada in partida.tablero.legal_moves
+        if jugada.from_square == origen
+    }
+    return sorted(destinos)
+
+
 def mover(partida_id: str, jugada_uci: str) -> dict:
     """Aplica la jugada del humano (UCI) y responde con la jugada de la estrategia activa.
 

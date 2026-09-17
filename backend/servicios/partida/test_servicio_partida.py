@@ -3,6 +3,7 @@ import pytest
 from backend.servicios.partida import servicio_partida
 from backend.servicios.partida.servicio_partida import (
     crear_partida,
+    jugadas_legales_desde,
     mover,
     mover_desde_foto,
     obtener_partida,
@@ -79,6 +80,27 @@ def test_mover_en_partida_ya_terminada_lanza_valueerror() -> None:
 
     with pytest.raises(ValueError):
         mover(partida.id, "a2a3")
+
+
+def test_jugadas_legales_desde_devuelve_destinos_del_peon() -> None:
+    partida = crear_partida(nivel=5)
+    assert jugadas_legales_desde(partida.id, "e2") == ["e3", "e4"]
+
+
+def test_jugadas_legales_desde_casilla_vacia_devuelve_lista_vacia() -> None:
+    partida = crear_partida(nivel=5)
+    assert jugadas_legales_desde(partida.id, "e4") == []
+
+
+def test_jugadas_legales_desde_casilla_invalida_lanza_valueerror() -> None:
+    partida = crear_partida(nivel=5)
+    with pytest.raises(ValueError):
+        jugadas_legales_desde(partida.id, "z9")
+
+
+def test_jugadas_legales_desde_partida_inexistente_lanza_keyerror() -> None:
+    with pytest.raises(KeyError):
+        jugadas_legales_desde("no-existe", "e2")
 
 
 def test_mover_desde_foto_detecta_y_aplica_la_jugada(monkeypatch: pytest.MonkeyPatch) -> None:

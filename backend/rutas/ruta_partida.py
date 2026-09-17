@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from backend.esquemas.partida_esquema import (
     CrearPartidaRequest,
     EstadoPartidaResponse,
+    JugadasLegalesResponse,
     MoverRequest,
     ResultadoMovimientoResponse,
     ResumenPartidaResponse,
@@ -13,6 +14,7 @@ from backend.esquemas.partida_esquema import (
 from backend.modelos.partida import Partida
 from backend.servicios.partida.servicio_partida import (
     crear_partida,
+    jugadas_legales_desde,
     listar_partidas,
     mover,
     mover_desde_foto,
@@ -81,6 +83,17 @@ def estado(partida_id: str) -> EstadoPartidaResponse:
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     return _a_estado(partida)
+
+
+@router.get("/{partida_id}/jugadas-legales", response_model=JugadasLegalesResponse)
+def jugadas_legales(partida_id: str, casilla: str) -> JugadasLegalesResponse:
+    try:
+        casillas = jugadas_legales_desde(partida_id, casilla)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return JugadasLegalesResponse(casillas=casillas)
 
 
 @router.post("/{partida_id}/mover", response_model=ResultadoMovimientoResponse)
