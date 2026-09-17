@@ -19,7 +19,7 @@ def test_crear_partida_arranca_en_posicion_inicial() -> None:
 def test_crear_partida_con_tipo_oponente_no_soportado_lanza_valueerror() -> None:
     # Se valida al crear, sin necesidad de Stockfish corriendo (HU10).
     with pytest.raises(ValueError):
-        crear_partida(nivel=5, tipo_oponente="modelo")
+        crear_partida(nivel=5, tipo_oponente="participante")
 
 
 def test_crear_partida_con_fen_inicial_arranca_en_esa_posicion() -> None:

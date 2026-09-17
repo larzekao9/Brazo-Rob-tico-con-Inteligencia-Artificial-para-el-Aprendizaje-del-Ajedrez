@@ -88,6 +88,30 @@ python -m pytest
 El frontend todavía no tiene tests automatizados (no se armó el setup de Vitest) — se prueba
 manualmente contra el backend real.
 
+Si al correr los tests que usan `torch` (por ejemplo `backend/servicios/aprendizaje/`) explota con:
+
+```
+OMP: Error #15: Initializing libomp.dylib, but found libomp.dylib already initialized.
+```
+
+es un conflicto conocido entre el OpenMP de conda y el que trae `torch` empaquetado (pasa en
+varias instalaciones conda + PyTorch en macOS/Apple Silicon, no es un bug del proyecto). Correr
+con:
+
+```bash
+KMP_DUPLICATE_LIB_OK=TRUE python -m pytest
+```
+
+Si corrés **toda** la suite junta (`training/` + `backend/servicios/aprendizaje/` +
+módulos que abren procesos de Stockfish, todos en la misma invocación de `pytest`) y explota con
+`Fatal Python error: Segmentation fault` dentro de `torch` (por ejemplo en `_load_from_state_dict`),
+es el mismo tipo de conflicto de threads de OpenMP, agravado por tener varios hilos de `torch` y
+procesos de Stockfish conviviendo. Se soluciona limitando los hilos de `torch`/BLAS a 1:
+
+```bash
+KMP_DUPLICATE_LIB_OK=TRUE OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m pytest
+```
+
 ## Documentación
 
 - [`docs/plan_sprints.md`](docs/plan_sprints.md) — backlog por sprint con seguimiento de tareas.

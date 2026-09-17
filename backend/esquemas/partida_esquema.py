@@ -9,9 +9,9 @@ from backend.servicios.motor.motor_ajedrez import NIVEL_MAX, NIVEL_MIN
 class CrearPartidaRequest(BaseModel):
     """Cuerpo de entrada para POST /partida.
 
-    `tipo_oponente` hoy solo admite `"motor"` (Stockfish) — pedir cualquier
-    otro valor devuelve 400 (ver `fabrica_estrategias.TIPOS_SOPORTADOS`);
-    `"modelo"` queda disponible en cuanto HU3/HU4 den un modelo entrenado.
+    `tipo_oponente` admite `"motor"` (Stockfish) o `"modelo"` (modelo
+    propio, HU4) — pedir cualquier otro valor devuelve 400 (ver
+    `fabrica_estrategias.TIPOS_SOPORTADOS`).
 
     `fen_inicial` es opcional: si se manda, la partida arranca en esa
     posición en vez de la inicial estándar — es lo que usa el botón "Usar
@@ -65,3 +65,9 @@ class ResultadoMovimientoResponse(BaseModel):
     terminada: bool
     resultado: str | None
     jugadas: list[str] = Field(default_factory=list)
+
+
+class JugadasLegalesResponse(BaseModel):
+    """Cuerpo de salida para GET /partida/{id}/jugadas-legales."""
+
+    casillas: list[str] = Field(default_factory=list)

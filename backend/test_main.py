@@ -83,7 +83,7 @@ def test_crear_partida_con_fen_inicial_invalido_devuelve_400() -> None:
 
 
 def test_crear_partida_con_tipo_oponente_no_soportado_devuelve_400() -> None:
-    respuesta = cliente.post("/partida", json={"nivel": 5, "tipo_oponente": "modelo"})
+    respuesta = cliente.post("/partida", json={"nivel": 5, "tipo_oponente": "participante"})
     assert respuesta.status_code == 400
 
 
