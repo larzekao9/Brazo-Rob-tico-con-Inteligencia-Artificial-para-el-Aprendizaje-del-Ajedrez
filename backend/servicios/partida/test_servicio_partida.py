@@ -2,6 +2,7 @@ import pytest
 
 from backend.servicios.partida import servicio_partida
 from backend.servicios.partida.servicio_partida import (
+    analisis_completo,
     crear_partida,
     jugadas_legales_desde,
     mover,
@@ -143,3 +144,27 @@ def test_mover_desde_foto_en_partida_ya_terminada_lanza_valueerror() -> None:
 def test_mover_desde_foto_en_partida_inexistente_lanza_keyerror() -> None:
     with pytest.raises(KeyError):
         mover_desde_foto("no-existe")
+
+
+def test_analisis_completo_devuelve_un_item_por_jugada_con_evaluaciones_invertidas() -> None:
+    partida = crear_partida(nivel=1)
+    mover(partida.id, "e2e4")
+
+    resultado = analisis_completo(partida.id, tiempo_limite=0.1)
+
+    assert resultado["partida_id"] == partida.id
+    assert len(resultado["jugadas"]) == len(partida.jugadas_san)
+
+    primera = resultado["jugadas"][0]
+    assert primera["numero_ply"] == 1
+    assert primera["color"] == "blanco"
+    assert primera["jugada_san"] == "e4"
+    assert primera["fen_antes"].startswith("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w")
+    assert "evaluacion_cp" in primera
+    assert "mejor_jugada_motor" in primera
+    assert len(primera["variantes_candidatas"]) > 0
+
+
+def test_analisis_completo_en_partida_inexistente_lanza_keyerror() -> None:
+    with pytest.raises(KeyError):
+        analisis_completo("no-existe")

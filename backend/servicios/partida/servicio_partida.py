@@ -16,6 +16,7 @@ import chess
 from backend.modelos.partida import Partida
 from backend.repositorios.repositorio_partida import RepositorioPartidas, crear_repositorio_partidas
 from backend.servicios.estrategias.fabrica_estrategias import TIPOS_SOPORTADOS, crear_estrategia_jugada
+from backend.servicios.motor.motor_ajedrez import analizar_posicion
 from backend.servicios.vision.camara import capturar_foto_tablero
 from backend.servicios.vision.deteccion_movimiento import detectar_jugada
 from backend.servicios.vision.reconocimiento import reconocer_tablero
@@ -175,3 +176,61 @@ def mover_desde_foto(partida_id: str) -> dict:
         )
     jugada_uci = tablero_antes.parse_san(jugada_san).uci()
     return mover(partida_id, jugada_uci)
+
+
+def analisis_completo(partida_id: str, tiempo_limite: float = 0.3) -> dict:
+    """Analiza con Stockfish cada jugada ya jugada de una partida (vista de aprendizaje, HU5/HU6).
+
+    Reconstruye, jugada por jugada, todas las posiciones por las que pasó la
+    partida desde `fen_inicial`, y le pide a `analizar_posicion` la evaluación
+    de cada una. `analizar_posicion` siempre evalúa desde el punto de vista de
+    quien tiene el turno en ese FEN — la posición "después" de una jugada le
+    toca mover al rival, así que su evaluación queda en la perspectiva del
+    rival, y hay que negarla para volver a la perspectiva de quien jugó, y así
+    poder compararla contra lo que hubiera valido la mejor jugada (calculada
+    en la posición "antes", ya en esa misma perspectiva).
+
+    Abre un proceso de Stockfish por cada posición (N+1 para N jugadas), así
+    que es lento para partidas largas — es una acción explícita del usuario
+    ("analizar esta partida"), no algo que corra automáticamente, y
+    `tiempo_limite` por defecto es más bajo que en el resto del motor para
+    no tardar demasiado.
+
+    Raises:
+        KeyError: si no existe una partida con ese id.
+    """
+    partida = obtener_partida(partida_id)
+
+    tablero = chess.Board(partida.fen_inicial)
+    posiciones_fen = [tablero.fen()]
+    for jugada in partida.tablero.move_stack:
+        tablero.push(jugada)
+        posiciones_fen.append(tablero.fen())
+
+    analisis_por_posicion = [
+        analizar_posicion(fen, partida.nivel, tiempo_limite) for fen in posiciones_fen
+    ]
+
+    resultado = []
+    for i, jugada_san in enumerate(partida.jugadas_san):
+        antes = analisis_por_posicion[i]
+        despues = analisis_por_posicion[i + 1]
+
+        eval_resultante_cp = None if despues["evaluacion_cp"] is None else -despues["evaluacion_cp"]
+        mate_resultante = None if despues["mate_en"] is None else -despues["mate_en"]
+
+        resultado.append({
+            "numero_ply": i + 1,
+            "color": "blanco" if i % 2 == 0 else "negro",
+            "jugada_san": jugada_san,
+            "fen_antes": posiciones_fen[i],
+            "fen_despues": posiciones_fen[i + 1],
+            "evaluacion_cp": eval_resultante_cp,
+            "mate_en": mate_resultante,
+            "mejor_jugada_motor": antes["jugada"],
+            "evaluacion_mejor_cp": antes["evaluacion_cp"],
+            "mate_en_mejor": antes["mate_en"],
+            "variantes_candidatas": antes["variantes_candidatas"],
+        })
+
+    return {"partida_id": partida_id, "jugadas": resultado}

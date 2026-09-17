@@ -4,6 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from backend.esquemas.partida_esquema import (
+    AnalisisCompletoResponse,
     CrearPartidaRequest,
     EstadoPartidaResponse,
     JugadasLegalesResponse,
@@ -13,6 +14,7 @@ from backend.esquemas.partida_esquema import (
 )
 from backend.modelos.partida import Partida
 from backend.servicios.partida.servicio_partida import (
+    analisis_completo,
     crear_partida,
     jugadas_legales_desde,
     listar_partidas,
@@ -32,6 +34,7 @@ def _a_estado(partida: Partida) -> EstadoPartidaResponse:
         nivel=partida.nivel,
         creada_en=partida.creada_en,
         fen=partida.fen,
+        fen_inicial=partida.fen_inicial,
         terminada=partida.terminada,
         resultado=partida.resultado,
         jugadas=partida.jugadas_san,
@@ -119,3 +122,12 @@ def mover_partida_desde_foto(partida_id: str) -> ResultadoMovimientoResponse:
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     return ResultadoMovimientoResponse(**resultado)
+
+
+@router.get("/{partida_id}/analisis-completo", response_model=AnalisisCompletoResponse)
+def analisis_completo_partida(partida_id: str) -> AnalisisCompletoResponse:
+    """Analiza con Stockfish cada jugada de la partida, para la vista de aprendizaje (HU5/HU6)."""
+    try:
+        return AnalisisCompletoResponse(**analisis_completo(partida_id))
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error

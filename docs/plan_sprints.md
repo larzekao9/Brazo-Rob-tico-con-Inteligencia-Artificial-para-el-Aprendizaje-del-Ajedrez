@@ -103,48 +103,184 @@ Drive; `reconocer_tablero` reconoce correctamente al menos un tablero de prueba 
 
 ---
 
-## Sprint 2 — Interfaz, aprendizaje y configuración
+## Sprint 2 — Onboarding educativo, análisis y configuración
 
-**Objetivo:** visualizar en tiempo real lo que el sistema percibe y decide, primer modelo
-entrenado con evaluación real, modo educativo básico, y configuración de partida.
+**Objetivo:** flujo completo del jugador desde ingreso hasta aprendizaje: onboarding visual,
+diagnóstico de nivel, configuración de partida, análisis en tiempo real durante la partida,
+retroalimentación post-partida, estadísticas personales, y reentrenamiento del modelo en lotes.
 
-| HU | Descripción | Puntos | Responsable |
-|---|---|---|---|
-| HU6 | Visualización del Razonamiento en Tiempo Real | 5 | Hebert |
-| HU4 | Reentrenamiento y Evaluación del Modelo | 5 | Luis Ángel |
-| HU5 | Retroalimentación Técnica de Partidas (antes "Modo Educativo") | 5 | Luis Ángel |
-| HU10 | Configuración de Partida | 3 | Luis Ángel |
+**Nota de plataforma:** todas las HU de frontend se implementan en **Flutter** (mobile-first),
+no React. Flutter permite compilar a iOS/Android/Web desde el mismo código, con mejor
+performance en mobile y UX más nativa.
 
-- [x] HU6 (parcial): imagen capturada visible en pantalla (`GET /vision/foto`), reconocimiento
-      de tablero conectado (`POST /vision/reconocer`) y botón "Usar esta posición" para seguir
-      jugando digitalmente desde ahí (`POST /partida` con `fen_inicial`) — cierra RF06/RF11 de
-      punta a punta en la interfaz, no solo en el backend.
-- [x] HU6 (RF21): `analizar_posicion` pide MultiPV y devuelve `variantes_candidatas` (jugada +
-      evaluación) junto al resto del análisis, en una sola llamada a Stockfish; Sala de Control
-      las muestra en un widget nuevo ("JUGADAS CANDIDATAS"). **Con esto se cierra la versión
-      base de HU6** — lo que queda es 🔭 (ampliación de tesis).
-- [x] Stockfish instalado localmente sin admin: binario oficial descargado a `tools/stockfish/`
-      (ignorado por git), `STOCKFISH_PATH` configurable por variable de entorno — toda la suite
-      de tests pasa en esta máquina (antes fallaban 14-15 por no tener el binario).
-- El panel de comparación modelo-vs-Stockfish (ver nota de diseño abajo) sigue siendo la
-      ampliación de HU6 y queda bloqueado hasta que HU4 dé un modelo conectable.
-- [ ] HU4: clasificación de patrones de error + reentrenamiento en lotes versionados +
-      evaluación mediante partidas digitales simultáneas. Ver `CLAUDE.md` (regla 1) y
-      `PLAN_IMPLEMENTACION_COMPLETO.md` (sección 5): el modelo decide solo, sin depender de
-      Stockfish para jugar; la evaluación de Stockfish sí se puede usar como señal de
-      entrenamiento (pesar mejor los casos donde coincide con la jugada humana registrada) y
-      como métrica para decidir si una versión candidata se promueve (RF15) — eso es lo que
-      alimentaría el panel de Razonamiento Neuronal cuando exista `EstrategiaModelo`.
-- [ ] HU5: explicación de jugadas y errores frecuentes, principios básicos del ajedrez.
-- [x] HU10 (backend): `POST /partida` acepta `tipo_oponente` (RF31) y lo valida al crear la
-      partida contra `fabrica_estrategias.TIPOS_SOPORTADOS`, en vez de fallar recién en la
-      primera jugada — hoy solo `"motor"` está soportado, pedir otro devuelve 400 explícito.
-      `Partida.tipo_oponente` se guarda y `mover()` ya lo usa para elegir la estrategia, en vez
-      de tener `"motor"` harcodeado. Queda listo para que `EstrategiaModelo` (HU3/HU4) se sume
-      sin tocar `servicio_partida.py` ni las rutas — solo agregar el tipo a la fábrica.
-- [ ] HU10 (frontend): selector de tipo de oponente en la pantalla de configuración de partida
-      — pendiente en `ProyectGrupal_Taller_SW2_Frontend` (submódulo `frontend/`, repo aparte).
-- [ ] HU10: modo educativo — todavía no tiene ni campo ni comportamiento; depende de HU5.
+| HU | Descripción | Puntos | Responsable | Orden |
+|---|---|---|---|---|
+| HU12 | Onboarding Educativo Visual | 5 | Luis Ángel | 1️⃣ Primero |
+| HU13 | Cuestionario Diagnóstico de Nivel | 3 | Luis Ángel | 2️⃣ Segundo |
+| HU10 | Configuración de Partida (frontend Flutter) | 3 | Luis Ángel | 3️⃣ Tercero |
+| HU6 | Análisis en Tiempo Real Durante la Partida | 5 | Hebert | 4️⃣ Cuarto |
+| HU5 | Retroalimentación Técnica Post-Partida | 5 | Luis Ángel | ✅ Hecho |
+| HU14 | Estadísticas Personales y Progreso | 3 | Luis Ángel | 5️⃣ Quinto |
+| HU4 | Reentrenamiento y Evaluación del Modelo | 5 | Luis Ángel | 6️⃣ Último |
+
+**Total Sprint 2: 29 puntos.**
+
+### **HU12 — Onboarding Educativo Visual** (5 pts, Luis Ángel)
+
+Flujo de tarjetas interactivas que enseñan las reglas antes de jugar:
+- [ ] 8-10 tarjetas (una por pieza + movimientos básicos)
+- [ ] Cada tarjeta: imagen, nombre, movimiento, ejemplo interactivo en miniatura
+- [ ] Prueba final: pequeño puzzle de 1-2 movimientos para validar comprensión
+- [ ] Guardá en sesión: `onboarding_completado = true`
+
+**Salida:** Jugador sabe qué hace cada pieza y cómo se mueve.
+
+### **HU13 — Cuestionario Diagnóstico de Nivel** (3 pts, Luis Ángel)
+
+Evaluación dinámica de nivel antes de la primera partida:
+- [ ] 5-8 preguntas (ej: "¿Has jugado ajedrez antes?", "¿Conoces aperturas?", "¿Sabes tácticas?")
+- [ ] Backend calcula puntuación → asigna nivel de Stockfish (1-20)
+- [ ] Alternativa: si elige "principiante", nivel=5; si "intermedio", nivel=12; si "avanzado", nivel=18
+- [ ] Guardá `nivel_diagnosticado` en la sesión del usuario
+
+**Salida:** Cada jugador tiene un nivel personalizado, no random.
+
+### **HU10 — Configuración de Partida (Frontend Flutter)** (3 pts, Luis Ángel)
+
+Pantalla para elegir oponente y parámetros antes de jugar:
+- [ ] Selector de oponente: "Motor Stockfish" o "Modelo IA" (grisado si modelo aún no existe)
+- [ ] Pre-carga nivel diagnosticado de HU13
+- [ ] Opción de cambiar nivel manualmente (slider 1-20)
+- [ ] Botón "Jugar" → `POST /partida` con `tipo_oponente` y `nivel`
+- [ ] Feedback visual si el backend rechaza el tipo de oponente (400 error)
+
+**Dependencias:** HU13 (nivel pre-cargado).
+
+**Backend:** Ya listo (HU10 backend hecho en Sprint anterior).
+
+**Salida:** Jugador elige contra quién juega.
+
+### **HU6 — Análisis en Tiempo Real Durante la Partida** (5 pts, Hebert)
+
+Retroalimentación visual en vivo mientras el jugador juega:
+- [ ] **Evaluación actual:** barra de porcentaje ganador (0-100%, no centipawns crudos)
+  - Usa fórmula Lichess: `Win% = 50 + 50 * (2 / (1 + exp(-0.00368208 * cp)) - 1)`
+- [ ] **Indicador de calidad de la jugada:** después de que el jugador mueve, muestra si fue buena/mala
+  - Colores: verde (buena), amarillo (inexacta), naranja (error), rojo (blunder)
+- [ ] **Sugerencia de mejor jugada:** muestra la jugada que Stockfish elegiría (sin ser obligatoria)
+- [ ] **Mate forzado:** si hay mate en N, muestra "MATE en 3" en vez de la barra normal
+
+**Nota:** Mientras HU4 no esté lista, la sugerencia viene de Stockfish. Cuando HU4 esté lista,
+se puede cambiar para mostrar la comparación modelo-vs-Stockfish en paralelo.
+
+**Bloqueador temporal:** `EstrategiaModelo` todavía no existe (depende de HU4), así que hoy
+muestra análisis contra Stockfish solo.
+
+**Salida:** Jugador ve feedback visual EN TIEMPO REAL, diferenciador vs ChessKid/Chess.com.
+
+### **HU5 — Retroalimentación Técnica Post-Partida** (5 pts, Luis Ángel)
+
+✅ **Ya implementado en Sprint 2 anterior.** Vista "Aprendizaje" con:
+- [ ] Lista de jugadas clasificadas (qué/por qué/cómo)
+- [ ] Curva de efectividad (Win% a lo largo de la partida)
+- [ ] Panel de detalle de cada jugada
+
+**Salida:** Jugador entiende qué salió mal y cómo mejorar.
+
+### **HU14 — Estadísticas Personales y Progreso** (3 pts, Luis Ángel)
+
+Dashboard post-partida con métricas personales:
+- [ ] Partidas jugadas (total, por oponente)
+- [ ] Promedio de efectividad (Win% promedio de todas sus partidas)
+- [ ] Errores más frecuentes (si tiene 3+ partidas, muestra top 3 categorías)
+- [ ] Racha de victoria actual
+- [ ] Meta visual: "Mejoraste un 2% respecto a ayer" (si aplica)
+- [ ] Gráfico de progreso semanal (línea simple)
+
+**Dependencias:** HU5 (necesita datos de análisis).
+
+**Salida:** Jugador ve su progreso real, gamificación que lo motiva a jugar más.
+
+### **HU4 — Reentrenamiento y Evaluación del Modelo** (5 pts, Luis Ángel)
+
+Ciclo de mejora automática del modelo propio:
+- [ ] **Recopilación:** después de N partidas contra el modelo (ej. 10), recopila historial
+- [ ] **Análisis:** llama `GET /partida/{id}/analisis-completo` para cada partida
+- [ ] **Clasificación de errores:** identifica en qué tipo de posiciones falla el modelo
+- [ ] **Reentrenamiento:** sube los datos a Colab, reentrenamiento con HU3 base + datos nuevos
+- [ ] **Versionado:** guarda checkpoint como `modelo_jugadas_v2_2026-09-17.pt` en Google Drive
+- [ ] **Evaluación:** juega 10-20 partidas modelo-vs-Stockfish, calcula:
+  - Tasa de victoria del modelo
+  - ACPL promedio (centipawn loss del modelo)
+  - Coincidencia con Stockfish (%)
+- [ ] **Promoción:** si métricas mejoran → promueve versión; si no → rollback
+
+**Nota importante (regla 1 de `CLAUDE.md`):** El modelo decide **solo**, sin depender de
+Stockfish para jugar. Stockfish es **solo para medir** — comparación paralela, no en el camino
+de decisión.
+
+**Salida:** El modelo se reentrenó y está más fuerte. Diferenciador clave: motor que aprende
+de usuarios.
+
+---
+
+### **Flujo del Jugador Completo (Ahora)**
+
+```
+1. Abre la app (Flutter mobile)
+   ↓
+2. VE ONBOARDING (HU12) — "Aprende qué es cada pieza" (tarjetas interactivas)
+   ↓
+3. HACE CUESTIONARIO (HU13) — "¿Cuál es tu nivel?" (5 preguntas)
+   ↓
+4. CONFIGURA PARTIDA (HU10) — "Contra quién querés jugar? Motor o Modelo?" (selector)
+   ↓
+5. JUEGA Y VE ANÁLISIS EN VIVO (HU6) — "¿Estoy jugando bien?" (barra Win%, indicador calidad)
+   ↓
+6. TERMINA Y VE ANÁLISIS DETALLADO (HU5) — "Qué salió mal y por qué" (lista + curva)
+   ↓
+7. VE SU PROGRESO (HU14) — "Mejoraba un 2% hoy, mi racha es 3 victorias" (dashboard)
+   ↓
+8. [BACKGROUND] MODELO SE REENTRENÓ (HU4) — "Próxima versión lista" (después de 10 partidas)
+   ↓
+9. JUEGA DE NUEVO, Y EL MODELO ESTÁ MÁS FUERTE
+```
+
+---
+
+### **Cambios vs Sprint 2 Original**
+
+| Aspecto | Antes | Ahora |
+|---|---|---|
+| **HU en Sprint 2** | 4 (HU6, HU4, HU5, HU10) | 7 (HU12-14 nuevas) |
+| **Puntos totales** | 18 | 29 (más realista) |
+| **Plataforma frontend** | React (web) | **Flutter (mobile-first)** |
+| **Flujo del jugador** | Desorganizado, sin onboarding | Completo de punta a punta |
+| **HU6 bloqueador** | Bloqueada por HU4 | Desacoplada, se hace independiente |
+| **Diferenciadores** | Solo análisis post-partida | + Onboarding + Diagnóstico + Análisis en tiempo real + Progreso personal |
+| **Competencia** | Vs Chess.com/Lichess (genéricos) | Vs ChessKid (pero mejor UX) |
+
+---
+
+### **Dependencias y Orden de Ejecución**
+
+```
+HU12 (Onboarding)
+  ↓
+HU13 (Diagnóstico) — independiente, pero depende de HU12 terminada
+  ↓
+HU10 (Config) — depende de HU13 (nivel pre-cargado)
+  ↓
+HU6 (Análisis en vivo) — independiente, Hebert puede empezar en paralelo
+  ↓
+HU5 (Análisis post-partida) — ✅ ya hecho
+  ↓
+HU14 (Estadísticas) — depende de HU5
+  ↓
+HU4 (Reentrenamiento) — depende de HU5 (usa `analisis-completo`)
+```
+
+**Puede haber paralelismo:** Hebert en HU6 mientras Luis Ángel hace HU12-13-10.
 
 ---
 

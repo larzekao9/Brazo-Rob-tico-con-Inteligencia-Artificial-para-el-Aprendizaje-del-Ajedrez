@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from backend.esquemas.jugada_esquema import VarianteCandidata
 from backend.servicios.motor.motor_ajedrez import NIVEL_MAX, NIVEL_MIN
 
 
@@ -32,6 +33,7 @@ class EstadoPartidaResponse(BaseModel):
     nivel: int
     creada_en: str
     fen: str
+    fen_inicial: str
     terminada: bool
     resultado: str | None = None
     jugadas: list[str] = Field(default_factory=list)
@@ -71,3 +73,33 @@ class JugadasLegalesResponse(BaseModel):
     """Cuerpo de salida para GET /partida/{id}/jugadas-legales."""
 
     casillas: list[str] = Field(default_factory=list)
+
+
+class JugadaAnalisisResponse(BaseModel):
+    """El análisis de Stockfish de una jugada ya jugada, para la vista de aprendizaje.
+
+    `evaluacion_cp`/`mate_en` son lo que valió la jugada REALMENTE jugada,
+    ya reexpresado en la perspectiva de quien la jugó. `mejor_jugada_motor`,
+    `evaluacion_mejor_cp` y `mate_en_mejor` son lo que Stockfish hubiera
+    jugado en esa misma posición, en la misma perspectiva — comparar ambos
+    pares es lo que permite clasificar la jugada como buena/inexactitud/error/blunder.
+    """
+
+    numero_ply: int
+    color: str
+    jugada_san: str
+    fen_antes: str
+    fen_despues: str
+    evaluacion_cp: int | None
+    mate_en: int | None
+    mejor_jugada_motor: str | None
+    evaluacion_mejor_cp: int | None
+    mate_en_mejor: int | None
+    variantes_candidatas: list[VarianteCandidata] = Field(default_factory=list)
+
+
+class AnalisisCompletoResponse(BaseModel):
+    """Cuerpo de salida para GET /partida/{id}/analisis-completo."""
+
+    partida_id: str
+    jugadas: list[JugadaAnalisisResponse] = Field(default_factory=list)
