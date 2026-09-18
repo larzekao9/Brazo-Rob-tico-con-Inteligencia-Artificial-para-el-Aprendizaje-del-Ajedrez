@@ -22,11 +22,19 @@ def cliente():
         finally:
             sesion.close()
 
+    # Restaura el override anterior (si había uno, ej. el de `backend/test_main.py`,
+    # que queda instalado a nivel de módulo durante toda la sesión de tests) en
+    # vez de simplemente sacarlo — de lo contrario, correr esta suite junto a
+    # otras deja `get_db` sin override para los tests que se ejecutan después.
+    override_anterior = app.dependency_overrides.get(get_db)
     app.dependency_overrides[get_db] = _db
     try:
         yield TestClient(app)
     finally:
-        app.dependency_overrides.pop(get_db, None)
+        if override_anterior is not None:
+            app.dependency_overrides[get_db] = override_anterior
+        else:
+            app.dependency_overrides.pop(get_db, None)
 
 
 JUGADOR = {"email": "ana@test.com", "nombre": "Ana", "password": "secreto1"}

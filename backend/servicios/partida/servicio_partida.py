@@ -24,7 +24,12 @@ from backend.servicios.vision.reconocimiento import reconocer_tablero
 _repositorio: RepositorioPartidas = crear_repositorio_partidas()
 
 
-def crear_partida(nivel: int = 20, tipo_oponente: str = "motor", fen_inicial: str | None = None) -> Partida:
+def crear_partida(
+    nivel: int = 20,
+    tipo_oponente: str = "motor",
+    fen_inicial: str | None = None,
+    usuario_id: int | None = None,
+) -> Partida:
     """Crea una partida nueva.
 
     Por defecto arranca en la posición inicial estándar. Si se pasa
@@ -32,6 +37,10 @@ def crear_partida(nivel: int = 20, tipo_oponente: str = "motor", fen_inicial: st
     al escanear un tablero físico), la partida arranca ahí en cambio — así
     se puede seguir jugando digitalmente una posición que se armó sobre un
     tablero real.
+
+    `usuario_id` es el dueño de la partida (HU10) — lo manda `ruta_partida.py`
+    a partir del token de `Authorization: Bearer` ya validado, nunca viene del
+    cuerpo de la request.
 
     Raises:
         ValueError: si `tipo_oponente` no es un tipo soportado todavía (ver
@@ -45,7 +54,7 @@ def crear_partida(nivel: int = 20, tipo_oponente: str = "motor", fen_inicial: st
             f"(disponibles: {sorted(TIPOS_SOPORTADOS)})"
         )
     if fen_inicial is None:
-        partida = Partida(nivel=nivel, tipo_oponente=tipo_oponente)
+        partida = Partida(nivel=nivel, tipo_oponente=tipo_oponente, usuario_id=usuario_id)
     else:
         try:
             tablero = chess.Board(fen_inicial)
@@ -58,7 +67,13 @@ def crear_partida(nivel: int = 20, tipo_oponente: str = "motor", fen_inicial: st
             raise ValueError(
                 f"La posición reconocida no es válida (imposible en una partida real): {fen_inicial}"
             )
-        partida = Partida(tablero=tablero, nivel=nivel, tipo_oponente=tipo_oponente, fen_inicial=fen_inicial)
+        partida = Partida(
+            tablero=tablero,
+            nivel=nivel,
+            tipo_oponente=tipo_oponente,
+            fen_inicial=fen_inicial,
+            usuario_id=usuario_id,
+        )
     _repositorio.guardar(partida)
     return partida
 
@@ -117,6 +132,13 @@ def mover(partida_id: str, jugada_uci: str) -> dict:
     servidor mientras el cliente, que solo vio un error, sigue mostrando la
     posición de antes. Solo se pisa `partida.tablero` si todo salió bien.
 
+    Una vez aplicada, registra una fila en `jugada` (RF34/HU4) por cada
+    jugada real que se jugó en esta llamada — la del humano y, si la partida
+    no terminó ahí, la de la estrategia que respondió — vía
+    `RepositorioPartidas.registrar_jugada`. Con `RepositorioPartidasEnMemoria`
+    (sin `DATABASE_URL`) es un no-op documentado: no hay tabla `jugada` en
+    memoria a la que escribir.
+
     Raises:
         KeyError: si no existe una partida con ese id.
         ValueError: si la partida ya terminó o la jugada es inválida/ilegal.
@@ -131,16 +153,29 @@ def mover(partida_id: str, jugada_uci: str) -> dict:
         raise ValueError(f"Jugada inválida: {jugada_uci}") from error
 
     tablero_intento = partida.tablero.copy()
+    fen_antes_humano = tablero_intento.fen()
     tablero_intento.push(jugada_humano)
+    jugadas_a_registrar = [
+        (len(tablero_intento.move_stack), fen_antes_humano, jugada_humano.uci(), "jugador")
+    ]
 
     jugada_motor_san = None
     if not tablero_intento.is_game_over():
         estrategia = crear_estrategia_jugada(partida.tipo_oponente, nivel=partida.nivel)
-        jugada_motor_san = estrategia.decidir_jugada(tablero_intento.fen())
+        fen_antes_motor = tablero_intento.fen()
+        jugada_motor_san = estrategia.decidir_jugada(fen_antes_motor)
         tablero_intento.push_san(jugada_motor_san)
+        jugadas_a_registrar.append((
+            len(tablero_intento.move_stack),
+            fen_antes_motor,
+            tablero_intento.move_stack[-1].uci(),
+            partida.tipo_oponente,
+        ))
 
     partida.tablero = tablero_intento
     _repositorio.guardar(partida)
+    for numero, fen_antes, movimiento, decidido_por in jugadas_a_registrar:
+        _repositorio.registrar_jugada(partida.id, numero, fen_antes, movimiento, decidido_por)
 
     return {
         "fen": partida.fen,

@@ -36,6 +36,12 @@ class Partida:
     tipo: str = "digital"
     creada_en: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     fen_inicial: str = field(default=chess.STARTING_FEN)
+    usuario_id: int | None = None
+    """Dueño de la partida (HU10) — quién puede consultarla vía `GET /partida/{id}`.
+
+    `None` para partidas creadas antes de que la autenticación fuera
+    obligatoria en `POST /partida`; esas quedan sin dueño y no se bloquean
+    por el chequeo de autorización (ver `ruta_partida.py::estado`)."""
 
     @property
     def fen(self) -> str:

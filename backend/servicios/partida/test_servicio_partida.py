@@ -1,7 +1,8 @@
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 
 from backend.database import crear_fabrica_sesiones, crear_tablas
+from backend.modelos.tablas_orm import JugadaORM
 from backend.repositorios.repositorio_partida import RepositorioPartidasPostgres
 from backend.servicios.partida import servicio_partida
 from backend.servicios.partida.servicio_partida import (
@@ -19,6 +20,16 @@ def test_crear_partida_arranca_en_posicion_inicial() -> None:
     assert partida.fen.startswith("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w")
     assert not partida.terminada
     assert partida.tipo_oponente == "motor"
+
+
+def test_crear_partida_guarda_el_usuario_dueno() -> None:
+    partida = crear_partida(nivel=5, usuario_id=7)
+    assert partida.usuario_id == 7
+
+
+def test_crear_partida_sin_usuario_queda_sin_dueno() -> None:
+    partida = crear_partida(nivel=5)
+    assert partida.usuario_id is None
 
 
 def test_crear_partida_con_tipo_oponente_no_soportado_lanza_valueerror() -> None:
@@ -127,6 +138,35 @@ def test_mover_guarda_la_jugada_en_el_repositorio(monkeypatch: pytest.MonkeyPatc
     partida_releida = obtener_partida(partida.id)
     assert partida_releida.fen == resultado["fen"]
     assert partida_releida.jugadas_san == resultado["jugadas"]
+
+
+def test_mover_registra_una_fila_de_jugada_por_cada_movimiento_aplicado(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Con `RepositorioPartidasEnMemoria` (el default sin `DATABASE_URL`) esto es
+    # un no-op silencioso — acá se prueba contra un repositorio real (RF34/HU4)
+    # para confirmar que `mover()` popula la tabla `jugada`: una fila para la
+    # jugada del humano y otra para la respuesta de la estrategia activa.
+    engine = create_engine("sqlite:///:memory:")
+    crear_tablas(engine)
+    fabrica_sesiones = crear_fabrica_sesiones(engine)
+    repositorio_real = RepositorioPartidasPostgres(fabrica_sesiones)
+    monkeypatch.setattr(servicio_partida, "_repositorio", repositorio_real)
+
+    partida = crear_partida(nivel=5)
+    mover(partida.id, "e2e4")
+
+    with fabrica_sesiones() as sesion:
+        filas = sesion.scalars(
+            select(JugadaORM).where(JugadaORM.partida_id == partida.id).order_by(JugadaORM.numero)
+        ).all()
+
+    assert len(filas) == 2
+    assert filas[0].numero == 1
+    assert filas[0].movimiento == "e2e4"
+    assert filas[0].decidido_por == "jugador"
+    assert filas[1].numero == 2
+    assert filas[1].decidido_por == "motor"
 
 
 def test_mover_en_partida_ya_terminada_lanza_valueerror() -> None:

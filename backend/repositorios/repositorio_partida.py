@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.modelos.partida import Partida
-from backend.modelos.tablas_orm import PartidaORM
+from backend.modelos.tablas_orm import JugadaORM, PartidaORM
 
 
 class RepositorioPartidas(ABC):
@@ -33,6 +33,16 @@ class RepositorioPartidas(ABC):
     @abstractmethod
     def listar(self) -> list[Partida]:
         """Devuelve todas las partidas guardadas, más reciente primero."""
+
+    @abstractmethod
+    def registrar_jugada(
+        self, partida_id: str, numero: int, fen_antes: str, movimiento: str, decidido_por: str
+    ) -> None:
+        """Persiste una fila de la tabla `jugada` (RF34/HU4) por cada movimiento aplicado.
+
+        `movimiento` va en notación UCI; `decidido_por` es `'jugador'`,
+        `'motor'` o `'modelo'` según quién decidió esa jugada puntual.
+        """
 
 
 class RepositorioPartidasEnMemoria(RepositorioPartidas):
@@ -59,11 +69,21 @@ class RepositorioPartidasEnMemoria(RepositorioPartidas):
     def listar(self) -> list[Partida]:
         return list(reversed(self._partidas.values()))
 
+    def registrar_jugada(
+        self, partida_id: str, numero: int, fen_antes: str, movimiento: str, decidido_por: str
+    ) -> None:
+        """No-op a propósito: en memoria no existe una tabla `jugada` a la que
+        escribir. En la práctica esto solo importa mientras no haya
+        `DATABASE_URL` seteada — y sin ella tampoco funciona la autenticación
+        (HU10, ver `ruta_auth.get_db`), así que un despliegue real siempre
+        termina usando `RepositorioPartidasPostgres` en su lugar."""
+
 
 def _partida_a_fila(partida: Partida) -> PartidaORM:
     """Traduce el dataclass de dominio a la fila de la tabla `partida`."""
     return PartidaORM(
         id=partida.id,
+        usuario_id=partida.usuario_id,
         fecha=datetime.fromisoformat(partida.creada_en),
         resultado=partida.resultado,
         tipo=partida.tipo,
@@ -87,15 +107,16 @@ def _fila_a_partida(fila: PartidaORM) -> Partida:
         id=fila.id,
         tipo=fila.tipo,
         creada_en=fila.fecha.isoformat() if hasattr(fila.fecha, "isoformat") else str(fila.fecha),
+        usuario_id=fila.usuario_id,
     )
 
 
 class RepositorioPartidasPostgres(RepositorioPartidas):
     """Guarda las partidas en la tabla `partida` (sección 7 del plan) vía SQLAlchemy.
 
-    Todavía no popula la tabla `jugada` (RF34/HU4 — falta decidir ahí quién
-    jugó cada movimiento y con qué tiempo de cálculo); esta implementación
-    solo cubre lo que la interfaz `RepositorioPartidas` ya necesita hoy.
+    También popula la tabla `jugada` (RF34/HU4, ver `registrar_jugada`) con
+    una fila por movimiento aplicado — quién lo decidió, no todavía tiempo de
+    cálculo ni explicación.
     """
 
     def __init__(self, fabrica_sesiones: sessionmaker[Session]) -> None:
@@ -108,8 +129,23 @@ class RepositorioPartidasPostgres(RepositorioPartidas):
             if fila_existente is None:
                 sesion.add(fila_nueva)
             else:
-                for columna in ("resultado", "fen", "nivel", "tipo_oponente", "jugadas_uci"):
+                for columna in ("usuario_id", "resultado", "fen", "nivel", "tipo_oponente", "jugadas_uci"):
                     setattr(fila_existente, columna, getattr(fila_nueva, columna))
+            sesion.commit()
+
+    def registrar_jugada(
+        self, partida_id: str, numero: int, fen_antes: str, movimiento: str, decidido_por: str
+    ) -> None:
+        with self._fabrica_sesiones() as sesion:
+            sesion.add(
+                JugadaORM(
+                    partida_id=partida_id,
+                    numero=numero,
+                    fen_antes=fen_antes,
+                    movimiento=movimiento,
+                    decidido_por=decidido_por,
+                )
+            )
             sesion.commit()
 
     def obtener(self, partida_id: str) -> Partida:

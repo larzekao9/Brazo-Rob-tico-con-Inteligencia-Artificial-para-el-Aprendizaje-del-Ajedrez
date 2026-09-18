@@ -1,7 +1,7 @@
 """Endpoints HTTP para partidas jugables contra la estrategia de jugada activa."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from backend.esquemas.partida_esquema import (
     AnalisisCompletoResponse,
@@ -13,6 +13,7 @@ from backend.esquemas.partida_esquema import (
     ResumenPartidaResponse,
 )
 from backend.modelos.partida import Partida
+from backend.rutas.ruta_auth import get_current_user
 from backend.servicios.partida.servicio_partida import (
     analisis_completo,
     crear_partida,
@@ -56,12 +57,19 @@ def _a_resumen(partida: Partida) -> ResumenPartidaResponse:
 
 
 @router.post("", response_model=EstadoPartidaResponse)
-def crear(request: CrearPartidaRequest) -> EstadoPartidaResponse:
+def crear(
+    request: CrearPartidaRequest,
+    usuario_id: int = Depends(get_current_user),
+) -> EstadoPartidaResponse:
+    """Requiere `Authorization: Bearer <token>` (HU10) — la partida queda asociada
+    al usuario del token, para poder filtrarla después en `/usuario/estadisticas`
+    y `/usuario/historial-partidas`."""
     try:
         partida = crear_partida(
             nivel=request.nivel,
             tipo_oponente=request.tipo_oponente,
             fen_inicial=request.fen_inicial,
+            usuario_id=usuario_id,
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -80,11 +88,14 @@ def listar() -> list[ResumenPartidaResponse]:
 
 
 @router.get("/{partida_id}", response_model=EstadoPartidaResponse)
-def estado(partida_id: str) -> EstadoPartidaResponse:
+def estado(partida_id: str, usuario_id: int = Depends(get_current_user)) -> EstadoPartidaResponse:
+    """Requiere `Authorization: Bearer <token>` (HU10) — 403 si la partida es de otro usuario."""
     try:
         partida = obtener_partida(partida_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+    if partida.usuario_id is not None and partida.usuario_id != usuario_id:
+        raise HTTPException(status_code=403, detail="La partida pertenece a otro usuario")
     return _a_estado(partida)
 
 

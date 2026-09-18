@@ -44,3 +44,10 @@ def test_listar_devuelve_todas_las_guardadas_mas_reciente_primero() -> None:
 def test_listar_vacio_si_no_hay_partidas_guardadas() -> None:
     repositorio = RepositorioPartidasEnMemoria()
     assert repositorio.listar() == []
+
+
+def test_registrar_jugada_no_rompe_sin_tabla_jugada_en_memoria() -> None:
+    # No-op documentado (ver docstring de `RepositorioPartidasEnMemoria.registrar_jugada`):
+    # no hay tabla `jugada` en memoria a la que escribir.
+    repositorio = RepositorioPartidasEnMemoria()
+    repositorio.registrar_jugada("no-existe", 1, "fen", "e2e4", "jugador")

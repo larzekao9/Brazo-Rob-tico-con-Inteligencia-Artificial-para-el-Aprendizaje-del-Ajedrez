@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.rutas.ruta_jugada import router as jugada_router
 from backend.rutas.ruta_partida import router as partida_router
+from backend.rutas.ruta_usuario import router as usuario_router
 from backend.rutas.ruta_vision import router as vision_router
 from backend.rutas.ruta_auth import router as auth_router
 
@@ -26,6 +27,7 @@ app.add_middleware(
 
 app.include_router(jugada_router)
 app.include_router(partida_router)
+app.include_router(usuario_router)
 app.include_router(vision_router)
 app.include_router(auth_router)
 

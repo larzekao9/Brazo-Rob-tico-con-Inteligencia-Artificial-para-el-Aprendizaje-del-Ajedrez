@@ -9,10 +9,11 @@ prueba manualmente corriendo el backend con `DATABASE_URL` seteada.
 """
 import chess
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 
 from backend.database import crear_fabrica_sesiones, crear_tablas
 from backend.modelos.partida import Partida
+from backend.modelos.tablas_orm import JugadaORM
 from backend.repositorios.repositorio_partida import RepositorioPartidasPostgres
 
 
@@ -66,3 +67,45 @@ def test_listar_devuelve_mas_reciente_primero(repositorio: RepositorioPartidasPo
 
 def test_listar_vacio_si_no_hay_partidas_guardadas(repositorio: RepositorioPartidasPostgres) -> None:
     assert repositorio.listar() == []
+
+
+def test_guardar_persiste_el_usuario_dueno_de_la_partida(repositorio: RepositorioPartidasPostgres) -> None:
+    partida = Partida(nivel=5, usuario_id=42)
+    repositorio.guardar(partida)
+
+    assert repositorio.obtener(partida.id).usuario_id == 42
+
+
+def test_registrar_jugada_guarda_una_fila_en_la_tabla_jugada(
+    repositorio: RepositorioPartidasPostgres,
+) -> None:
+    partida = Partida(nivel=5)
+    repositorio.guardar(partida)
+
+    repositorio.registrar_jugada(partida.id, 1, partida.fen, "e2e4", "jugador")
+
+    with repositorio._fabrica_sesiones() as sesion:
+        filas = sesion.scalars(select(JugadaORM).where(JugadaORM.partida_id == partida.id)).all()
+
+    assert len(filas) == 1
+    assert filas[0].numero == 1
+    assert filas[0].fen_antes == partida.fen
+    assert filas[0].movimiento == "e2e4"
+    assert filas[0].decidido_por == "jugador"
+
+
+def test_registrar_jugada_dos_veces_guarda_dos_filas_distintas(
+    repositorio: RepositorioPartidasPostgres,
+) -> None:
+    partida = Partida(nivel=5)
+    repositorio.guardar(partida)
+
+    repositorio.registrar_jugada(partida.id, 1, partida.fen, "e2e4", "jugador")
+    repositorio.registrar_jugada(partida.id, 2, partida.fen, "e7e5", "motor")
+
+    with repositorio._fabrica_sesiones() as sesion:
+        filas = sesion.scalars(
+            select(JugadaORM).where(JugadaORM.partida_id == partida.id).order_by(JugadaORM.numero)
+        ).all()
+
+    assert [fila.decidido_por for fila in filas] == ["jugador", "motor"]
