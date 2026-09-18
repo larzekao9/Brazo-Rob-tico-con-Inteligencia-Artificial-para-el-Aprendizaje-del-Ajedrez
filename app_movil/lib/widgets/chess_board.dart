@@ -46,14 +46,14 @@ class ChessBoard extends StatelessWidget {
   /// cualquiera de los dos colores de casilla sin depender de assets. Un
   /// solo widget de texto por pieza mantiene `find.text('♔')` único para
   /// los tests de este tablero.
-  Widget _piezaWidget(String pieza) {
+  Widget _piezaWidget(String pieza, double casillaSize) {
     final esBlanca = pieza == pieza.toUpperCase();
     final glifo = _simboloPieza[pieza] ?? '';
     final colorBorde = esBlanca ? Colors.black87 : Colors.white70;
     return Text(
       glifo,
       style: TextStyle(
-        fontSize: 30,
+        fontSize: casillaSize * 0.62,
         color: esBlanca ? Colors.white : Colors.black,
         shadows: [
           Shadow(color: colorBorde, offset: const Offset(-1, -1)),
@@ -82,54 +82,59 @@ class ChessBoard extends StatelessWidget {
           borderRadius: AppRadius.boardRadius,
           child: Stack(
             children: [
-              GridView.builder(
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 8),
-                itemCount: 64,
-                itemBuilder: (context, index) {
-                  final fila = index ~/ 8;
-                  final columna = index % 8;
-                  final isLight = (fila + columna) % 2 == 0;
-                  final casilla = '${'abcdefgh'[columna]}${8 - fila}';
-                  final pieza = matriz[fila][columna];
-                  final esOrigen = casilla == casillaOrigen;
-                  final esDestino = destinosValidos.contains(casilla);
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final casillaSize = constraints.maxWidth / 8;
+                  return GridView.builder(
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 8),
+                    itemCount: 64,
+                    itemBuilder: (context, index) {
+                      final fila = index ~/ 8;
+                      final columna = index % 8;
+                      final isLight = (fila + columna) % 2 == 0;
+                      final casilla = '${'abcdefgh'[columna]}${8 - fila}';
+                      final pieza = matriz[fila][columna];
+                      final esOrigen = casilla == casillaOrigen;
+                      final esDestino = destinosValidos.contains(casilla);
 
-                  return GestureDetector(
-                    onTap: () => onTapCasilla(casilla),
-                    child: Container(
-                      color: isLight ? chessTheme.whiteSquare : chessTheme.blackSquare,
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          if (pieza != null) _piezaWidget(pieza),
-                          if (esOrigen)
-                            Container(
-                              margin: const EdgeInsets.all(2),
-                              decoration: BoxDecoration(
-                                border: Border.all(color: AppColors.primary, width: 3),
-                              ),
-                            ),
-                          if (esDestino && pieza == null)
-                            Container(
-                              width: 14,
-                              height: 14,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: AppColors.primary.withOpacity(0.7),
-                              ),
-                            ),
-                          if (esDestino && pieza != null)
-                            Container(
-                              margin: const EdgeInsets.all(3),
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(color: AppColors.primary.withOpacity(0.85), width: 3),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
+                      return GestureDetector(
+                        onTap: () => onTapCasilla(casilla),
+                        child: Container(
+                          color: isLight ? chessTheme.whiteSquare : chessTheme.blackSquare,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              if (pieza != null) _piezaWidget(pieza, casillaSize),
+                              if (esOrigen)
+                                Container(
+                                  margin: const EdgeInsets.all(2),
+                                  decoration: BoxDecoration(
+                                    border: Border.all(color: AppColors.primary, width: 3),
+                                  ),
+                                ),
+                              if (esDestino && pieza == null)
+                                Container(
+                                  width: 14,
+                                  height: 14,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: AppColors.primary.withOpacity(0.7),
+                                  ),
+                                ),
+                              if (esDestino && pieza != null)
+                                Container(
+                                  margin: const EdgeInsets.all(3),
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: AppColors.primary.withOpacity(0.85), width: 3),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
                   );
                 },
               ),
