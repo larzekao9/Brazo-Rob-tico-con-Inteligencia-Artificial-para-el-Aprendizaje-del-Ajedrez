@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import os
 
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -40,8 +40,32 @@ def obtener_engine() -> Engine:
 
 
 def crear_tablas(engine: Engine) -> None:
-    """Crea las 4 tablas mínimas (sección 7) si todavía no existen. Idempotente."""
+    """Crea las tablas (sección 7 + `usuario`) si todavía no existen. Idempotente.
+
+    `create_all` no agrega columnas a tablas que ya existían, así que acá se
+    aplican a mano las columnas sumadas después de la primera versión de cada
+    tabla — hoy solo `usuario.rol` — para que una base local creada antes
+    siga funcionando sin tener que borrarla.
+    """
     Base.metadata.create_all(engine)
+    _agregar_columnas_faltantes(engine)
+
+
+_COLUMNAS_AGREGADAS: dict[str, dict[str, str]] = {
+    "usuario": {"rol": "VARCHAR NOT NULL DEFAULT 'jugador'"},
+}
+
+
+def _agregar_columnas_faltantes(engine: Engine) -> None:
+    inspector = inspect(engine)
+    with engine.begin() as conexion:
+        for tabla, columnas in _COLUMNAS_AGREGADAS.items():
+            if not inspector.has_table(tabla):
+                continue
+            existentes = {c["name"] for c in inspector.get_columns(tabla)}
+            for columna, definicion in columnas.items():
+                if columna not in existentes:
+                    conexion.execute(text(f"ALTER TABLE {tabla} ADD COLUMN {columna} {definicion}"))
 
 
 def crear_fabrica_sesiones(engine: Engine) -> sessionmaker[Session]:

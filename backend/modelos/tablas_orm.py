@@ -34,6 +34,26 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from backend.database import Base
 
 
+ROLES_USUARIO = ("jugador", "facilitador")
+"""Roles posibles de un usuario. `jugador` es el único que puede usar la app
+móvil; `facilitador` está pensado para la Sala de Control web."""
+
+
+class UsuarioORM(Base):
+    """Tabla de usuarios para autenticación (email + password hash + rol)."""
+    __tablename__ = "usuario"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(unique=True, nullable=False, index=True)
+    nombre: Mapped[str] = mapped_column(nullable=False)
+    password_hash: Mapped[str] = mapped_column(nullable=False)
+    rol: Mapped[str] = mapped_column(nullable=False, default="jugador", server_default="jugador")
+    creado_en: Mapped[datetime] = mapped_column(server_default=func.now())
+    activo: Mapped[bool] = mapped_column(default=True, nullable=False)
+
+    partidas: Mapped[list["PartidaORM"]] = relationship(back_populates="usuario", cascade="all, delete-orphan")
+
+
 class ParticipanteORM(Base):
     __tablename__ = "participante"
 
@@ -55,6 +75,7 @@ class PartidaORM(Base):
     __tablename__ = "partida"
 
     id: Mapped[str] = mapped_column(primary_key=True)  # uuid hex, ver docstring del módulo
+    usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"), nullable=True)
     participante_id: Mapped[int | None] = mapped_column(ForeignKey("participante.id"), nullable=True)
     sesion_id: Mapped[int | None] = mapped_column(ForeignKey("sesion.id"), nullable=True)
     fecha: Mapped[datetime] = mapped_column(server_default=func.now())
@@ -66,6 +87,7 @@ class PartidaORM(Base):
     jugadas_uci: Mapped[str] = mapped_column(nullable=False, default="")
 
     jugadas: Mapped[list["JugadaORM"]] = relationship(back_populates="partida", cascade="all, delete-orphan")
+    usuario: Mapped["UsuarioORM"] = relationship(back_populates="partidas")
 
 
 class JugadaORM(Base):

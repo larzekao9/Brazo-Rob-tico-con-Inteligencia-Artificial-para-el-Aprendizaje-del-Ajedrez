@@ -11,3 +11,5 @@ opencv-python==4.14.0.94
 torch==2.14.0
 sqlalchemy==2.0.52
 psycopg2-binary==2.9.13
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4

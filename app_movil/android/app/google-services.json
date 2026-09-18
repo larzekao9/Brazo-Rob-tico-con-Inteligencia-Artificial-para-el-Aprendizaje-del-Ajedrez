@@ -1,0 +1,38 @@
+{
+  "project_info": {
+    "project_number": "840567566478",
+    "project_id": "keen-index-413104",
+    "storage_bucket": "keen-index-413104.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:840567566478:android:XXXXXXXXXXXXXXXX",
+        "android_client_info": {
+          "package_name": "com.ajedrez.chessia.chessiaApp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "840567566478-qopmqu3qk27hcp0d60vkil2urcsb0l3i.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.ajedrez.chessia.chessiaApp",
+            "certificate_hash": "029f892d0a5fe397ca18a860ab115c581287ac5b"
+          }
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "YOUR_API_KEY_HERE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
