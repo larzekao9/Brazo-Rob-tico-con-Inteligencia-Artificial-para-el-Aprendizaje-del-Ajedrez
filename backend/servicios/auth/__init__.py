@@ -1,4 +1,5 @@
 from .servicio_auth import (
+    actualizar_nivel_estimado,
     hash_password,
     verify_password,
     create_access_token,
@@ -14,6 +15,7 @@ from .servicio_auth import (
 )
 
 __all__ = [
+    "actualizar_nivel_estimado",
     "hash_password",
     "verify_password",
     "create_access_token",

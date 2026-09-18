@@ -50,6 +50,10 @@ class UsuarioORM(Base):
     rol: Mapped[str] = mapped_column(nullable=False, default="jugador", server_default="jugador")
     creado_en: Mapped[datetime] = mapped_column(server_default=func.now())
     activo: Mapped[bool] = mapped_column(default=True, nullable=False)
+    # Resultado de la última "Mide tu nivel" completada (HU5/HU10) — se pisa
+    # en cada diagnóstico nuevo, no se guarda historial (ver PLAN_IMPLEMENTACION_COMPLETO.md).
+    nivel_estimado: Mapped[int | None] = mapped_column(nullable=True)
+    rango_estimado: Mapped[str | None] = mapped_column(nullable=True)  # 'Principiante' | 'Intermedio' | 'Avanzado'
 
     partidas: Mapped[list["PartidaORM"]] = relationship(back_populates="usuario", cascade="all, delete-orphan")
 

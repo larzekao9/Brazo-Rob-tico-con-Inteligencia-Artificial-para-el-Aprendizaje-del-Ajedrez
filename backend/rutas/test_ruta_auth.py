@@ -92,6 +92,51 @@ def test_me_sin_token_da_401(cliente) -> None:
     assert cliente.get("/auth/me").status_code == 401
 
 
+def test_guardar_nivel_estimado_actualiza_el_usuario(cliente) -> None:
+    token = cliente.post("/auth/registro", json=JUGADOR).json()["tokens"]["access_token"]
+
+    respuesta = cliente.patch(
+        "/auth/nivel-estimado",
+        json={"nivel": 11, "rango": "Intermedio"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["nivel_estimado"] == 11
+    assert respuesta.json()["rango_estimado"] == "Intermedio"
+
+    # y se refleja al volver a pedir el usuario
+    respuesta_me = cliente.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert respuesta_me.json()["nivel_estimado"] == 11
+    assert respuesta_me.json()["rango_estimado"] == "Intermedio"
+
+
+def test_guardar_nivel_estimado_pisa_el_resultado_anterior(cliente) -> None:
+    token = cliente.post("/auth/registro", json=JUGADOR).json()["tokens"]["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    cliente.patch("/auth/nivel-estimado", json={"nivel": 5, "rango": "Principiante"}, headers=headers)
+
+    respuesta = cliente.patch("/auth/nivel-estimado", json={"nivel": 18, "rango": "Avanzado"}, headers=headers)
+
+    assert respuesta.json()["nivel_estimado"] == 18
+    assert respuesta.json()["rango_estimado"] == "Avanzado"
+
+
+def test_guardar_nivel_estimado_sin_token_da_401(cliente) -> None:
+    respuesta = cliente.patch("/auth/nivel-estimado", json={"nivel": 5, "rango": "Principiante"})
+    assert respuesta.status_code == 401
+
+
+def test_guardar_nivel_estimado_con_rango_invalido_da_422(cliente) -> None:
+    token = cliente.post("/auth/registro", json=JUGADOR).json()["tokens"]["access_token"]
+    respuesta = cliente.patch(
+        "/auth/nivel-estimado",
+        json={"nivel": 5, "rango": "Experto"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert respuesta.status_code == 422
+
+
 def test_crear_tablas_agrega_columna_rol_a_base_vieja() -> None:
     # Una base creada antes de que existiera `usuario.rol` tiene que seguir sirviendo.
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -105,5 +150,9 @@ def test_crear_tablas_agrega_columna_rol_a_base_vieja() -> None:
         ))
     crear_tablas(engine)
     with engine.connect() as conexion:
-        rol = conexion.execute(text("SELECT rol FROM usuario WHERE email = 'viejo@test.com'")).scalar_one()
-    assert rol == "jugador"
+        fila = conexion.execute(
+            text("SELECT rol, nivel_estimado, rango_estimado FROM usuario WHERE email = 'viejo@test.com'")
+        ).one()
+    assert fila.rol == "jugador"
+    assert fila.nivel_estimado is None
+    assert fila.rango_estimado is None

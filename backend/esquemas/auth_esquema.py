@@ -52,9 +52,18 @@ class UsuarioResponse(BaseModel):
     nombre: str
     rol: str
     creado_en: str
+    nivel_estimado: int | None = None
+    rango_estimado: str | None = None
 
     class Config:
         from_attributes = True
+
+
+class NivelEstimadoRequest(BaseModel):
+    """Cuerpo para PATCH /auth/nivel-estimado — resultado de "Mide tu nivel" (HU5/HU10)."""
+
+    nivel: int = Field(ge=0, le=20)
+    rango: Literal["Principiante", "Intermedio", "Avanzado"]
 
 
 class AuthResponse(BaseModel):

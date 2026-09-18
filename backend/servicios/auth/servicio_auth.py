@@ -77,6 +77,19 @@ def create_user(db: Session, email: str, nombre: str, password: str, rol: str = 
     return user
 
 
+def actualizar_nivel_estimado(db: Session, user: UsuarioORM, nivel: int, rango: str) -> UsuarioORM:
+    """Guarda el resultado de la última "Mide tu nivel" completada (HU5/HU10).
+
+    Pisa el valor anterior a propósito — no se guarda historial de
+    evaluaciones, solo el nivel/rango vigente del jugador.
+    """
+    user.nivel_estimado = nivel
+    user.rango_estimado = rango
+    db.commit()
+    db.refresh(user)
+    return user
+
+
 def authenticate_user(db: Session, email: str, password: str) -> Optional[UsuarioORM]:
     """Verifica credenciales y retorna usuario si son válidas."""
     user = get_user_by_email(db, email)

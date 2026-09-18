@@ -52,7 +52,11 @@ def crear_tablas(engine: Engine) -> None:
 
 
 _COLUMNAS_AGREGADAS: dict[str, dict[str, str]] = {
-    "usuario": {"rol": "VARCHAR NOT NULL DEFAULT 'jugador'"},
+    "usuario": {
+        "rol": "VARCHAR NOT NULL DEFAULT 'jugador'",
+        "nivel_estimado": "INTEGER",
+        "rango_estimado": "VARCHAR",
+    },
 }
 
 

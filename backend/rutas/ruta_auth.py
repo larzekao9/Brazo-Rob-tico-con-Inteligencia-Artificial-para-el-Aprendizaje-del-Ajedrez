@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from backend.database import DATABASE_URL, crear_fabrica_sesiones, crear_tablas, obtener_engine
 from backend.esquemas.auth_esquema import (
     LoginRequest,
+    NivelEstimadoRequest,
     RegistroRequest,
     RefreshRequest,
     TokenResponse,
@@ -18,6 +19,7 @@ from backend.esquemas.auth_esquema import (
     UsuarioResponse,
 )
 from backend.servicios.auth import (
+    actualizar_nivel_estimado,
     authenticate_user,
     create_access_token,
     create_user,
@@ -58,6 +60,8 @@ def _a_respuesta(user) -> UsuarioResponse:
         nombre=user.nombre,
         rol=user.rol,
         creado_en=user.creado_en.isoformat(),
+        nivel_estimado=user.nivel_estimado,
+        rango_estimado=user.rango_estimado,
     )
 
 
@@ -162,4 +166,25 @@ def me(user_id: int = Depends(get_current_user), db: Session = Depends(get_db)) 
     user = get_user_by_id(db, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return _a_respuesta(user)
+
+
+@router.patch(
+    "/nivel-estimado",
+    response_model=UsuarioResponse,
+    summary="Guardar el resultado de 'Mide tu nivel'",
+)
+def guardar_nivel_estimado(
+    data: NivelEstimadoRequest,
+    user_id: int = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> UsuarioResponse:
+    """Guarda el nivel/rango calculado al terminar el diagnóstico (HU5/HU10).
+
+    Pisa el resultado anterior — no se guarda historial de evaluaciones.
+    """
+    user = get_user_by_id(db, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    user = actualizar_nivel_estimado(db, user, data.nivel, data.rango)
     return _a_respuesta(user)
