@@ -109,6 +109,14 @@ def jugadas_legales_desde(partida_id: str, casilla: str) -> list[str]:
 def mover(partida_id: str, jugada_uci: str) -> dict:
     """Aplica la jugada del humano (UCI) y responde con la jugada de la estrategia activa.
 
+    Las dos jugadas (humano + respuesta) se prueban sobre una copia del
+    tablero, no sobre `partida.tablero` directamente: si la estrategia activa
+    falla (ej. el modelo propio, HU4, devuelve una jugada SAN ilegal),
+    `partida.tablero` no debe quedar con la jugada del humano aplicada pero
+    sin respuesta — eso dejaría el turno trabado en el lado equivocado en el
+    servidor mientras el cliente, que solo vio un error, sigue mostrando la
+    posición de antes. Solo se pisa `partida.tablero` si todo salió bien.
+
     Raises:
         KeyError: si no existe una partida con ese id.
         ValueError: si la partida ya terminó o la jugada es inválida/ilegal.
@@ -121,13 +129,18 @@ def mover(partida_id: str, jugada_uci: str) -> dict:
         jugada_humano = partida.tablero.parse_uci(jugada_uci)
     except ValueError as error:
         raise ValueError(f"Jugada inválida: {jugada_uci}") from error
-    partida.tablero.push(jugada_humano)
+
+    tablero_intento = partida.tablero.copy()
+    tablero_intento.push(jugada_humano)
 
     jugada_motor_san = None
-    if not partida.terminada:
+    if not tablero_intento.is_game_over():
         estrategia = crear_estrategia_jugada(partida.tipo_oponente, nivel=partida.nivel)
-        jugada_motor_san = estrategia.decidir_jugada(partida.fen)
-        partida.tablero.push_san(jugada_motor_san)
+        jugada_motor_san = estrategia.decidir_jugada(tablero_intento.fen())
+        tablero_intento.push_san(jugada_motor_san)
+
+    partida.tablero = tablero_intento
+    _repositorio.guardar(partida)
 
     return {
         "fen": partida.fen,

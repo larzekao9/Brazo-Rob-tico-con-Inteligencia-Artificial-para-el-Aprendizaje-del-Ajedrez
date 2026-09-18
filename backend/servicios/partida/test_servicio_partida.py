@@ -1,5 +1,8 @@
 import pytest
+from sqlalchemy import create_engine
 
+from backend.database import crear_fabrica_sesiones, crear_tablas
+from backend.repositorios.repositorio_partida import RepositorioPartidasPostgres
 from backend.servicios.partida import servicio_partida
 from backend.servicios.partida.servicio_partida import (
     analisis_completo,
@@ -69,6 +72,61 @@ def test_mover_jugada_ilegal_lanza_valueerror() -> None:
 def test_mover_en_partida_inexistente_lanza_keyerror() -> None:
     with pytest.raises(KeyError):
         mover("no-existe", "e2e4")
+
+
+def test_mover_si_la_estrategia_falla_no_deja_la_jugada_humana_aplicada(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Reproduce el bug donde, si la estrategia activa (ej. el modelo propio,
+    # HU4, devolviendo una jugada SAN ilegal) explota calculando su respuesta,
+    # la jugada del humano quedaba igual aplicada en `partida.tablero` — el
+    # cliente ve un error y no avanza su FEN local, pero el backend ya había
+    # cambiado de turno, y la partida quedaba trabada (cualquier jugada de
+    # blancas después se rechazaba como ilegal, porque en el servidor ya le
+    # tocaba a negras).
+    partida = crear_partida(nivel=5)
+    fen_antes = partida.fen
+
+    class _EstrategiaRota:
+        def decidir_jugada(self, fen: str) -> str:
+            raise ValueError("jugada ilegal simulada")
+
+    monkeypatch.setattr(servicio_partida, "crear_estrategia_jugada", lambda *a, **k: _EstrategiaRota())
+
+    with pytest.raises(ValueError):
+        mover(partida.id, "e2e4")
+
+    partida_tras_el_error = obtener_partida(partida.id)
+    assert partida_tras_el_error.fen == fen_antes
+    assert partida_tras_el_error.jugadas_san == []
+
+    # y se puede reintentar sin que la partida haya quedado corrompida
+    monkeypatch.undo()
+    resultado = mover(partida.id, "e2e4")
+    assert resultado["jugadas"][0] == "e4"
+
+
+def test_mover_guarda_la_jugada_en_el_repositorio(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Reproduce el bug donde `mover()` devolvía el FEN correcto en la
+    # respuesta HTTP (armado a mano desde el objeto `Partida` en memoria que
+    # ya estaba mutado), pero nunca llamaba a `_repositorio.guardar(...)` —
+    # con `RepositorioPartidasEnMemoria` no se notaba, porque `obtener()`
+    # devuelve el mismo objeto por referencia, pero con un repositorio real
+    # (Postgres/SQLite, activo en cuanto se configura `DATABASE_URL`)
+    # `obtener()` reconstruye la partida desde la base en cada llamada, así
+    # que la siguiente vez que alguien la pedía (recargar la pantalla, la
+    # app móvil al reabrir) volvía a ver la posición de antes de la jugada.
+    engine = create_engine("sqlite:///:memory:")
+    crear_tablas(engine)
+    repositorio_real = RepositorioPartidasPostgres(crear_fabrica_sesiones(engine))
+    monkeypatch.setattr(servicio_partida, "_repositorio", repositorio_real)
+
+    partida = crear_partida(nivel=5)
+    resultado = mover(partida.id, "e2e4")
+
+    partida_releida = obtener_partida(partida.id)
+    assert partida_releida.fen == resultado["fen"]
+    assert partida_releida.jugadas_san == resultado["jugadas"]
 
 
 def test_mover_en_partida_ya_terminada_lanza_valueerror() -> None:
