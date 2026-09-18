@@ -112,6 +112,12 @@ class AuthApiService {
     await _clearTokens();
   }
 
+  /// Guarda el resultado de "Mide tu nivel" (nivel/rango calculado) en el
+  /// perfil del jugador — pisa el resultado anterior, no guarda historial.
+  Future<void> guardarNivelEstimado({required int nivel, required String rango}) async {
+    await _dio.patch('/auth/nivel-estimado', data: {'nivel': nivel, 'rango': rango});
+  }
+
   Future<bool> hasStoredToken() async {
     return await _storage.read(key: _kAccess) != null;
   }

@@ -17,6 +17,12 @@ training/dataset_tablero/
 frontend/node_modules/
 frontend/dist/
 
+# App móvil (Flutter)
+app_movil/.dart_tool/
+app_movil/.flutter-plugins
+app_movil/.flutter-plugins-dependencies
+app_movil/build/
+
 # Binarios de terceros descargados localmente (ej. Stockfish, sin necesitar
 # admin para instalarlo) — cada quien lo baja con su propio script, no se commitea
 tools/

@@ -16,7 +16,7 @@ class MoveHistory extends StatelessWidget {
 
   /// Alto fijo del carrusel: un `ListView` horizontal no puede vivir en una
   /// columna sin alto acotado (en release la fila colapsa todo lo demás).
-  static const double alto = 72;
+  static const double alto = 80;
 
   @override
   Widget build(BuildContext context) {

@@ -110,4 +110,16 @@ class AuthProvider extends ChangeNotifier {
     _error = null;
     notifyListeners();
   }
+
+  /// Guarda en el backend el nivel/rango que acaba de calcular "Mide tu
+  /// nivel" (HU5/HU10). Si falla (sin red, token vencido) no bloquea el
+  /// flujo del jugador — el resultado ya se mostró en pantalla, esto solo
+  /// lo persiste para el resto de la app (ej. el perfil).
+  Future<void> guardarNivelEstimado({required int nivel, required String rango}) async {
+    try {
+      await _api.guardarNivelEstimado(nivel: nivel, rango: rango);
+    } catch (_) {
+      // best-effort — ver docstring.
+    }
+  }
 }

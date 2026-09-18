@@ -2,9 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import '../models.dart';
+import '../services/auth_provider.dart';
 import '../services/chess_api.dart';
 
 class GameScreen extends StatefulWidget {
@@ -50,8 +52,6 @@ class _GameScreenState extends State<GameScreen> {
   String? _casillaOrigen;
   List<String> _destinosValidos = [];
   double? _evaluacion;
-  final List<double> _evaluacionHistorial = [];
-  String? _mejorJugada;
   bool _cargandoInicial = true;
   bool _cargandoMovimiento = false;
   bool _cargandoFinal = false;
@@ -90,28 +90,10 @@ class _GameScreenState extends State<GameScreen> {
         _terminada = partida.terminada;
         _resultado = partida.resultado;
       });
-      if (!partida.terminada && widget.enableFeedback) {
-        await _actualizarAnalisis(partida.fen);
-      }
     } catch (error) {
       if (mounted) setState(() => _error = ChessApi.mensajeDeError(error));
     } finally {
       if (mounted) setState(() => _cargandoInicial = false);
-    }
-  }
-
-  Future<void> _actualizarAnalisis(String fen) async {
-    try {
-      final analisis = await ChessApi.instancia.analizarPosicion(fen, widget.level);
-      if (!mounted) return;
-      final evalBlancas = analisis.evaluacionBlancasEnPeones(_turnoDeFen(fen));
-      setState(() {
-        _evaluacion = evalBlancas;
-        _mejorJugada = analisis.jugada;
-        _evaluacionHistorial.add(evalBlancas);
-      });
-    } catch (_) {
-      // El análisis es un plus visual — si Stockfish tarda o falla no bloqueamos el juego.
     }
   }
 
@@ -211,8 +193,6 @@ class _GameScreenState extends State<GameScreen> {
       });
       if (resultado.terminada) {
         await _manejarFinDePartida();
-      } else if (widget.enableFeedback) {
-        await _actualizarAnalisis(resultado.fen);
       }
     } catch (error) {
       if (!mounted) return;
@@ -325,6 +305,9 @@ class _GameScreenState extends State<GameScreen> {
       nivelAsignado = 5;
     }
 
+    // best-effort: no bloquea la navegación si falla (ver AuthProvider.guardarNivelEstimado).
+    context.read<AuthProvider>().guardarNivelEstimado(nivel: nivelAsignado, rango: rank);
+
     context.go('/evaluation-result', extra: {
       'level': nivelAsignado,
       'rank': rank,
@@ -355,8 +338,6 @@ class _GameScreenState extends State<GameScreen> {
     }
 
     final historial = _historialDeJugadas();
-    final progresoRonda = ((widget.diagnosticoRonda - 1) + (_jugadas.length / 16).clamp(0, 1)) /
-        widget.diagnosticoTotalRondas;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -384,24 +365,11 @@ class _GameScreenState extends State<GameScreen> {
                           style: AppTextStyles.bodySm.copyWith(color: AppColors.moveBlunder),
                         ),
                       ),
-                    if (widget.esDiagnostico && widget.diagnosticoTotalRondas > 1) ...[
-                      EvaluationRoundProgress(
-                        ronda: widget.diagnosticoRonda,
-                        totalRondas: widget.diagnosticoTotalRondas,
-                        progreso: progresoRonda,
-                        evaluacionActual: widget.enableFeedback ? _evaluacion : null,
-                      ),
-                      const SizedBox(height: AppSpacing.spaceMd),
-                    ],
                     TurnStatusCard(
                       esTurnoBlancas: _turnoDeFen(_fen) == 'w',
                       tiempoRestante: _tiempoRestante,
                     ),
                     const SizedBox(height: AppSpacing.spaceMd),
-                    if (widget.enableFeedback) ...[
-                      EvaluationBar(evaluation: _evaluacion ?? 0.0, isWhitePerspective: true, height: 14),
-                      const SizedBox(height: AppSpacing.spaceMd),
-                    ],
                     if (_cargandoFinal)
                       const Padding(
                         padding: EdgeInsets.only(bottom: AppSpacing.spaceMd),
@@ -413,20 +381,11 @@ class _GameScreenState extends State<GameScreen> {
                       destinosValidos: _destinosValidos,
                       onTapCasilla: _manejarClicCasilla,
                     ),
-                    const SizedBox(height: AppSpacing.spaceLg),
-                    if (widget.enableFeedback) ...[
-                      _AnalysisPanel(evaluation: _evaluacion ?? 0.0, bestMove: _mejorJugada),
-                      const SizedBox(height: AppSpacing.spaceLg),
-                      TacticalCard(
-                        title: 'Curva de ventaja (esta partida)',
-                        child: EvaluationHistoryChart(valores: _evaluacionHistorial),
-                      ),
-                      const SizedBox(height: AppSpacing.spaceLg),
-                      MoveHistory(
-                        moves: historial,
-                        highlightedIndex: historial.isEmpty ? null : historial.length - 1,
-                      ),
-                    ],
+                    const SizedBox(height: AppSpacing.spaceMd),
+                    MoveHistory(
+                      moves: historial,
+                      highlightedIndex: historial.isEmpty ? null : historial.length - 1,
+                    ),
                     const SizedBox(height: AppSpacing.spaceLg),
                   ],
                 ),
@@ -514,100 +473,6 @@ class _TopBar extends StatelessWidget {
                 Text(
                   'En juego',
                   style: AppTextStyles.labelSm.copyWith(color: AppColors.onSurface),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _AnalysisPanel extends StatelessWidget {
-  final double evaluation;
-  final String? bestMove;
-
-  const _AnalysisPanel({
-    required this.evaluation,
-    required this.bestMove,
-  });
-
-  static double _sigmoide(double x) {
-    double resultado = 1.0, termino = 1.0;
-    for (int i = 1; i < 30; i++) {
-      termino *= x / i;
-      resultado += termino;
-    }
-    return resultado;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final evalText = evaluation > 0 ? '+${evaluation.toStringAsFixed(1)}' : evaluation.toStringAsFixed(1);
-    final isMate = evaluation.abs() >= 9;
-    final winPercent = (50 + 50 * (2 / (1 + _sigmoide(-0.00368208 * evaluation * 100)) - 1)).round();
-
-    return TacticalCard(
-      title: 'Análisis de la posición',
-      titleTrailing: Container(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.spaceSm, vertical: 2),
-        decoration: BoxDecoration(color: AppColors.primaryContainer, borderRadius: AppRadius.radiusFull),
-        child: Text('Stockfish', style: AppTextStyles.labelSm.copyWith(color: AppColors.primary)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Evaluación', style: AppTextStyles.labelSm.copyWith(color: AppColors.onSurfaceVariant)),
-                const SizedBox(height: 2),
-                Text(
-                  isMate ? 'MATE' : evalText,
-                  style: AppTextStyles.telemetryLg.copyWith(
-                    color: evaluation > 0 ? AppColors.primary : AppColors.onSurface,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Container(
-            width: 1,
-            height: 40,
-            color: AppColors.outlineVariant,
-            margin: const EdgeInsets.symmetric(horizontal: AppSpacing.spaceLg),
-          ),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Mejor jugada', style: AppTextStyles.labelSm.copyWith(color: AppColors.onSurfaceVariant)),
-                const SizedBox(height: 2),
-                Text(
-                  (bestMove ?? '—').toUpperCase(),
-                  style: AppTextStyles.telemetryLg.copyWith(color: AppColors.secondary),
-                ),
-              ],
-            ),
-          ),
-          Container(
-            width: 1,
-            height: 40,
-            color: AppColors.outlineVariant,
-            margin: const EdgeInsets.symmetric(horizontal: AppSpacing.spaceLg),
-          ),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Equilibrio', style: AppTextStyles.labelSm.copyWith(color: AppColors.onSurfaceVariant)),
-                const SizedBox(height: 2),
-                Text(
-                  '$winPercent%',
-                  style: AppTextStyles.telemetryLg.copyWith(
-                    color: evaluation > 0 ? AppColors.primary : AppColors.moveMistake,
-                  ),
                 ),
               ],
             ),

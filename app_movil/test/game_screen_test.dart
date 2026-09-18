@@ -59,7 +59,7 @@ Future<void> _montar(WidgetTester tester, {required Size fisico, required double
 void main() {
   tearDown(() => ChessApi.instancia = _ApiCaida());
 
-  testWidgets('Con jugadas hechas y análisis, el tablero y el historial se dibujan en un iPhone', (tester) async {
+  testWidgets('Con jugadas hechas, el tablero y el historial se dibujan en un iPhone', (tester) async {
     ChessApi.instancia = _ApiFalsa();
     await _montar(tester, fisico: const Size(1206, 2622), dpr: 3.0);
 
@@ -68,7 +68,6 @@ void main() {
     expect(find.text('♚'), findsOneWidget);
     expect(find.text('d4'), findsOneWidget);
     expect(find.text('c6'), findsOneWidget);
-    expect(find.text('E2E4'), findsOneWidget); // mejor jugada del panel de análisis
     expect(tester.getSize(find.byType(AspectRatio).first).width, greaterThan(300));
   });
 
