@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import 'auth_api_service.dart';
+import 'partida.dart';
 
 /// Usuario autenticado tal como lo devuelve `/auth/me`, `/auth/login` y
 /// `/auth/registro` del backend.
@@ -43,12 +44,21 @@ class AuthProvider extends ChangeNotifier {
   bool _isInitializing = true;
   bool _isLoading = false;
   String? _error;
+  EstadisticasUsuario? _estadisticas;
+  bool _cargandoEstadisticas = false;
 
   AuthProvider({AuthApiService? api}) : _api = api ?? AuthApiService() {
     _restaurarSesion();
   }
 
   AppUser? get user => _user;
+
+  /// Estadísticas del jugador para la página principal — `null` si todavía no
+  /// se cargaron o si el pedido falló (sin esa información la UI muestra '—').
+  EstadisticasUsuario? get estadisticas => _estadisticas;
+
+  /// `true` mientras se está pidiendo `/usuario/estadisticas`.
+  bool get cargandoEstadisticas => _cargandoEstadisticas;
 
   /// `true` mientras se comprueba si había una sesión guardada (splash).
   bool get isInitializing => _isInitializing;
@@ -131,6 +141,22 @@ class AuthProvider extends ChangeNotifier {
       await _api.guardarNivelEstimado(nivel: nivel, rango: rango);
     } catch (_) {
       // best-effort — ver docstring.
+    }
+  }
+
+  /// Pide las estadísticas del jugador al backend. Es best-effort: si falla
+  /// (sin red, token inválido) deja `_estadisticas` en `null` y la UI muestra
+  /// un marcador de "sin datos" en vez de bloquear la pantalla.
+  Future<void> cargarEstadisticas() async {
+    _cargandoEstadisticas = true;
+    notifyListeners();
+    try {
+      _estadisticas = await _api.estadisticasUsuario();
+    } catch (_) {
+      _estadisticas = null;
+    } finally {
+      _cargandoEstadisticas = false;
+      notifyListeners();
     }
   }
 }

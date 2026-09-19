@@ -16,7 +16,7 @@ from sqlalchemy.pool import StaticPool
 
 from backend.database import crear_fabrica_sesiones, crear_tablas
 from backend.main import app
-from backend.modelos.tablas_orm import PartidaORM
+from backend.modelos.tablas_orm import JugadaORM, PartidaORM
 from backend.rutas.ruta_auth import get_db
 
 JUGADOR = {"email": "stats@test.com", "nombre": "Jugadora", "password": "secreto1"}
@@ -87,6 +87,7 @@ def test_estadisticas_sin_partidas_devuelve_todo_en_cero(contexto) -> None:
     assert cuerpo["total_partidas"] == 0
     assert cuerpo["win_percent_promedio"] == 0.0
     assert cuerpo["racha_victoria_actual"] == 0
+    assert cuerpo["precision_promedio"] == 0.0
     assert cuerpo["top_errores"] == []
 
 
@@ -125,6 +126,52 @@ def test_estadisticas_no_mezcla_partidas_de_otro_usuario(contexto) -> None:
     respuesta = cliente.get("/usuario/estadisticas", headers=headers)
 
     assert respuesta.json()["total_partidas"] == 0
+
+
+def test_estadisticas_precision_promedio_cuenta_solo_jugadas_analizadas_del_jugador(contexto) -> None:
+    cliente, headers, usuario_id, fabrica = contexto
+    partida_id = "partida-precision"
+    with fabrica() as sesion:
+        sesion.add(
+            PartidaORM(
+                id=partida_id,
+                usuario_id=usuario_id,
+                resultado="1-0",
+                tipo="digital",
+                fen="fen-cualquiera",
+                nivel=10,
+                tipo_oponente="motor",
+                jugadas_uci="e2e4 e7e5 g1f3 b8c6",
+                fecha=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            )
+        )
+        # Jugadas analizadas del jugador con pérdida vs mejor jugada de 10,
+        # 40 (aciertos), 120 (error) y 400 (blunder) centipawns.
+        sesion.add_all(
+            [
+                JugadaORM(
+                    partida_id=partida_id,
+                    numero=n,
+                    fen_antes="fen",
+                    movimiento=mov,
+                    decidido_por="jugador",
+                    evaluacion_cp=real,
+                    evaluacion_mejor_cp=100,
+                    mate_en=None,
+                    mate_en_mejor=None,
+                )
+                for n, (mov, real) in enumerate(
+                    [("e2e4", 90), ("d2d4", 60), ("b1a3", -20), ("h2h4", -300)], start=1
+                )
+            ]
+        )
+        sesion.commit()
+
+    respuesta = cliente.get("/usuario/estadisticas", headers=headers)
+
+    cuerpo = respuesta.json()
+    # 2 de 4 jugadas quedaron dentro del umbral de inexactitud.
+    assert cuerpo["precision_promedio"] == pytest.approx(50.0)
 
 
 def test_historial_partidas_sin_token_da_401(contexto) -> None:
@@ -202,6 +249,8 @@ def test_estadisticas_top_errores_cuenta_blunder_tras_analisis_completo(contexto
     top_errores = resp_stats.json()["top_errores"]
     assert any(item["cantidad"] > 0 for item in top_errores)
     assert any(item["tipo"] == "blunder" and item["cantidad"] > 0 for item in top_errores)
+    # La precisión se calcula sobre las jugadas analizadas del jugador (2 blancas).
+    assert 0.0 <= resp_stats.json()["precision_promedio"] <= 100.0
 
 
 def test_historial_partidas_respeta_limit_y_offset(contexto) -> None:

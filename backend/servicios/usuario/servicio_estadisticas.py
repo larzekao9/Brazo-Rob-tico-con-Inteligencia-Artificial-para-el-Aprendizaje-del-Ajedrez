@@ -46,6 +46,27 @@ def _puntaje(evaluacion_cp: int | None, mate_en: int | None) -> int:
     return evaluacion_cp if evaluacion_cp is not None else 0
 
 
+def _perdida(
+    evaluacion_cp: int | None,
+    evaluacion_mejor_cp: int | None,
+    mate_en: int | None,
+    mate_en_mejor: int | None,
+) -> int | None:
+    """Cuánto valor perdió el humano respecto a la mejor jugada de Stockfish.
+
+    Devuelve `None` si falta la evaluación (cp o mate) de la jugada realmente
+    jugada o de la mejor jugada — sin ambas no se puede cuantificar la
+    pérdida. Unifica casos con mate a través de `_puntaje`, lo que cubre
+    tanto "había mate a favor y no se jugó" como "la jugada llevó directo a
+    que lo maten", sin tratarlos como casos aparte.
+    """
+    if evaluacion_cp is None and mate_en is None:
+        return None
+    if evaluacion_mejor_cp is None and mate_en_mejor is None:
+        return None
+    return _puntaje(evaluacion_mejor_cp, mate_en_mejor) - _puntaje(evaluacion_cp, mate_en)
+
+
 def _clasificar_jugada(
     evaluacion_cp: int | None,
     evaluacion_mejor_cp: int | None,
@@ -54,19 +75,12 @@ def _clasificar_jugada(
 ) -> str | None:
     """Clasifica una jugada del humano comparándola contra la mejor jugada de Stockfish.
 
-    `perdida` es cuánto valor perdió el humano respecto a la mejor jugada
-    posible en esa posición, ya unificando casos con mate (ver `_puntaje`) —
-    esto cubre tanto "había mate a favor y no se jugó" como "la jugada
-    llevó directo a que lo maten", sin tratarlos como casos aparte.
     Umbrales estándar de análisis (Lichess/Chess.com): blunder > 300 cp,
     error > 100 cp, inexactitud > 50 cp.
     """
-    if evaluacion_cp is None and mate_en is None:
+    perdida = _perdida(evaluacion_cp, evaluacion_mejor_cp, mate_en, mate_en_mejor)
+    if perdida is None:
         return None
-    if evaluacion_mejor_cp is None and mate_en_mejor is None:
-        return None
-
-    perdida = _puntaje(evaluacion_mejor_cp, mate_en_mejor) - _puntaje(evaluacion_cp, mate_en)
     if perdida > UMBRAL_BLUNDER:
         return "blunder"
     if perdida > UMBRAL_ERROR:
@@ -112,8 +126,44 @@ def _calcular_top_errores(db: Session, usuario_id: int) -> list[dict]:
     )
 
 
+def _calcular_precision_promedio(db: Session, usuario_id: int) -> float:
+    """Porcentaje de jugadas del humano "acertadas" en partidas terminadas.
+
+    Cuenta como acierto toda jugada analizada cuya pérdida contra la mejor
+    jugada de Stockfish no supere `UMBRAL_INEXACTITUD` (o sea, quedó a 50 cp
+    o menos de la mejor jugada). Usa exactamente el mismo filtro que
+    `_calcular_top_errores` (partidas finalizadas + `decidido_por ==
+    "jugador"` + ambas evaluaciones presentes), así que la precisión y el
+    `top_errores` se refieren al mismo conjunto de jugadas. Devuelve 0.0 si
+    todavía no hay ninguna jugada analizada.
+    """
+    filas = db.scalars(
+        select(JugadaORM)
+        .join(PartidaORM, JugadaORM.partida_id == PartidaORM.id)
+        .where(
+            PartidaORM.usuario_id == usuario_id,
+            PartidaORM.resultado.is_not(None),
+            JugadaORM.decidido_por == "jugador",
+        )
+    ).all()
+
+    perdidas: list[int] = []
+    for fila in filas:
+        perdida = _perdida(
+            fila.evaluacion_cp, fila.evaluacion_mejor_cp, fila.mate_en, fila.mate_en_mejor
+        )
+        if perdida is not None:
+            perdidas.append(perdida)
+    if not perdidas:
+        return 0.0
+
+    aciertos = sum(1 for perdida in perdidas if perdida <= UMBRAL_INEXACTITUD)
+    return round(aciertos / len(perdidas) * 100, 2)
+
+
 def calcular_estadisticas(db: Session, usuario_id: int) -> dict:
-    """Cuenta partidas por resultado, la racha de victorias actual y `top_errores`.
+    """Cuenta partidas por resultado, la racha de victorias actual, la
+    precisión promedio y `top_errores`.
 
     El humano siempre juega blancas (`backend/modelos/partida.py`), así que
     `"1-0"` es victoria del jugador y `"0-1"` es derrota, tal como los guarda
@@ -143,6 +193,7 @@ def calcular_estadisticas(db: Session, usuario_id: int) -> dict:
         "partidas_tablas": tablas,
         "win_percent_promedio": round(ganadas / finalizadas * 100, 2) if finalizadas else 0.0,
         "racha_victoria_actual": racha_victoria_actual,
+        "precision_promedio": _calcular_precision_promedio(db, usuario_id),
         "top_errores": _calcular_top_errores(db, usuario_id),
     }
 

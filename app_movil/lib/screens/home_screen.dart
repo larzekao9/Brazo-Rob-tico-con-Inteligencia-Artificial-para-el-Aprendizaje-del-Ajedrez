@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import '../services/auth_provider.dart';
+import 'learning/learning_path_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -15,6 +16,17 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedTab = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Las estadísticas se piden al llegar a esta pantalla (hay sesión); la
+    // UI dibuja '—' mientras tanto. Best-effort: si el pedido falla se queda
+    // en '—' en vez de mostrar números inventados.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<AuthProvider>().cargarEstadisticas();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -242,6 +254,11 @@ class _HeroBanner extends StatelessWidget {
 class _StatsRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
+    final stats = context.watch<AuthProvider>().estadisticas;
+    final total = stats?.totalPartidas;
+    final victorias = stats?.partidasGanadas;
+    final precision = stats?.precisionPromedio;
+
     return GlassCard(
       padding: const EdgeInsets.all(AppSpacing.spaceLg),
       child: Row(
@@ -250,21 +267,21 @@ class _StatsRow extends StatelessWidget {
             icon: Icons.casino_outlined,
             color: AppColors.primary,
             label: 'Partidas jugadas',
-            value: '12',
+            value: total == null ? '—' : '$total',
           ),
           _StatDivider(),
           _StatItem(
             icon: Icons.emoji_events_outlined,
             color: AppColors.primary,
             label: 'Victorias',
-            value: '4',
+            value: victorias == null ? '—' : '$victorias',
           ),
           _StatDivider(),
           _StatItem(
             icon: Icons.psychology_outlined,
             color: AppColors.secondary,
             label: 'Precisión promedio',
-            value: '68%',
+            value: precision == null ? '—' : '${precision.round()}%',
           ),
         ],
       ),
@@ -569,7 +586,7 @@ class _QuickActions extends StatelessWidget {
                 title: 'Aprender',
                 subtitle: 'Lecciones y puzzles',
                 color: AppColors.secondary,
-                onTap: () => context.go('/learning/board-basics'),
+                onTap: () => context.go(LearningPathScreen.routeName),
               ),
             ),
           ],

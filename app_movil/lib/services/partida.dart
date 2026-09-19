@@ -103,3 +103,57 @@ class JugadaAnalisis {
         mejorJugadaMotor: json['mejor_jugada_motor'] as String?,
       );
 }
+
+/// Cuenta de un tipo de error dentro de `top_errores` (GET /usuario/estadisticas).
+class TopError {
+  final String tipo; // "blunder" | "error" | "inexactitud"
+  final int cantidad;
+
+  const TopError({required this.tipo, required this.cantidad});
+
+  factory TopError.fromJson(Map<String, dynamic> json) => TopError(
+        tipo: json['tipo'] as String,
+        cantidad: json['cantidad'] as int,
+      );
+}
+
+/// Estadísticas agregadas del jugador real — de GET /usuario/estadisticas;
+/// la app ya no usa valores de ejemplo en la página principal.
+class EstadisticasUsuario {
+  final int totalPartidas;
+  final int partidasGanadas;
+  final int partidasPerdidas;
+  final int partidasTablas;
+  final double winPercentPromedio;
+  final int rachaVictoriaActual;
+
+  /// Porcentaje de jugadas del jugador dentro del umbral de inexactitud del
+  /// análisis de Stockfish (ver `servicio_estadisticas.py` en el backend).
+  final double precisionPromedio;
+  final List<TopError> topErrores;
+
+  const EstadisticasUsuario({
+    required this.totalPartidas,
+    required this.partidasGanadas,
+    required this.partidasPerdidas,
+    required this.partidasTablas,
+    required this.winPercentPromedio,
+    required this.rachaVictoriaActual,
+    required this.precisionPromedio,
+    required this.topErrores,
+  });
+
+  factory EstadisticasUsuario.fromJson(Map<String, dynamic> json) => EstadisticasUsuario(
+        totalPartidas: json['total_partidas'] as int,
+        partidasGanadas: json['partidas_ganadas'] as int,
+        partidasPerdidas: json['partidas_perdidas'] as int,
+        partidasTablas: json['partidas_tablas'] as int,
+        winPercentPromedio: (json['win_percent_promedio'] as num).toDouble(),
+        rachaVictoriaActual: json['racha_victoria_actual'] as int,
+        precisionPromedio: (json['precision_promedio'] as num).toDouble(),
+        topErrores: [
+          for (final item in json['top_errores'] as List? ?? const [])
+            TopError.fromJson(item as Map<String, dynamic>),
+        ],
+      );
+}

@@ -1,4 +1,24 @@
-from backend.servicios.usuario.servicio_estadisticas import _clasificar_jugada
+from backend.servicios.usuario.servicio_estadisticas import _clasificar_jugada, _perdida
+
+
+def test_perdida_devuelve_la_diferencia_de_puntaje() -> None:
+    assert _perdida(evaluacion_cp=-100, evaluacion_mejor_cp=50, mate_en=None, mate_en_mejor=None) == 150
+
+
+def test_perdida_es_none_sin_evaluacion_de_la_jugada_jugada() -> None:
+    assert _perdida(evaluacion_cp=None, evaluacion_mejor_cp=50, mate_en=None, mate_en_mejor=None) is None
+
+
+def test_perdida_es_none_sin_evaluacion_de_la_mejor_jugada() -> None:
+    assert _perdida(evaluacion_cp=-100, evaluacion_mejor_cp=None, mate_en=None, mate_en_mejor=None) is None
+
+
+def test_perdida_cuenta_mate_perdido_a_favor_como_perdida_enorme() -> None:
+    """Había mate en 1 a favor y la jugada real solo vale 50 cp → pérdida máxima."""
+    perdida = _perdida(
+        evaluacion_cp=50, evaluacion_mejor_cp=None, mate_en=None, mate_en_mejor=1
+    )
+    assert perdida is not None and perdida > 50_000
 
 
 def test_clasifica_blunder_por_perdida_de_centipawns() -> None:

@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'api_config.dart';
+import 'partida.dart';
 
 /// Rol con el que la app móvil registra y valida a sus usuarios. La app es
 /// solo para jugadores; una cuenta con otro rol no puede entrar desde acá.
@@ -130,6 +131,12 @@ class AuthApiService {
     } catch (_) {
       return null;
     }
+  }
+
+  /// Estadísticas reales del jugador autenticado (GET /usuario/estadisticas).
+  Future<EstadisticasUsuario> estadisticasUsuario() async {
+    final response = await _dio.get('/usuario/estadisticas');
+    return EstadisticasUsuario.fromJson(response.data as Map<String, dynamic>);
   }
 
   /// Mensaje legible para la UI: el `detail` de FastAPI si existe, o un

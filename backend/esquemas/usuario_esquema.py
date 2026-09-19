@@ -20,6 +20,7 @@ class EstadisticasUsuarioResponse(BaseModel):
     partidas_tablas: int
     win_percent_promedio: float
     racha_victoria_actual: int
+    precision_promedio: float
     top_errores: list[TopErrorItem] = Field(default_factory=list)
 
 
