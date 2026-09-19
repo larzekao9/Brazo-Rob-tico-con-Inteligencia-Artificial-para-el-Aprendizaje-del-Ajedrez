@@ -9,6 +9,7 @@ class VictoryScreen extends StatelessWidget {
   final int moves;
   final double finalEval;
   final String opponent;
+  final double precisionPromedio;
 
   const VictoryScreen({
     super.key,
@@ -17,6 +18,7 @@ class VictoryScreen extends StatelessWidget {
     required this.moves,
     required this.finalEval,
     required this.opponent,
+    required this.precisionPromedio,
   });
 
   @override
@@ -45,6 +47,7 @@ class VictoryScreen extends StatelessWidget {
                           accuracy: accuracy,
                           moves: moves,
                           finalEval: finalEval,
+                          precisionPromedio: precisionPromedio,
                         ),
                         const SizedBox(height: AppSpacing.spaceLg),
                         _GameEvolutionChart(),
@@ -307,11 +310,13 @@ class _MetricsRow extends StatelessWidget {
   final int accuracy;
   final int moves;
   final double finalEval;
+  final double precisionPromedio;
 
   const _MetricsRow({
     required this.accuracy,
     required this.moves,
     required this.finalEval,
+    required this.precisionPromedio,
   });
 
   @override
@@ -325,8 +330,8 @@ class _MetricsRow extends StatelessWidget {
             iconColor: AppColors.primary,
             label: 'Precisión',
             value: '$accuracy%',
-            delta: '+12% vs. tu promedio',
-            deltaColor: AppColors.primary,
+            delta: '+${(precisionPromedio - accuracy).toInt()}% vs. tu promedio',
+            deltaColor: precisionPromedio > accuracy ? AppColors.primary : AppColors.moveBlunder,
           ),
           _MetricDivider(),
           _MetricColumn(

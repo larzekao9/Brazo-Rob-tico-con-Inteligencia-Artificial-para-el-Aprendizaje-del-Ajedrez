@@ -272,14 +272,24 @@ class _GameScreenState extends State<GameScreen> {
 
     final opponentLabel = widget.opponent == OpponentType.model ? 'Modelo IA' : 'Stockfish';
     final auth = context.read<AuthProvider>();
-    final stats = auth.estadisticas;
-    final precisionPromedio = stats.precision_promedio ?? 0.0;
+    final precisionPromedio = auth.estadisticas?.precisionPromedio ?? 0.0;
     final precisionInt = accuracy.round();
+
+    // Obtiene la evaluación final de la última posición analizada.
+    // _evaluacionCp viene del análisis en vivo (Cp en centipawns, perspectiva del
+    // turno de la posición). Lo convertimos a pawns desde la vista de blancas
+    // igual que hace _evaluacionBlancasEnPeones().
+    final int evalCpFinal = _evaluacionCp ?? 0;
+    final double evalFinalBlancas =
+        _turnoDeFen(_fen) == 'w'
+            ? evalCpFinal / 100.0
+            : -evalCpFinal / 100.0;
+
     final extra = {
       'playerName': 'Jugador',
       'accuracy': precisionInt,
       'moves': _jugadas.length,
-      'finalEval': _evaluacion ?? 0.0,
+      'finalEval': evalFinalBlancas,
       'opponent': opponentLabel,
       'precisionPromedio': precisionPromedio,
     };

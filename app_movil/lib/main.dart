@@ -103,6 +103,7 @@ GoRouter crearRouter(AuthProvider auth) {
             moves: extra['moves'] as int? ?? 28,
             finalEval: extra['finalEval'] as double? ?? 2.3,
             opponent: extra['opponent'] as String? ?? 'Stockfish',
+            precisionPromedio: (extra['precisionPromedio'] as num?)?.toDouble() ?? 0.0,
           );
         },
       ),
@@ -116,6 +117,7 @@ GoRouter crearRouter(AuthProvider auth) {
             moves: extra['moves'] as int? ?? 36,
             finalEval: extra['finalEval'] as double? ?? -2.1,
             opponent: extra['opponent'] as String? ?? 'Stockfish',
+            precisionPromedio: (extra['precisionPromedio'] as num?)?.toDouble() ?? 0.0,
           );
         },
       ),
