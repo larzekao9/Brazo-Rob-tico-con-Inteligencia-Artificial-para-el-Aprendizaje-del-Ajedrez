@@ -168,6 +168,23 @@ def test_mover_partida_responde_con_jugada_del_motor() -> None:
     assert cuerpo["fen"] != POSICION_INICIAL
 
 
+def test_mover_partida_incluye_variantes_candidatas_para_hu6() -> None:
+    """HU6: el frontend necesita variantes_candidatas en /mover para pintar
+    la barra Win% y el indicador de calidad en tiempo real sin llamar a /analisis."""
+    partida_id = cliente.post("/partida", json={"nivel": 5}, headers=_headers_usuario_nuevo()).json()["id"]
+    respuesta = cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "e2e4"})
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert "variantes_candidatas" in cuerpo
+    assert isinstance(cuerpo["variantes_candidatas"], list)
+    # Al menos la mejor jugada debe estar como candidata
+    assert len(cuerpo["variantes_candidatas"]) >= 1
+    primera = cuerpo["variantes_candidatas"][0]
+    assert "jugada" in primera
+    assert "evaluacion_cp" in primera
+    assert "mate_en" in primera
+
+
 def test_mover_partida_jugada_ilegal_devuelve_400() -> None:
     partida_id = cliente.post("/partida", json={"nivel": 5}, headers=_headers_usuario_nuevo()).json()["id"]
     respuesta = cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "e2e5"})
@@ -238,3 +255,48 @@ def test_mover_desde_foto_responde_200_o_422_si_no_coincide_ninguna_jugada() -> 
     partida_id = cliente.post("/partida", json={"nivel": 5}, headers=_headers_usuario_nuevo()).json()["id"]
     respuesta = cliente.post(f"/partida/{partida_id}/mover-desde-foto")
     assert respuesta.status_code in (200, 422)
+
+
+def test_usuario_estadisticas_sin_token_devuelve_401() -> None:
+    respuesta = cliente.get("/usuario/estadisticas")
+    assert respuesta.status_code == 401
+
+
+def test_usuario_historial_sin_token_devuelve_401() -> None:
+    respuesta = cliente.get("/usuario/historial-partidas")
+    assert respuesta.status_code == 401
+
+
+def test_usuario_estadisticas_usuario_nuevo_devuelve_ceros() -> None:
+    headers = _headers_usuario_nuevo()
+    respuesta = cliente.get("/usuario/estadisticas", headers=headers)
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert cuerpo["total_partidas"] == 0
+    assert cuerpo["partidas_ganadas"] == 0
+    assert cuerpo["partidas_perdidas"] == 0
+    assert cuerpo["partidas_tablas"] == 0
+    assert cuerpo["win_percent_promedio"] == 0.0
+    assert cuerpo["racha_victoria_actual"] == 0
+    assert cuerpo["top_errores"] == []
+
+
+def test_usuario_historial_usuario_nuevo_devuelve_vacio() -> None:
+    headers = _headers_usuario_nuevo()
+    respuesta = cliente.get("/usuario/historial-partidas", headers=headers)
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert cuerpo["total"] == 0
+    assert cuerpo["partidas"] == []
+
+
+
+# `POST /partida` guarda en `RepositorioPartidas` (en memoria en este proceso
+# de test, ya que no hay `DATABASE_URL`), que es una base distinta de la
+# SQLite que usa `/usuario/estadisticas` vía `get_db` — así que una partida
+# creada acá nunca aparece ahí. Ese caso (estadísticas agregando partidas
+# reales) se prueba en `backend/rutas/test_ruta_usuario.py`, insertando
+# directo en la base de `get_db`, y en
+# `test_estadisticas_top_errores_cuenta_blunder_tras_analisis_completo`, que
+# además hace correr `servicio_partida._repositorio` sobre esa misma base
+# para probar el flujo completo de punta a punta.

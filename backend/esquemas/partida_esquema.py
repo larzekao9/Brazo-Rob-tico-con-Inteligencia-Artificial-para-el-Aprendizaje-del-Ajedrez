@@ -60,13 +60,19 @@ class MoverRequest(BaseModel):
 
 
 class ResultadoMovimientoResponse(BaseModel):
-    """Cuerpo de salida tras aplicar la jugada humana y la respuesta de Stockfish."""
+    """Cuerpo de salida tras aplicar la jugada humana y la respuesta de Stockfish.
+
+    `variantes_candidatas` permite al frontend (HU6) pintar la barra Win% y el
+    indicador de calidad de la jugada en tiempo real, sin tener que llamar a
+    `/analisis` por separado tras cada movimiento.
+    """
 
     fen: str
     jugada_motor: str | None
     terminada: bool
     resultado: str | None
     jugadas: list[str] = Field(default_factory=list)
+    variantes_candidatas: list[VarianteCandidata] = Field(default_factory=list)
 
 
 class JugadasLegalesResponse(BaseModel):

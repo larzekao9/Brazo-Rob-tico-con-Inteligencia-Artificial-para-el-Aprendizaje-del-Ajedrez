@@ -44,6 +44,26 @@ class RepositorioPartidas(ABC):
         `'motor'` o `'modelo'` según quién decidió esa jugada puntual.
         """
 
+    @abstractmethod
+    def actualizar_evaluacion_jugada(
+        self,
+        partida_id: str,
+        numero: int,
+        evaluacion_cp: int | None,
+        mate_en: int | None,
+        evaluacion_mejor_cp: int | None,
+        mate_en_mejor: int | None,
+    ) -> None:
+        """Persiste la evaluación de Stockfish de una jugada ya registrada (HU5/HU14).
+
+        La llama `servicio_partida.analisis_completo()` una vez por jugada,
+        aprovechando que ese endpoint ya recalcula con Stockfish la evaluación
+        de cada jugada de la partida — así `/usuario/estadisticas` puede armar
+        `top_errores` sin volver a llamar a Stockfish. No-op si la fila
+        `(partida_id, numero)` no existe todavía (partida jugada antes de que
+        existiera esta persistencia, o repo en memoria).
+        """
+
 
 class RepositorioPartidasEnMemoria(RepositorioPartidas):
     """Guarda las partidas en un dict del proceso — se pierden al reiniciar.
@@ -77,6 +97,18 @@ class RepositorioPartidasEnMemoria(RepositorioPartidas):
         `DATABASE_URL` seteada — y sin ella tampoco funciona la autenticación
         (HU10, ver `ruta_auth.get_db`), así que un despliegue real siempre
         termina usando `RepositorioPartidasPostgres` en su lugar."""
+
+    def actualizar_evaluacion_jugada(
+        self,
+        partida_id: str,
+        numero: int,
+        evaluacion_cp: int | None,
+        mate_en: int | None,
+        evaluacion_mejor_cp: int | None,
+        mate_en_mejor: int | None,
+    ) -> None:
+        """No-op por el mismo motivo que `registrar_jugada`: no hay fila de
+        `jugada` en memoria a la que actualizarle la evaluación."""
 
 
 def _partida_a_fila(partida: Partida) -> PartidaORM:
@@ -154,6 +186,29 @@ class RepositorioPartidasPostgres(RepositorioPartidas):
             if fila is None:
                 raise KeyError(f"No existe una partida con id {partida_id}")
             return _fila_a_partida(fila)
+
+    def actualizar_evaluacion_jugada(
+        self,
+        partida_id: str,
+        numero: int,
+        evaluacion_cp: int | None,
+        mate_en: int | None,
+        evaluacion_mejor_cp: int | None,
+        mate_en_mejor: int | None,
+    ) -> None:
+        with self._fabrica_sesiones() as sesion:
+            fila = sesion.scalar(
+                select(JugadaORM).where(
+                    JugadaORM.partida_id == partida_id, JugadaORM.numero == numero
+                )
+            )
+            if fila is None:
+                return
+            fila.evaluacion_cp = evaluacion_cp
+            fila.mate_en = mate_en
+            fila.evaluacion_mejor_cp = evaluacion_mejor_cp
+            fila.mate_en_mejor = mate_en_mejor
+            sesion.commit()
 
     def listar(self) -> list[Partida]:
         with self._fabrica_sesiones() as sesion:

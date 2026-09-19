@@ -177,12 +177,20 @@ def mover(partida_id: str, jugada_uci: str) -> dict:
     for numero, fen_antes, movimiento, decidido_por in jugadas_a_registrar:
         _repositorio.registrar_jugada(partida.id, numero, fen_antes, movimiento, decidido_por)
 
+    # Analizar la posición resultante de la jugada humana para obtener variantes candidatas
+    # (útil para el frontend: barra Win% + indicador calidad en tiempo real, HU6)
+    variantes_candidatas: list[dict] = []
+    if not partida.terminada and jugada_motor_san is not None:
+        analisis = analizar_posicion(partida.fen, partida.nivel)
+        variantes_candidatas = analisis.get("variantes_candidatas", [])
+
     return {
         "fen": partida.fen,
         "jugada_motor": jugada_motor_san,
         "terminada": partida.terminada,
         "resultado": partida.resultado,
         "jugadas": partida.jugadas_san,
+        "variantes_candidatas": variantes_candidatas,
     }
 
 
@@ -244,6 +252,12 @@ def analisis_completo(partida_id: str, tiempo_limite: float = 0.3) -> dict:
     `tiempo_limite` por defecto es más bajo que en el resto del motor para
     no tardar demasiado.
 
+    De paso, persiste la evaluación de cada jugada vía
+    `RepositorioPartidas.actualizar_evaluacion_jugada` — es la única llamada a
+    Stockfish que necesita `top_errores` en `/usuario/estadisticas` (HU14):
+    como esta acción ya recalcula todo con Stockfish, guardarlo acá es gratis
+    y evita que las estadísticas tengan que volver a llamar al motor.
+
     Raises:
         KeyError: si no existe una partida con ese id.
     """
@@ -267,8 +281,14 @@ def analisis_completo(partida_id: str, tiempo_limite: float = 0.3) -> dict:
         eval_resultante_cp = None if despues["evaluacion_cp"] is None else -despues["evaluacion_cp"]
         mate_resultante = None if despues["mate_en"] is None else -despues["mate_en"]
 
+        numero_ply = i + 1
+        _repositorio.actualizar_evaluacion_jugada(
+            partida_id, numero_ply, eval_resultante_cp, mate_resultante,
+            antes["evaluacion_cp"], antes["mate_en"],
+        )
+
         resultado.append({
-            "numero_ply": i + 1,
+            "numero_ply": numero_ply,
             "color": "blanco" if i % 2 == 0 else "negro",
             "jugada_san": jugada_san,
             "fen_antes": posiciones_fen[i],

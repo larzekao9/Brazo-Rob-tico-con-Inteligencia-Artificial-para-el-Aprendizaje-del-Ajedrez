@@ -108,5 +108,18 @@ class JugadaORM(Base):
     decidido_por: Mapped[str | None] = mapped_column(nullable=True)  # 'motor' | 'modelo' | 'jugador'
     tiempo_calculo_ms: Mapped[int | None] = mapped_column(nullable=True)
     explicacion: Mapped[str | None] = mapped_column(nullable=True)
+    # Evaluación de Stockfish de esta jugada — se pobla una sola vez, cuando
+    # `GET /partida/{id}/analisis-completo` (HU5) recalcula la partida entera;
+    # no se calcula acá ni en `/usuario/estadisticas` para no repetir llamadas
+    # a Stockfish (ver `servicio_partida.analisis_completo` y
+    # `RepositorioPartidas.actualizar_evaluacion_jugada`). Misma convención de
+    # signos que `JugadaAnalisisResponse` (`backend/esquemas/partida_esquema.py`):
+    # `evaluacion_cp`/`mate_en` son el resultado de la jugada REALMENTE jugada;
+    # `evaluacion_mejor_cp`/`mate_en_mejor` son lo que valía la mejor jugada en
+    # la posición "antes", ambos en la perspectiva de quien jugó.
+    evaluacion_cp: Mapped[int | None] = mapped_column(nullable=True)
+    mate_en: Mapped[int | None] = mapped_column(nullable=True)
+    evaluacion_mejor_cp: Mapped[int | None] = mapped_column(nullable=True)
+    mate_en_mejor: Mapped[int | None] = mapped_column(nullable=True)
 
     partida: Mapped[PartidaORM] = relationship(back_populates="jugadas")

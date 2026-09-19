@@ -150,6 +150,60 @@ def test_historial_partidas_devuelve_mas_reciente_primero_con_cantidad_de_jugada
     assert cuerpo["partidas"][1]["resultado"] == "1-0"
 
 
+def test_estadisticas_top_errores_cuenta_blunder_tras_analisis_completo(contexto, monkeypatch) -> None:
+    """Extremo a extremo: HU5 (`/analisis-completo`) persiste la evaluación de
+    cada jugada vía `actualizar_evaluacion_jugada`, y HU14 (`/estadisticas`)
+    la usa para armar `top_errores` sin volver a llamar a Stockfish.
+
+    Fuerza el "Fool's Mate" clásico (1.f3 e5 2.g4 Qh4#) guionando la
+    respuesta del "motor" para las negras — así el resultado es
+    determinístico (no depende de qué juegue Stockfish) mientras que blancas
+    (el jugador) sí hacen jugadas reales, incluido el blunder real (2.g4??,
+    que tira a la basura cualquier chance y deja mate en 1 para las negras).
+    """
+    import backend.servicios.partida.servicio_partida as servicio_partida_mod
+    from backend.repositorios.repositorio_partida import RepositorioPartidasPostgres
+
+    cliente, headers, usuario_id, fabrica = contexto
+    # `servicio_partida._repositorio` es en memoria por defecto en este
+    # proceso de test (no hay `DATABASE_URL`) — para probar el flujo
+    # completo hace falta que las partidas y jugadas creadas por `/partida`
+    # y `/mover` caigan en la misma base SQLite que usa `/usuario/estadisticas`.
+    monkeypatch.setattr(servicio_partida_mod, "_repositorio", RepositorioPartidasPostgres(fabrica))
+
+    jugadas_negras = iter(["e5", "Qh4#"])
+
+    class _EstrategiaGuionada:
+        def decidir_jugada(self, fen: str) -> str:
+            return next(jugadas_negras)
+
+    monkeypatch.setattr(
+        servicio_partida_mod,
+        "crear_estrategia_jugada",
+        lambda tipo_oponente, nivel=20: _EstrategiaGuionada(),
+    )
+
+    partida_id = cliente.post("/partida", json={"nivel": 10}, headers=headers).json()["id"]
+
+    resp1 = cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "f2f3"})
+    assert resp1.status_code == 200
+    assert resp1.json()["terminada"] is False
+
+    resp2 = cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "g2g4"})
+    assert resp2.status_code == 200
+    assert resp2.json()["terminada"] is True
+    assert resp2.json()["resultado"] == "0-1"
+
+    resp_analisis = cliente.get(f"/partida/{partida_id}/analisis-completo")
+    assert resp_analisis.status_code == 200
+
+    resp_stats = cliente.get("/usuario/estadisticas", headers=headers)
+    assert resp_stats.status_code == 200
+    top_errores = resp_stats.json()["top_errores"]
+    assert any(item["cantidad"] > 0 for item in top_errores)
+    assert any(item["tipo"] == "blunder" and item["cantidad"] > 0 for item in top_errores)
+
+
 def test_historial_partidas_respeta_limit_y_offset(contexto) -> None:
     cliente, headers, usuario_id, fabrica = contexto
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
