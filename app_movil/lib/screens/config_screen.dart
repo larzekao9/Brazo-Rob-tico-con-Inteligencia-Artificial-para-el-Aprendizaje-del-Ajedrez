@@ -311,24 +311,31 @@ class _LevelSlider extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Nivel de Dificultad',
-                style: AppTextStyles.headlineSm.copyWith(color: AppColors.onSurface),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.spaceMd,
-                  vertical: AppSpacing.spaceXs,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.primaryContainer,
-                  borderRadius: AppRadius.radiusFull,
-                ),
+              Expanded(
                 child: Text(
-                  'Nivel $level • ${_levelLabel(level)}',
-                  style: AppTextStyles.labelMd.copyWith(color: AppColors.primary),
+                  'Nivel de Dificultad',
+                  style: AppTextStyles.headlineSm.copyWith(color: AppColors.onSurface),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.spaceSm),
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.spaceMd,
+                    vertical: AppSpacing.spaceXs,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryContainer,
+                    borderRadius: AppRadius.radiusFull,
+                  ),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      'Nivel $level • ${_levelLabel(level)}',
+                      style: AppTextStyles.labelMd.copyWith(color: AppColors.primary),
+                    ),
+                  ),
                 ),
               ),
             ],

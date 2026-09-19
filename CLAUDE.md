@@ -84,6 +84,25 @@ confirmación antes de desviarte.
 
 ---
 
+## Flujo de trabajo obligatorio para agentes (herramientas y proceso)
+
+Reglas de proceso — se aplican sin importar qué HU se esté trabajando:
+
+1. **Usar el grafo antes que Grep/Read.** Si hay un grafo de conocimiento del repo disponible
+   (code-review-graph / graphify), usá sus herramientas de consulta (`query_graph`,
+   `semantic_search_nodes`, `get_review_context`, `get_impact_radius`, etc.) para explorar o
+   buscar código antes de escanear archivos a mano con Grep/Glob/Read — es más barato en tokens y
+   da contexto estructural (quién llama a qué, qué depende de qué, qué tests cubren cada cosa)
+   que leer archivos sueltos no da.
+2. **Delegar por dominio desde el arranque.** Al empezar cualquier tarea nueva, usar el subagente
+   que corresponde al área (`backend-fastapi`, `frontend-react`, `modelo-entrenamiento`,
+   `simulador`, `entorno`, `qa-reviewer` — ver `.claude/agents/`) en vez de resolverlo directo
+   fuera de esos límites.
+3. **Cerrar el ciclo en cada tarea.** Antes de darla por terminada: correr los tests relevantes,
+   actualizar el grafo de conocimiento del repo, y subir los cambios (`commit` + `push`).
+
+---
+
 ## Reglas de Git y control de versiones — OBLIGATORIO
 
 **Ningún commit, mensaje de pull request, comentario de código, nombre de archivo, ni ningún otro
