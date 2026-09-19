@@ -278,10 +278,11 @@ class _LoginViewState extends State<_LoginView> {
       );
     }
 
-    // El redirect del router ya lleva a /onboarding cuando cambia la sesión;
-    // este go() solo cubre el caso en que la ruta no se haya refrescado aún.
+    // El redirect del router ya lleva a /learning/board-basics cuando cambia
+    // la sesión; este go() solo cubre el caso en que la ruta no se haya
+    // refrescado aún.
     if (success && mounted) {
-      context.go('/onboarding');
+      context.go('/learning/board-basics');
     }
   }
 }

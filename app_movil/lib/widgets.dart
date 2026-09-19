@@ -6,3 +6,4 @@ export 'widgets/chess_board.dart';
 export 'widgets/turn_status_card.dart';
 export 'widgets/evaluation_round_progress.dart';
 export 'widgets/evaluation_history_chart.dart';
+export 'widgets/learning_widgets.dart';

@@ -5,7 +5,6 @@ import 'theme/app_theme.dart';
 import 'theme/app_colors.dart';
 import 'models.dart';
 import 'screens/login_screen.dart';
-import 'screens/onboarding_screen.dart';
 import 'screens/mode_selection_screen.dart';
 import 'screens/config_screen.dart';
 import 'screens/game_screen.dart';
@@ -13,6 +12,10 @@ import 'screens/evaluation_result_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/victory_screen.dart';
 import 'screens/defeat_screen.dart';
+import 'screens/learning/board_basics_screen.dart';
+import 'screens/learning/pieces_screen.dart';
+import 'screens/learning/ranks_files_screen.dart';
+import 'screens/learning/initial_position_screen.dart';
 import 'services/api_config.dart';
 import 'services/auth_provider.dart';
 
@@ -32,7 +35,7 @@ GoRouter crearRouter(AuthProvider auth) {
         return destino == '/login' ? null : '/login';
       }
       if (_rutasPublicas.contains(destino)) {
-        return '/onboarding';
+        return '/learning/board-basics';
       }
       return null;
     },
@@ -44,10 +47,6 @@ GoRouter crearRouter(AuthProvider auth) {
       GoRoute(
         path: '/login',
         builder: (context, state) => const LoginScreen(),
-      ),
-      GoRoute(
-        path: '/onboarding',
-        builder: (context, state) => const OnboardingScreen(),
       ),
       GoRoute(
         path: '/mode-selection',
@@ -118,6 +117,23 @@ GoRouter crearRouter(AuthProvider auth) {
             opponent: extra['opponent'] as String? ?? 'Stockfish',
           );
         },
+      ),
+      // Rutas de aprendizaje (HU12)
+      GoRoute(
+        path: '/learning/board-basics',
+        builder: (context, state) => const BoardBasicsScreen(),
+      ),
+      GoRoute(
+        path: '/learning/pieces',
+        builder: (context, state) => const PiecesScreen(),
+      ),
+      GoRoute(
+        path: '/learning/ranks-files',
+        builder: (context, state) => const RanksFilesScreen(),
+      ),
+      GoRoute(
+        path: '/learning/initial-position',
+        builder: (context, state) => const InitialPositionScreen(),
       ),
     ],
   );

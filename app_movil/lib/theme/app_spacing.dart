@@ -25,6 +25,7 @@ class AppSpacing {
 
   static const EdgeInsets cardPadding = EdgeInsets.all(spaceLg);
   static const EdgeInsets cardPaddingSm = EdgeInsets.all(spaceMd);
+  static const EdgeInsets cardPaddingMd = EdgeInsets.all(16.0);
   static const EdgeInsets cardPaddingLg = EdgeInsets.all(spaceXl);
 }
 

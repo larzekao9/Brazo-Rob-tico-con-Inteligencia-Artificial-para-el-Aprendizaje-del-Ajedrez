@@ -118,7 +118,7 @@ class _ModeSelectionScreenState extends State<ModeSelectionScreen> {
                 ),
               ),
               TextButton.icon(
-                onPressed: () => context.go('/onboarding'),
+                onPressed: () => context.go('/learning/board-basics'),
                 icon: const Icon(Icons.chevron_left, size: 18),
                 label: const Text('Volver'),
                 style: TextButton.styleFrom(foregroundColor: AppColors.onSurfaceVariant),
