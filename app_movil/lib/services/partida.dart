@@ -88,12 +88,16 @@ class JugadaAnalisis {
   final String color; // "blanco" o "negro"
   final String jugadaSan;
   final String? mejorJugadaMotor;
+  final int? evaluacion_cp;
+  final int? evaluacion_mejor_cp;
 
   JugadaAnalisis({
     required this.numeroPly,
     required this.color,
     required this.jugadaSan,
     required this.mejorJugadaMotor,
+    this.evaluacion_cp,
+    this.evaluacion_mejor_cp,
   });
 
   factory JugadaAnalisis.fromJson(Map<String, dynamic> json) => JugadaAnalisis(
@@ -101,6 +105,8 @@ class JugadaAnalisis {
         color: json['color'] as String,
         jugadaSan: json['jugada_san'] as String,
         mejorJugadaMotor: json['mejor_jugada_motor'] as String?,
+        evaluacion_cp: json['evaluacion_cp'] as int?,
+        evaluacion_mejor_cp: json['evaluacion_mejor_cp'] as int?,
       );
 }
 

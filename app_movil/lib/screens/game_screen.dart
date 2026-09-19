@@ -261,6 +261,8 @@ class _GameScreenState extends State<GameScreen> {
 
   Future<void> _manejarFinDePartida() async {
     setState(() => _cargandoFinal = true);
+
+    // 1) Precisión por ronda (usa analisisCompleto - puede ser lento en partidas largas)
     final accuracy = await _calcularPrecisionBlancas();
     if (!mounted) return;
     setState(() => _cargandoFinal = false);
@@ -270,20 +272,29 @@ class _GameScreenState extends State<GameScreen> {
       return;
     }
 
+// 2) Obtiene evaluación REAL de la última posición del analisis completo
+    // (a diferencia de _evaluacionCp que solo viene del análisis en vivo y puede
+    //  ser null si el usuario tenía el toggle OFF o falló la red).
+    // analisisCompleto returns List<JugadaAnalisis> directamente.
+    final List<JugadaAnalisis> jugadasAnalisis = await ChessApi.instancia.analisisCompleto(widget.partidaId);
+    // Filtrar solo las jugadas del usuario (blancas, decidido_por == "jugador")
+    final jugadasUsuario = jugadasAnalisis.where((j) => j.color == 'blanco').toList();
+    // Obtiene la última jugada analizada del usuario
+    final ultimaJugada = jugadasUsuario.isNotEmpty ? jugadasUsuario.last : JugadaAnalisis(
+      numeroPly: 0, color: 'blanco', jugadaSan: '', mejorJugadaMotor: '',
+    );
+    // Usa evaluacion_mejor_cp si está disponible, sino evaluacion_cp, sino 0
+    final int evalCpFinal = ultimaJugada.evaluacion_mejor_cp ?? ultimaJugada.evaluacion_cp ?? 0;
+    // La perspectiva: si el segundo espacio del FEN es 'b', el Cp es desde negro => negar para blancas
+    final String turnoFen = _fen.split(' ')[1];
+    final double evalFinalBlancas = turnoFen == 'b'
+        ? evalCpFinal / 100.0
+        : -evalCpFinal / 100.0;
+
     final opponentLabel = widget.opponent == OpponentType.model ? 'Modelo IA' : 'Stockfish';
     final auth = context.read<AuthProvider>();
     final precisionPromedio = auth.estadisticas?.precisionPromedio ?? 0.0;
     final precisionInt = accuracy.round();
-
-    // Obtiene la evaluación final de la última posición analizada.
-    // _evaluacionCp viene del análisis en vivo (Cp en centipawns, perspectiva del
-    // turno de la posición). Lo convertimos a pawns desde la vista de blancas
-    // igual que hace _evaluacionBlancasEnPeones().
-    final int evalCpFinal = _evaluacionCp ?? 0;
-    final double evalFinalBlancas =
-        _turnoDeFen(_fen) == 'w'
-            ? evalCpFinal / 100.0
-            : -evalCpFinal / 100.0;
 
     final extra = {
       'playerName': 'Jugador',
