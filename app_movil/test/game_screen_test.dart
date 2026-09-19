@@ -99,4 +99,34 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('♔'), findsOneWidget);
   });
+
+  testWidgets('La barra de evaluación aparece con retroalimentación en vivo', (tester) async {
+    ChessApi.instancia = _ApiFalsa(); // analizarPosicion devuelve: blanco +0.4 peones
+    await _montar(tester, fisico: const Size(1206, 2622), dpr: 3.0);
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('+0.4'), findsOneWidget);
+  });
+
+  testWidgets('Sin retroalimentación en vivo la barra no se dibuja', (tester) async {
+    ChessApi.instancia = _ApiFalsa();
+    tester.view.physicalSize = const Size(1206, 2622);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(MaterialApp(
+      theme: AppTheme.lightTheme,
+      home: const GameScreen(
+        partidaId: 'p1',
+        opponent: OpponentType.stockfish,
+        level: 5,
+        enableFeedback: false,
+      ),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('+0.4'), findsNothing);
+  });
 }

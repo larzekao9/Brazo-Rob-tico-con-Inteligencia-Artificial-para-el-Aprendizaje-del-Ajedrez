@@ -8,6 +8,7 @@ import '../widgets.dart';
 import '../models.dart';
 import '../services/auth_provider.dart';
 import '../services/chess_api.dart';
+import '../services/partida.dart';
 
 class GameScreen extends StatefulWidget {
   final String partidaId;
@@ -52,6 +53,8 @@ class _GameScreenState extends State<GameScreen> {
   String? _casillaOrigen;
   List<String> _destinosValidos = [];
   double? _evaluacion;
+  int? _evaluacionCp;
+  int? _mateEn;
   bool _cargandoInicial = true;
   bool _cargandoMovimiento = false;
   bool _cargandoFinal = false;
@@ -90,11 +93,43 @@ class _GameScreenState extends State<GameScreen> {
         _terminada = partida.terminada;
         _resultado = partida.resultado;
       });
+      if (!partida.terminada) await _actualizarEvaluacion();
     } catch (error) {
       if (mounted) setState(() => _error = ChessApi.mensajeDeError(error));
     } finally {
       if (mounted) setState(() => _cargandoInicial = false);
     }
+  }
+
+  /// Pide la evaluación de Stockfish de la posición actual (barra en vivo).
+  /// Solo se usa cuando el jugador activó "Retroalimentación en vivo"; si el
+  /// análisis falla (sin red, timeout) dejamos de actualizar la barra, sin
+  /// bloquear la partida.
+  Future<void> _actualizarEvaluacion() async {
+    if (!widget.enableFeedback) return;
+    try {
+      final analisis = await ChessApi.instancia.analizarPosicion(_fen, widget.level);
+      if (!mounted) return;
+      setState(() {
+        _evaluacionCp = analisis.evaluacionCp;
+        _mateEn = analisis.mateEn;
+      });
+    } catch (_) {
+      // best-effort — ver docstring.
+    }
+  }
+
+  /// Evaluación de la posición en peones desde la perspectiva de BLANCAS
+  /// (lo que la barra dibuja), o `null` si todavía no hay análisis. El
+  /// backend analiza desde la perspectiva de quien mueve; acá se reexpresa
+  /// usando el turno del FEN actual.
+  double? _evaluacionBlancasEnPeones() {
+    if (_evaluacionCp == null && _mateEn == null) return null;
+    return AnalisisPosicion(
+      jugada: null,
+      evaluacionCp: _evaluacionCp,
+      mateEn: _mateEn,
+    ).evaluacionBlancasEnPeones(_turnoDeFen(_fen));
   }
 
   String _turnoDeFen(String fen) => fen.split(' ')[1] == 'b' ? 'b' : 'w';
@@ -193,6 +228,8 @@ class _GameScreenState extends State<GameScreen> {
       });
       if (resultado.terminada) {
         await _manejarFinDePartida();
+      } else {
+        await _actualizarEvaluacion();
       }
     } catch (error) {
       if (!mounted) return;
@@ -369,7 +406,12 @@ class _GameScreenState extends State<GameScreen> {
                       esTurnoBlancas: _turnoDeFen(_fen) == 'w',
                       tiempoRestante: _tiempoRestante,
                     ),
-                    const SizedBox(height: AppSpacing.spaceMd),
+                    if (widget.enableFeedback) ...[
+                      const SizedBox(height: AppSpacing.spaceSm),
+                      _EvaluationBar(evaluacionPeones: _evaluacionBlancasEnPeones()),
+                      const SizedBox(height: AppSpacing.spaceSm),
+                    ] else
+                      const SizedBox(height: AppSpacing.spaceMd),
                     if (_cargandoFinal)
                       const Padding(
                         padding: EdgeInsets.only(bottom: AppSpacing.spaceMd),
@@ -410,6 +452,73 @@ class _GameScreenState extends State<GameScreen> {
             context.go('/home');
           }
         },
+      ),
+    );
+  }
+}
+
+class _EvaluationBar extends StatelessWidget {
+  /// Evaluación en peones desde la perspectiva de blancas (negativo = ventaja
+  /// negras). `null` cuando todavía no llega el análisis.
+  final double? evaluacionPeones;
+
+  const _EvaluationBar({this.evaluacionPeones});
+
+  @override
+  Widget build(BuildContext context) {
+    final eval = evaluacionPeones;
+    final etiqueta = eval == null
+        ? '−'
+        : (eval > 0 ? '+' : '') + eval.toStringAsFixed(1);
+
+    // Blanco puro sobre el fondo: la parte que "gana" blancas a la izquierda,
+    // oscura la de negras a la derecha. ±5 peones o un mate llena la barra.
+    final fraccionBlancas = eval == null
+        ? 0.5
+        : ((eval + 5) / 10).clamp(0.0, 1.0);
+
+    return GlassCard(
+      padding: EdgeInsets.zero,
+      child: SizedBox(
+        height: 16,
+        child: ClipRRect(
+          borderRadius: AppRadius.radiusFull,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return Stack(
+                children: [
+                  Container(color: AppColors.onSurface),
+                  Container(
+                    width: constraints.maxWidth * fraccionBlancas,
+                    color: AppColors.surfaceContainerLowest,
+                  ),
+                  Container(
+                    width: constraints.maxWidth * fraccionBlancas,
+                    decoration: const BoxDecoration(
+                      border: Border(
+                        right: BorderSide(color: AppColors.primary, width: 1.5),
+                      ),
+                    ),
+                  ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: Text(
+                        etiqueta,
+                        style: AppTextStyles.labelSm.copyWith(
+                          color: AppColors.onPrimary,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
       ),
     );
   }
