@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -55,6 +56,7 @@ class _GameScreenState extends State<GameScreen> {
   double? _evaluacion;
   int? _evaluacionCp;
   int? _mateEn;
+  final List<double> _historialEvaluaciones = [];
   bool _cargandoInicial = true;
   bool _cargandoMovimiento = false;
   bool _cargandoFinal = false;
@@ -113,6 +115,11 @@ class _GameScreenState extends State<GameScreen> {
       setState(() {
         _evaluacionCp = analisis.evaluacionCp;
         _mateEn = analisis.mateEn;
+        // Guarda un punto por posición analizada para el gráfico de evolución.
+        final evaluacion = _evaluacionBlancasEnPeones();
+        if (evaluacion != null && !_terminada) {
+          _historialEvaluaciones.add(evaluacion);
+        }
       });
     } catch (_) {
       // best-effort — ver docstring.
@@ -264,12 +271,17 @@ class _GameScreenState extends State<GameScreen> {
     }
 
     final opponentLabel = widget.opponent == OpponentType.model ? 'Modelo IA' : 'Stockfish';
+    final auth = context.read<AuthProvider>();
+    final stats = auth.estadisticas;
+    final precisionPromedio = stats.precision_promedio ?? 0.0;
+    final precisionInt = accuracy.round();
     final extra = {
       'playerName': 'Jugador',
-      'accuracy': accuracy.round(),
+      'accuracy': precisionInt,
       'moves': _jugadas.length,
       'finalEval': _evaluacion ?? 0.0,
       'opponent': opponentLabel,
+      'precisionPromedio': precisionPromedio,
     };
 
     if (_resultado == '1-0') {
@@ -428,6 +440,10 @@ class _GameScreenState extends State<GameScreen> {
                       moves: historial,
                       highlightedIndex: historial.isEmpty ? null : historial.length - 1,
                     ),
+                    if (widget.enableFeedback && _historialEvaluaciones.isNotEmpty) ...[
+                      const SizedBox(height: AppSpacing.spaceMd),
+                      _GameChart(evaluaciones: List.unmodifiable(_historialEvaluaciones)),
+                    ],
                     const SizedBox(height: AppSpacing.spaceLg),
                   ],
                 ),
@@ -524,6 +540,116 @@ class _EvaluationBar extends StatelessWidget {
   }
 }
 
+class _GameChart extends StatelessWidget {
+  /// Evaluación en peones (perspectiva de blancas) una entrada por posición
+  /// analizada, en orden de juego.
+  final List<double> evaluaciones;
+
+  const _GameChart({required this.evaluaciones});
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassCard(
+      padding: const EdgeInsets.all(AppSpacing.spaceMd),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Evolución de la evaluación',
+            style: AppTextStyles.labelSm.copyWith(
+              color: AppColors.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.spaceSm),
+          SizedBox(
+            height: 52,
+            width: double.infinity,
+            child: CustomPaint(
+              painter: _GameChartPainter(evaluaciones),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GameChartPainter extends CustomPainter {
+  static const _maxPeones = 5.0;
+
+  final List<double> evaluaciones;
+
+  _GameChartPainter(this.evaluaciones);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (evaluaciones.isEmpty) return;
+
+    final ancho = size.width;
+    final alto = size.height;
+    final centro = alto / 2;
+
+    // Línea central (evaluación 0).
+    final lineaCentral = Paint()
+      ..color = AppColors.outlineVariant
+      ..strokeWidth = 1;
+    canvas.drawLine(Offset(0, centro), Offset(ancho, centro), lineaCentral);
+
+    final offsetX = evaluaciones.length > 1 ? ancho / (evaluaciones.length - 1) : 0.0;
+    final primerX = evaluaciones.length > 1 ? 0.0 : ancho / 2;
+
+    Offset punto(double evaluacion, int i) {
+      final valor = evaluacion.clamp(-_maxPeones, _maxPeones);
+      final y = centro - (valor / _maxPeones) * (alto - 8) / 2;
+      return Offset(evaluaciones.length > 1 ? offsetX * i : primerX, y.clamp(2, alto - 2));
+    }
+
+    // Relleno bajo la línea.
+    final relleno = Paint()
+      ..color = AppColors.primary.withOpacity(0.12)
+      ..style = PaintingStyle.fill;
+    final area = Path()..moveTo(0, centro);
+    for (int i = 0; i < evaluaciones.length; i++) {
+      final p = punto(evaluaciones[i], i);
+      if (i == 0) area.moveTo(p.dx, p.dy);
+      else area.lineTo(p.dx, p.dy);
+    }
+    area
+      ..lineTo(ancho, centro)
+      ..close();
+    canvas.drawPath(area, relleno);
+
+    // Línea de la evolución.
+    final trazo = Paint()
+      ..color = AppColors.primary
+      ..strokeWidth = 2
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final path = Path();
+    for (int i = 0; i < evaluaciones.length; i++) {
+      final p = punto(evaluaciones[i], i);
+      if (i == 0) path.moveTo(p.dx, p.dy);
+      else path.lineTo(p.dx, p.dy);
+    }
+    canvas.drawPath(path, trazo);
+
+    // Punto final (la posición actual).
+    final ultimo = punto(evaluaciones.last, evaluaciones.length - 1);
+    canvas.drawCircle(
+      ultimo,
+      3.5,
+      Paint()..color = AppColors.primary,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _GameChartPainter oldDelegate) =>
+      oldDelegate.evaluaciones.length != evaluaciones.length ||
+      !listEquals(oldDelegate.evaluaciones, evaluaciones);
+}
+
 class _TopBar extends StatelessWidget {
   final OpponentType opponent;
   final int level;
@@ -605,24 +731,6 @@ class _GameMenuSheet extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _MenuTile(
-            icon: Icons.pause,
-            title: 'Pausar',
-            subtitle: 'Detener el reloj',
-            onTap: () => Navigator.pop(context),
-          ),
-          _MenuTile(
-            icon: Icons.settings,
-            title: 'Configuración',
-            subtitle: 'Sonidos, tablero, notaciones',
-            onTap: () => Navigator.pop(context),
-          ),
-          _MenuTile(
-            icon: Icons.help_outline,
-            title: 'Ayuda',
-            subtitle: 'Reglas, atajos, contacto',
-            onTap: () => Navigator.pop(context),
-          ),
           const Divider(height: 1, color: AppColors.outlineVariant),
           _MenuTile(
             icon: Icons.flag,
