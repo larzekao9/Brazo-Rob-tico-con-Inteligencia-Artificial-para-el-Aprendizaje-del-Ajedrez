@@ -41,4 +41,20 @@ void main() {
     expect(stats.totalPartidas, 0);
     expect(stats.topErrores, isEmpty);
   });
+
+  test('EstadisticasUsuario.fromJson no se rompe sin precision_promedio '
+      '(backend desactualizado) y conserva las partidas', () {
+    final stats = EstadisticasUsuario.fromJson(const {
+      'total_partidas': 5,
+      'partidas_ganadas': 3,
+      'partidas_perdidas': 1,
+      'partidas_tablas': 1,
+      'win_percent_promedio': 60,
+      'racha_victoria_actual': 2,
+    });
+
+    expect(stats.totalPartidas, 5);
+    expect(stats.partidasGanadas, 3);
+    expect(stats.precisionPromedio, 0.0);
+  });
 }

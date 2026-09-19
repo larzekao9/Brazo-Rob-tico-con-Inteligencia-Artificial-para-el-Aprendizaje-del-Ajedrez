@@ -148,9 +148,9 @@ class EstadisticasUsuario {
         partidasGanadas: json['partidas_ganadas'] as int,
         partidasPerdidas: json['partidas_perdidas'] as int,
         partidasTablas: json['partidas_tablas'] as int,
-        winPercentPromedio: (json['win_percent_promedio'] as num).toDouble(),
-        rachaVictoriaActual: json['racha_victoria_actual'] as int,
-        precisionPromedio: (json['precision_promedio'] as num).toDouble(),
+        winPercentPromedio: (json['win_percent_promedio'] as num?)?.toDouble() ?? 0.0,
+        rachaVictoriaActual: json['racha_victoria_actual'] as int? ?? 0,
+        precisionPromedio: (json['precision_promedio'] as num?)?.toDouble() ?? 0.0,
         topErrores: [
           for (final item in json['top_errores'] as List? ?? const [])
             TopError.fromJson(item as Map<String, dynamic>),
