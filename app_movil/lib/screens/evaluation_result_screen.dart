@@ -37,6 +37,7 @@ class EvaluationResultScreen extends StatelessWidget {
                       children: [
                         _TrophySection(
                           rank: rank,
+                          level: level,
                           rankColor: rankColor,
                           rankIcon: rankIcon,
                         ),
@@ -68,7 +69,7 @@ class EvaluationResultScreen extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(vertical: AppSpacing.spaceLg),
                     backgroundColor: rankColor,
                   ),
-                  child: const Text('Comenzar a jugar'),
+                  child: const Text('Ir al inicio'),
                 ),
               ),
             ),
@@ -176,11 +177,13 @@ class _BrandLogoSmall extends StatelessWidget {
 
 class _TrophySection extends StatelessWidget {
   final String rank;
+  final int level;
   final Color rankColor;
   final IconData rankIcon;
 
   const _TrophySection({
     required this.rank,
+    required this.level,
     required this.rankColor,
     required this.rankIcon,
   });
@@ -248,11 +251,12 @@ class _TrophySection extends StatelessWidget {
                     ],
                   ),
                   child: Text(
-                    rank,
+                    'Nivel $level • $rank',
                     style: AppTextStyles.labelMd.copyWith(
                       color: AppColors.onPrimary,
                       fontSize: 16,
                       letterSpacing: 1.2,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ),

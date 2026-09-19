@@ -18,7 +18,9 @@ class PiecesScreen extends StatelessWidget {
       backgroundColor: AppColors.surface,
       body: Stack(
         children: [
-          CustomScrollView(
+          SafeArea(
+            bottom: false,
+            child: CustomScrollView(
             slivers: [
               SliverPersistentHeader(
                 pinned: true,
@@ -57,6 +59,7 @@ class PiecesScreen extends StatelessWidget {
                 ),
               ),
             ],
+            ),
           ),
 
           Positioned(
@@ -84,58 +87,70 @@ class PiecesScreen extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.spaceSm,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceContainer,
-                  borderRadius: AppRadius.radiusFull,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text('🎓', style: TextStyle(fontSize: 14)),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Fundamentos',
-                      style: AppTextStyles.labelSm.copyWith(
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.w600,
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.spaceSm,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceContainer,
+                    borderRadius: AppRadius.radiusFull,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('🎓', style: TextStyle(fontSize: 14)),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                          'Fundamentos',
+                          style: AppTextStyles.labelSm.copyWith(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.spaceSm,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.secondaryFixed.withOpacity(0.3),
-                  borderRadius: AppRadius.radiusFull,
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: const BoxDecoration(
-                        color: AppColors.secondary,
-                        shape: BoxShape.circle,
+              const SizedBox(width: AppSpacing.spaceSm),
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.spaceSm,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.secondaryFixed.withOpacity(0.3),
+                    borderRadius: AppRadius.radiusFull,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: AppColors.secondary,
+                          shape: BoxShape.circle,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      '16 piezas por bando',
-                      style: AppTextStyles.telemetrySm.copyWith(
-                        color: AppColors.onSecondaryFixed,
-                        fontWeight: FontWeight.bold,
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          '16 piezas por bando',
+                          style: AppTextStyles.telemetrySm.copyWith(
+                            color: AppColors.onSecondaryFixed,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -146,7 +161,7 @@ class PiecesScreen extends StatelessWidget {
             style: AppTextStyles.headlineMd.copyWith(color: AppColors.onSurface),
           ),
           const SizedBox(height: AppSpacing.spaceSm),
-          Text(
+          MarkupText(
             'Las piezas de ajedrez se dividen en claras y oscuras '
             '(<strong>Blancas</strong> y <strong>Negras</strong>). '
             'Cada bando comanda exactamente 16 combatientes organizados en rangos tácticos.',
@@ -279,8 +294,8 @@ class PiecesScreen extends StatelessWidget {
       icon: Icons.check_circle,
       title: 'IMPORTANTE',
       message:
-          'Cada jugador comienza con <strong class="font-semibold">16 piezas</strong>. '
-          'En total hay <strong class="font-semibold">32 piezas</strong> sobre el tablero al inicio de la partida.',
+          'Cada jugador comienza con <strong>16 piezas</strong>. '
+          'En total hay <strong>32 piezas</strong> sobre el tablero al inicio de la partida.',
       iconColor: AppColors.primary,
       iconBackgroundColor: AppColors.primaryContainer,
       titleColor: AppColors.primary,

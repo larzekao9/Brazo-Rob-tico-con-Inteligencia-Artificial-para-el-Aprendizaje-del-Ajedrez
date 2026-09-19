@@ -9,9 +9,15 @@ import '../services/chess_api.dart';
 /// autoseleccionar la dificultad.
 const _nivelDiagnostico = 10;
 
+/// Nivel bajo para test rápido (termina en pocas jugadas).
+const _nivelTestRapido = 2;
+
 /// Cuántas partidas cortas seguidas se juegan para calcular el nivel —
 /// promediamos la precisión de todas en vez de fiarnos de una sola.
 const _rondasDiagnostico = 3;
+
+/// Una sola ronda para el test rápido.
+const _rondasTestRapido = 1;
 
 /// Pantalla "¿Qué quieres hacer ahora?" (diseño 03_seleccion_de_modo) —
 /// llega acá tanto al saltar las tarjetas de aprendizaje como al terminarlas.
@@ -24,6 +30,7 @@ class ModeSelectionScreen extends StatefulWidget {
 
 class _ModeSelectionScreenState extends State<ModeSelectionScreen> {
   bool _creandoDiagnostico = false;
+  bool _creandoTestRapido = false;
 
   Future<void> _comenzarDiagnostico() async {
     setState(() => _creandoDiagnostico = true);
@@ -50,6 +57,34 @@ class _ModeSelectionScreenState extends State<ModeSelectionScreen> {
       );
     } finally {
       if (mounted) setState(() => _creandoDiagnostico = false);
+    }
+  }
+
+  Future<void> _comenzarTestRapido() async {
+    setState(() => _creandoTestRapido = true);
+    try {
+      final partida = await ChessApi.instancia.crearPartida(
+        nivel: _nivelTestRapido,
+        tipoOponente: 'motor',
+      );
+      if (!mounted) return;
+      context.go('/game', extra: {
+        'partidaId': partida.id,
+        'opponent': OpponentType.stockfish,
+        'level': _nivelTestRapido,
+        'enableFeedback': true,
+        'esDiagnostico': true,
+        'diagnosticoRonda': 1,
+        'diagnosticoTotalRondas': _rondasTestRapido,
+        'diagnosticoPrecisiones': <double>[],
+      });
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ChessApi.mensajeDeError(error))),
+      );
+    } finally {
+      if (mounted) setState(() => _creandoTestRapido = false);
     }
   }
 
@@ -105,13 +140,25 @@ class _ModeSelectionScreenState extends State<ModeSelectionScreen> {
                       _ModeCard(
                         icon: Icons.bar_chart_rounded,
                         color: AppColors.tertiary,
-                        title: 'Mide tu nivel',
+                        title: 'Mide tu nivel (3 partidas)',
                         description:
-                            'Jugá una partida real con Stockfish. Según cómo juegues (no un cuestionario) te '
-                            'clasificamos como principiante, intermedio o avanzado.',
+                            'Jugá 3 partidas reales con Stockfish nivel 10. Promediamos tu precisión para '
+                            'clasificarte como principiante, intermedio o avanzado.',
                         enabled: true,
                         cargando: _creandoDiagnostico,
                         onTap: _comenzarDiagnostico,
+                      ),
+                      const SizedBox(height: AppSpacing.spaceLg),
+                      _ModeCard(
+                        icon: Icons.flash_on,
+                        color: AppColors.secondary,
+                        title: 'Test rápido (1 partida)',
+                        description:
+                            'Una sola partida contra Stockfish nivel 2. Termina en segundos y te da tu '
+                            'nivel estimado al instante.',
+                        enabled: true,
+                        cargando: _creandoTestRapido,
+                        onTap: _comenzarTestRapido,
                       ),
                     ],
                   ),

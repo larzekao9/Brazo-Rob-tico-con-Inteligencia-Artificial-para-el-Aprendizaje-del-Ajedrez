@@ -18,7 +18,9 @@ class RanksFilesScreen extends StatelessWidget {
       backgroundColor: AppColors.surface,
       body: Stack(
         children: [
-          CustomScrollView(
+          SafeArea(
+            bottom: false,
+            child: CustomScrollView(
             slivers: [
               SliverPersistentHeader(
                 pinned: true,
@@ -57,6 +59,7 @@ class RanksFilesScreen extends StatelessWidget {
                 ),
               ),
             ],
+            ),
           ),
 
           Positioned(
@@ -108,25 +111,31 @@ class RanksFilesScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              Row(
-                children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(
-                      color: AppColors.primary,
-                      shape: BoxShape.circle,
+              Flexible(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        color: AppColors.primary,
+                        shape: BoxShape.circle,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    'Modo interactivo',
-                    style: AppTextStyles.telemetrySm.copyWith(
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.w600,
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        'Modo interactivo',
+                        style: AppTextStyles.telemetrySm.copyWith(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
           ),
@@ -136,38 +145,67 @@ class RanksFilesScreen extends StatelessWidget {
             style: AppTextStyles.headlineMd.copyWith(color: AppColors.onSurface),
           ),
           const SizedBox(height: AppSpacing.spaceSm),
-          Text(
+          MarkupText(
             'Para nombrar cada casilla y mover las piezas, el tablero se divide en '
-            'líneas horizontales llamadas <strong class="font-semibold">filas</strong> '
+            'líneas horizontales llamadas <strong>filas</strong> '
             '(numeradas del 1 al 8) y líneas verticales llamadas '
-            '<strong class="font-semibold">columnas</strong> '
+            '<strong>columnas</strong> '
             '(identificadas con letras de la \'a\' a la \'h\').',
             style: AppTextStyles.bodyMd.copyWith(color: AppColors.onSurfaceVariant),
           ),
           const SizedBox(height: AppSpacing.spaceLg),
 
-          // Tablero con coordenadas y columna e destacada
           InteractiveChessBoard(
             maxSize: 340,
             highlightedSquares: {
-              'e8': _buildHighlightedSquare('e8'),
-              'e7': _buildHighlightedSquare('e7'),
-              'e6': _buildHighlightedSquare('e6'),
-              'e5': _buildHighlightedSquare('e5'),
-              'e4': _buildHighlightedSquare('e4'),
-              'e3': _buildHighlightedSquare('e3'),
-              'e2': _buildHighlightedSquare('e2'),
-              'e1': _buildHighlightedSquare('e1'),
-            },
-            squareLabels: {
-              'e8': 'e8',
-              'e7': 'e7',
-              'e6': 'e6',
-              'e5': 'e5',
-              'e4': 'e4',
-              'e3': 'e3',
-              'e2': 'e2',
-              'e1': 'e1',
+              // Columna e (vertical)
+              'e8': _buildHighlightedSquare(AppColors.secondaryFixed.withOpacity(0.5), text: 'e8', textColor: AppColors.onSecondaryFixedVariant),
+              'e7': _buildHighlightedSquare(AppColors.secondaryFixed.withOpacity(0.5), text: 'e7', textColor: AppColors.onSecondaryFixedVariant),
+              'e6': _buildHighlightedSquare(AppColors.secondaryFixed.withOpacity(0.5), text: 'e6', textColor: AppColors.onSecondaryFixedVariant),
+              'e5': _buildHighlightedSquare(AppColors.secondaryFixed.withOpacity(0.5), text: 'e5', textColor: AppColors.onSecondaryFixedVariant),
+              'e3': _buildHighlightedSquare(AppColors.secondaryFixed.withOpacity(0.5), text: 'e3', textColor: AppColors.onSecondaryFixedVariant),
+              'e2': _buildHighlightedSquare(AppColors.secondaryFixed.withOpacity(0.5), text: 'e2', textColor: AppColors.onSecondaryFixedVariant),
+              'e1': _buildHighlightedSquare(AppColors.secondaryFixed.withOpacity(0.5), text: 'e1', textColor: AppColors.onSecondaryFixedVariant),
+              
+              // Fila 4 (horizontal)
+              'a4': _buildHighlightedSquare(AppColors.primary.withOpacity(0.15), text: 'a4', textColor: AppColors.primary),
+              'b4': _buildHighlightedSquare(AppColors.primary.withOpacity(0.15), text: 'b4', textColor: AppColors.primary),
+              'c4': _buildHighlightedSquare(AppColors.primary.withOpacity(0.15), text: 'c4', textColor: AppColors.primary),
+              'd4': _buildHighlightedSquare(AppColors.primary.withOpacity(0.15), text: 'd4', textColor: AppColors.primary),
+              'f4': _buildHighlightedSquare(AppColors.primary.withOpacity(0.15), text: 'f4', textColor: AppColors.primary),
+              'g4': _buildHighlightedSquare(AppColors.primary.withOpacity(0.15), text: 'g4', textColor: AppColors.primary),
+              'h4': _buildHighlightedSquare(AppColors.primary.withOpacity(0.15), text: 'h4', textColor: AppColors.primary),
+
+              // Intersección e4
+              'e4': _buildHighlightedSquare(
+                AppColors.primary,
+                customChild: Stack(
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 12,
+                        height: 12,
+                        decoration: const BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      bottom: 2,
+                      right: 2,
+                      child: Text(
+                        'e4',
+                        style: AppTextStyles.telemetrySm.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             },
           ),
           const SizedBox(height: AppSpacing.spaceSm),
@@ -183,52 +221,59 @@ class RanksFilesScreen extends StatelessWidget {
                 color: AppColors.surfaceContainer,
                 borderRadius: AppRadius.radiusFull,
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
+              child: Wrap(
+                alignment: WrapAlignment.center,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 4,
                 children: [
                   const Icon(
                     Icons.pin_drop,
                     size: 14,
                     color: AppColors.primary,
                   ),
-                  const SizedBox(width: 4),
-                  Text(
-                    'Ejemplo: ',
-                    style: AppTextStyles.labelSm.copyWith(
-                      color: AppColors.onSurfaceVariant,
-                    ),
-                  ),
-                  Text(
-                    'Columna e',
-                    style: AppTextStyles.labelSm.copyWith(
-                      color: AppColors.secondary,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Text(
-                    ' + ',
-                    style: AppTextStyles.labelSm.copyWith(
-                      color: AppColors.onSurfaceVariant,
-                    ),
-                  ),
-                  Text(
-                    'Fila 4',
-                    style: AppTextStyles.labelSm.copyWith(
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Text(
-                    ' = Casilla ',
-                    style: AppTextStyles.labelSm.copyWith(
-                      color: AppColors.onSurfaceVariant,
-                    ),
-                  ),
-                  Text(
-                    'e4',
-                    style: AppTextStyles.labelSm.copyWith(
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.bold,
+                  Text.rich(
+                    TextSpan(
+                      children: [
+                        TextSpan(
+                          text: 'Ejemplo: ',
+                          style: AppTextStyles.labelSm.copyWith(
+                            color: AppColors.onSurfaceVariant,
+                          ),
+                        ),
+                        TextSpan(
+                          text: 'Columna e',
+                          style: AppTextStyles.labelSm.copyWith(
+                            color: AppColors.onSecondaryFixedVariant, // Actualizado para coincidir
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        TextSpan(
+                          text: ' + ',
+                          style: AppTextStyles.labelSm.copyWith(
+                            color: AppColors.onSurfaceVariant,
+                          ),
+                        ),
+                        TextSpan(
+                          text: 'Fila 4',
+                          style: AppTextStyles.labelSm.copyWith(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        TextSpan(
+                          text: ' = Casilla ',
+                          style: AppTextStyles.labelSm.copyWith(
+                            color: AppColors.onSurfaceVariant,
+                          ),
+                        ),
+                        TextSpan(
+                          text: 'e4',
+                          style: AppTextStyles.labelSm.copyWith(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -240,21 +285,24 @@ class RanksFilesScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildHighlightedSquare(String squareId) {
+  Widget _buildHighlightedSquare(Color bgColor, {String? text, Color? textColor, Widget? customChild}) {
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.secondaryFixed.withOpacity(0.5),
+        color: bgColor,
       ),
-      child: Center(
-        child: Text(
-          squareId,
-          style: AppTextStyles.telemetrySm.copyWith(
-            color: AppColors.secondary,
-            fontWeight: FontWeight.bold,
-            fontSize: 8,
-          ),
-        ),
-      ),
+      child: customChild ??
+          (text != null
+              ? Center(
+                  child: Text(
+                    text,
+                    style: AppTextStyles.telemetrySm.copyWith(
+                      color: textColor ?? AppColors.onSurface,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 10,
+                    ),
+                  ),
+                )
+              : null),
     );
   }
 
@@ -328,9 +376,9 @@ class RanksFilesScreen extends StatelessWidget {
       icon: Icons.lightbulb,
       title: 'Regla de Nombrado',
       message:
-          'Primero siempre se menciona la <strong class="font-semibold">letra de la columna</strong> '
-          'y después el <strong class="font-semibold">número de la fila</strong>. '
-          'Por eso decimos casilla <strong class="font-bold">e4</strong>, nunca 4e.',
+          'Primero siempre se menciona la <strong>letra de la columna</strong> '
+          'y después el <strong>número de la fila</strong>. '
+          'Por eso decimos casilla <strong>e4</strong>, nunca 4e.',
       iconColor: AppColors.onPrimary,
       iconBackgroundColor: AppColors.primaryContainer,
       titleColor: AppColors.primary,

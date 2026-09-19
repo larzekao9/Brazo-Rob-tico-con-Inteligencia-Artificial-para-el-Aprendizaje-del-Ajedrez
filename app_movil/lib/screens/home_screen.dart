@@ -49,7 +49,12 @@ class _HomeScreenState extends State<HomeScreen> {
 class _TopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    final nombre = context.watch<AuthProvider>().user?.nombre ?? 'Jugador';
+    final user = context.watch<AuthProvider>().user;
+    final nombre = user?.nombre ?? 'Jugador';
+    final nivel = user?.nivelEstimado ?? 1;
+    final rango = user?.rangoEstimado ?? 'Principiante';
+    final rangoColor = _getRangoColor(rango);
+
     return Padding(
       padding: const EdgeInsets.all(AppSpacing.margin),
       child: Row(
@@ -70,12 +75,26 @@ class _TopBar extends StatelessWidget {
                     color: AppColors.onSurface,
                   ),
                 ),
-                Text(
-                  'Nivel: Principiante',
-                  style: AppTextStyles.bodySm.copyWith(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.w600,
-                  ),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.spaceSm,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: rangoColor.withOpacity(0.15),
+                        borderRadius: AppRadius.radiusFull,
+                      ),
+                      child: Text(
+                        '$rango • Nivel $nivel',
+                        style: AppTextStyles.labelSm.copyWith(
+                          color: rangoColor,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -115,6 +134,19 @@ class _TopBar extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Color _getRangoColor(String rango) {
+    switch (rango) {
+      case 'Principiante':
+        return AppColors.primary;
+      case 'Intermedio':
+        return AppColors.secondary;
+      case 'Avanzado':
+        return AppColors.tertiary;
+      default:
+        return AppColors.primary;
+    }
   }
 }
 

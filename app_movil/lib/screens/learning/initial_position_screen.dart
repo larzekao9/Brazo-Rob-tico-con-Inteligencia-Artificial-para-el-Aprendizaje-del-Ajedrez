@@ -18,7 +18,9 @@ class InitialPositionScreen extends StatelessWidget {
       backgroundColor: AppColors.surface,
       body: Stack(
         children: [
-          CustomScrollView(
+          SafeArea(
+            bottom: false,
+            child: CustomScrollView(
             slivers: [
               SliverPersistentHeader(
                 pinned: true,
@@ -37,23 +39,14 @@ class InitialPositionScreen extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Tarjeta intro
                       _buildIntroCard(),
                       const SizedBox(height: AppSpacing.spaceLg),
-
-                      // Tablero principal grande
                       _buildMainBoard(),
                       const SizedBox(height: AppSpacing.spaceLg),
-
-                      // Reglas de oro
                       _buildGoldenRules(),
                       const SizedBox(height: AppSpacing.spaceLg),
-
-                      // Movimiento vs Captura
                       _buildMoveVsCapture(),
                       const SizedBox(height: AppSpacing.spaceLg),
-
-                      // Consejo final
                       _buildFinalAdvice(),
                       const SizedBox(height: 100),
                     ],
@@ -61,6 +54,7 @@ class InitialPositionScreen extends StatelessWidget {
                 ),
               ),
             ],
+            ),
           ),
 
           Positioned(
@@ -89,58 +83,70 @@ class InitialPositionScreen extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.spaceSm,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFECFDF5), // emerald-50
-                  borderRadius: AppRadius.radiusFull,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.school, size: 14, color: Color(0xFF087F5B)),
-                    const SizedBox(width: 4),
-                    Text(
-                      'FUNDAMENTOS',
-                      style: AppTextStyles.labelSm.copyWith(
-                        color: Color(0xFF087F5B),
-                        fontWeight: FontWeight.bold,
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.spaceSm,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFECFDF5),
+                    borderRadius: AppRadius.radiusFull,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.school, size: 14, color: Color(0xFF087F5B)),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                          'FUNDAMENTOS',
+                          style: AppTextStyles.labelSm.copyWith(
+                            color: Color(0xFF087F5B),
+                            fontWeight: FontWeight.bold,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.spaceSm,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceContainerLow,
-                  borderRadius: AppRadius.radiusFull,
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: const BoxDecoration(
-                        color: AppColors.primary,
-                        shape: BoxShape.circle,
+              const SizedBox(width: AppSpacing.spaceSm),
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.spaceSm,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceContainerLow,
+                    borderRadius: AppRadius.radiusFull,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: AppColors.primary,
+                          shape: BoxShape.circle,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Posición completa',
-                      style: AppTextStyles.telemetrySm.copyWith(
-                        color: AppColors.onSurfaceVariant,
-                        fontWeight: FontWeight.bold,
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          'Posición completa',
+                          style: AppTextStyles.telemetrySm.copyWith(
+                            color: AppColors.onSurfaceVariant,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -151,9 +157,9 @@ class InitialPositionScreen extends StatelessWidget {
             style: AppTextStyles.headlineMd.copyWith(color: AppColors.onSurface),
           ),
           const SizedBox(height: AppSpacing.spaceSm),
-          Text(
+          MarkupText(
             'El tablero se mira desde el lado de las blancas. Cada bando comienza con '
-            '<strong class="font-semibold">16 piezas</strong> preparadas simétricamente para la partida.',
+            '<strong>16 piezas</strong> preparadas simétricamente para la partida.',
             style: AppTextStyles.bodyMd.copyWith(color: AppColors.onSurfaceVariant),
           ),
         ],
@@ -166,78 +172,35 @@ class InitialPositionScreen extends StatelessWidget {
       padding: AppSpacing.cardPaddingSm,
       child: Column(
         children: [
-          // Status bar superior
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
+          LayoutBuilder(
+            builder: (context, constraints) {
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Container(
-                    width: 12,
-                    height: 12,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF0F172A),
-                      shape: BoxShape.circle,
-                    ),
+                  _StatusItem(
+                    icon: Icons.circle,
+                    iconColor: const Color(0xFF0F172A),
+                    label: 'Negras (Filas 7-8)',
                   ),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Negras (Filas 7-8)',
-                    style: AppTextStyles.bodySm.copyWith(
-                      color: AppColors.onSurfaceVariant,
-                    ),
+                  _StatusItem(
+                    icon: Icons.casino,
+                    iconColor: AppColors.onSurfaceVariant,
+                    label: '32 Piezas',
+                    showChip: true,
+                  ),
+                  _StatusItem(
+                    icon: Icons.circle,
+                    iconColor: AppColors.surfaceContainerLowest,
+                    label: 'Blancas (Filas 1-2)',
+                    iconBorder: Border.all(color: AppColors.primary, width: 2),
                   ),
                 ],
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceContainerLow,
-                  borderRadius: AppRadius.radiusFull,
-                ),
-                child: Text(
-                  '32 Piezas',
-                  style: AppTextStyles.telemetrySm.copyWith(
-                    color: AppColors.onSurfaceVariant,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              Row(
-                children: [
-                  Text(
-                    'Blancas (Filas 1-2)',
-                    style: AppTextStyles.bodySm.copyWith(
-                      color: AppColors.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Container(
-                    width: 12,
-                    height: 12,
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceContainerLowest,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: AppColors.primary,
-                        width: 2,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+              );
+            },
           ),
           const SizedBox(height: AppSpacing.spaceSm),
-
-          // Tablero 8x8 completo
           _buildFullBoard(),
           const SizedBox(height: AppSpacing.spaceMd),
-
-          // Etiquetas a-h
           Row(
             children: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
                 .map(
@@ -257,8 +220,6 @@ class InitialPositionScreen extends StatelessWidget {
                 .toList(),
           ),
           const SizedBox(height: AppSpacing.spaceSm),
-
-          // Badge inferior
           Container(
             padding: const EdgeInsets.symmetric(
               horizontal: AppSpacing.spaceMd,
@@ -269,8 +230,11 @@ class InitialPositionScreen extends StatelessWidget {
               borderRadius: AppRadius.radiusFull,
               border: Border.all(color: AppColors.outlineVariant),
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+            child: Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Text(
                   'd1 = Dama Blanca ',
@@ -300,21 +264,21 @@ class InitialPositionScreen extends StatelessWidget {
                 Text(
                   '(casilla oscura)',
                   style: AppTextStyles.labelSm.copyWith(
-                    color: Color(0xFF0284C7), // sky-700
+                    color: const Color(0xFF0284C7),
                     fontWeight: FontWeight.bold,
                   ),
                 ),
               ],
             ),
-          ),
-        ],
+          ), // Cierra SingleChildScrollView
+        ),
+      ],
       ),
     );
   }
 
   Widget _buildFullBoard() {
     final boardData = [
-      // Fila 8: Piezas mayores negras
       [
         {'piece': '♜', 'color': 'black', 'bg': 'white'},
         {'piece': '♞', 'color': 'black', 'bg': 'dark'},
@@ -325,7 +289,6 @@ class InitialPositionScreen extends StatelessWidget {
         {'piece': '♞', 'color': 'black', 'bg': 'white'},
         {'piece': '♜', 'color': 'black', 'bg': 'dark'},
       ],
-      // Fila 7: Peones negros
       [
         {'piece': '♟', 'color': 'black', 'bg': 'dark'},
         {'piece': '♟', 'color': 'black', 'bg': 'white'},
@@ -336,12 +299,10 @@ class InitialPositionScreen extends StatelessWidget {
         {'piece': '♟', 'color': 'black', 'bg': 'dark'},
         {'piece': '♟', 'color': 'black', 'bg': 'white'},
       ],
-      // Filas 6, 5, 4, 3: Vacías
       List.generate(8, (i) => {'empty': true, 'bg': i % 2 == 0 ? 'white' : 'dark'}),
       List.generate(8, (i) => {'empty': true, 'bg': i % 2 == 1 ? 'white' : 'dark'}),
       List.generate(8, (i) => {'empty': true, 'bg': i % 2 == 0 ? 'white' : 'dark'}),
       List.generate(8, (i) => {'empty': true, 'bg': i % 2 == 1 ? 'white' : 'dark'}),
-      // Fila 2: Peones blancos
       [
         {'piece': '♙', 'color': 'white', 'bg': 'white'},
         {'piece': '♙', 'color': 'white', 'bg': 'dark'},
@@ -352,7 +313,6 @@ class InitialPositionScreen extends StatelessWidget {
         {'piece': '♙', 'color': 'white', 'bg': 'white'},
         {'piece': '♙', 'color': 'white', 'bg': 'dark'},
       ],
-      // Fila 1: Piezas mayores blancas
       [
         {'piece': '♖', 'color': 'white', 'bg': 'dark'},
         {'piece': '♘', 'color': 'white', 'bg': 'white'},
@@ -378,84 +338,12 @@ class InitialPositionScreen extends StatelessWidget {
         ],
       ),
       child: Column(
-        children: [
-          // Filas 8 a 1
-          ...List.generate(8, (rowIndex) {
-            final row = boardData[rowIndex];
-            final rankNumber = 8 - rowIndex;
-
-            return _buildBoardRow(
-              row: row,
-              rankNumber: rankNumber,
-            );
-          }),
-        ],
+        children: List.generate(8, (rowIndex) {
+          final row = boardData[rowIndex];
+          final rankNumber = 8 - rowIndex;
+          return _buildBoardRow(row: row, rankNumber: rankNumber);
+        }),
       ),
-    );
-  }
-
-  Widget _buildGoldenRules() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(left: AppSpacing.spaceXs),
-          child: Text(
-            'Reglas de oro de colocación',
-            style: AppTextStyles.headlineSm.copyWith(
-              color: AppColors.onSurface,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-        const SizedBox(height: AppSpacing.spaceSm),
-        GoldenRuleCallout(
-          icon: Icons.emoji_events,
-          title: 'La Dama y el Rey',
-          message:
-              'La Dama siempre va en la casilla de su <strong class="font-semibold">propio color</strong>: '
-              'la dama blanca en casilla clara (<strong class="font-telemetry-md font-semibold">d1</strong>) '
-              'y la dama negra en casilla oscura (<strong class="font-telemetry-md font-semibold">d8</strong>). '
-              'El Rey se sitúa justo a su lado en la columna <strong class="font-telemetry-md font-semibold">e</strong>.',
-          iconColor: Color(0xFF0284C7), // sky-600
-          iconBackgroundColor: Color(0xFFE0F2FE), // sky-50
-        ),
-        const SizedBox(height: AppSpacing.spaceSm),
-        GoldenRuleCallout(
-          icon: Icons.compare_arrows,
-          title: 'Enfrentados simétricamente',
-          message:
-              'Los Reyes y las Damas rivales se miran de frente a lo largo de las columnas '
-              'centrales <strong class="font-telemetry-md font-semibold">d</strong> y '
-              '<strong class="font-telemetry-md font-semibold">e</strong>, '
-              'garantizando perfecta simetría en el despliegue.',
-          iconColor: AppColors.primary,
-          iconBackgroundColor: AppColors.primaryContainer,
-        ),
-        const SizedBox(height: AppSpacing.spaceSm),
-        GoldenRuleCallout(
-          icon: Icons.flag,
-          title: 'Las blancas comienzan',
-          message:
-              'El jugador con piezas blancas siempre realiza el primer movimiento de la partida '
-              'por convención y reglamento oficial internacional.',
-          iconColor: Color(0xFF2563EB), // blue-600
-          iconBackgroundColor: Color(0xFFEFF6FF), // blue-50
-        ),
-      ],
-    );
-  }
-
-  Widget _buildMoveVsCapture() {
-    return MoveVsCaptureSection();
-  }
-
-  Widget _buildFinalAdvice() {
-    return FinalAdviceCallout(
-      title: 'Consejo',
-      message:
-          'Al inicio, todas las piezas están ordenadas y listas para su desarrollo. '
-          'Esta posición inicial es universal y nunca varía en ajedrez estándar.',
     );
   }
 
@@ -467,7 +355,6 @@ class InitialPositionScreen extends StatelessWidget {
       height: 36,
       child: Row(
         children: [
-          // Número de fila izquierdo
           Container(
             width: 20,
             alignment: Alignment.centerLeft,
@@ -483,7 +370,6 @@ class InitialPositionScreen extends StatelessWidget {
               ),
             ),
           ),
-          // 8 casillas
           Expanded(
             child: Row(
               children: List.generate(8, (colIndex) {
@@ -493,9 +379,7 @@ class InitialPositionScreen extends StatelessWidget {
                 if (cell['empty'] == true) {
                   return Expanded(
                     child: Container(
-                      color: isLight
-                          ? Colors.white
-                          : const Color(0xFFB4C6D4),
+                      color: isLight ? Colors.white : const Color(0xFFB4C6D4),
                     ),
                   );
                 }
@@ -506,9 +390,7 @@ class InitialPositionScreen extends StatelessWidget {
 
                 return Expanded(
                   child: Container(
-                    color: isLight
-                        ? Colors.white
-                        : const Color(0xFFB4C6D4),
+                    color: isLight ? Colors.white : const Color(0xFFB4C6D4),
                     child: Stack(
                       alignment: Alignment.center,
                       children: [
@@ -552,7 +434,6 @@ class InitialPositionScreen extends StatelessWidget {
               }),
             ),
           ),
-          // Número de fila derecho
           Container(
             width: 20,
             alignment: Alignment.centerRight,
@@ -568,6 +449,139 @@ class InitialPositionScreen extends StatelessWidget {
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGoldenRules() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: AppSpacing.spaceXs),
+          child: Text(
+            'Reglas de oro de colocación',
+            style: AppTextStyles.headlineSm.copyWith(
+              color: AppColors.onSurface,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.spaceSm),
+        GoldenRuleCallout(
+          icon: Icons.emoji_events,
+          title: 'La Dama y el Rey',
+          message:
+              'La Dama siempre va en la casilla de su <strong>propio color</strong>: '
+              'la dama blanca en casilla clara (<strong>d1</strong>) '
+              'y la dama negra en casilla oscura (<strong>d8</strong>). '
+              'El Rey se sitúa justo a su lado en la columna <strong>e</strong>.',
+          iconColor: const Color(0xFF0284C7),
+          iconBackgroundColor: const Color(0xFFE0F2FE),
+        ),
+        const SizedBox(height: AppSpacing.spaceSm),
+        GoldenRuleCallout(
+          icon: Icons.compare_arrows,
+          title: 'Enfrentados simétricamente',
+          message:
+              'Los Reyes y las Damas rivales se miran de frente a lo largo de las columnas '
+              'centrales <strong>d</strong> y '
+              '<strong>e</strong>, '
+              'garantizando perfecta simetría en el despliegue.',
+          iconColor: AppColors.primary,
+          iconBackgroundColor: AppColors.primaryContainer,
+        ),
+        const SizedBox(height: AppSpacing.spaceSm),
+        GoldenRuleCallout(
+          icon: Icons.flag,
+          title: 'Las blancas comienzan',
+          message:
+              'El jugador con piezas blancas siempre realiza el primer movimiento de la partida '
+              'por convención y reglamento oficial internacional.',
+          iconColor: const Color(0xFF2563EB),
+          iconBackgroundColor: const Color(0xFFEFF6FF),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMoveVsCapture() {
+    return MoveVsCaptureSection();
+  }
+
+  Widget _buildFinalAdvice() {
+    return FinalAdviceCallout(
+      title: 'Consejo',
+      message:
+          'Al inicio, todas las piezas están ordenadas y listas para su desarrollo. '
+          'Esta posición inicial es universal y nunca varía en ajedrez estándar.',
+    );
+  }
+}
+
+class _StatusItem extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String label;
+  final bool showChip;
+  final Border? iconBorder;
+
+  const _StatusItem({
+    required this.icon,
+    required this.iconColor,
+    required this.label,
+    this.showChip = false,
+    this.iconBorder,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Flexible(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 12,
+            height: 12,
+            decoration: BoxDecoration(
+              color: iconColor,
+              shape: BoxShape.circle,
+              border: iconBorder,
+            ),
+          ),
+          const SizedBox(width: 6),
+          if (showChip)
+            Flexible(
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceContainerLow,
+                  borderRadius: AppRadius.radiusFull,
+                ),
+                child: Text(
+                  label,
+                  style: AppTextStyles.telemetrySm.copyWith(
+                    color: AppColors.onSurfaceVariant,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            )
+          else
+            Flexible(
+              child: Text(
+                label,
+                style: AppTextStyles.bodySm.copyWith(
+                  color: AppColors.onSurfaceVariant,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
         ],
       ),
     );
@@ -603,7 +617,7 @@ class _InitialPositionHeaderDelegate extends SliverPersistentHeaderDelegate {
     return Opacity(
       opacity: opacity,
       child: Container(
-        height: 72,
+        height: 88,
         padding: const EdgeInsets.symmetric(horizontal: AppSpacing.margin),
         decoration: BoxDecoration(
           color: AppColors.surfaceContainerLowest.withOpacity(0.95),
@@ -699,3 +713,4 @@ class _InitialPositionHeaderDelegate extends SliverPersistentHeaderDelegate {
     return false;
   }
 }
+

@@ -19,7 +19,9 @@ class BoardBasicsScreen extends StatelessWidget {
       body: Stack(
         children: [
           // Contenido scrollable
-          CustomScrollView(
+          SafeArea(
+            bottom: false,
+            child: CustomScrollView(
             slivers: [
               SliverPersistentHeader(
                 pinned: true,
@@ -58,6 +60,7 @@ class BoardBasicsScreen extends StatelessWidget {
                 ),
               ),
             ],
+            ),
           ),
 
           // Bottom Navigation
@@ -111,25 +114,31 @@ class BoardBasicsScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              Row(
-                children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(
-                      color: AppColors.primary,
-                      shape: BoxShape.circle,
+              Flexible(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        color: AppColors.primary,
+                        shape: BoxShape.circle,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    'Modo interactivo',
-                    style: AppTextStyles.telemetrySm.copyWith(
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.w600,
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        'Modo interactivo',
+                        style: AppTextStyles.telemetrySm.copyWith(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
           ),
@@ -139,7 +148,7 @@ class BoardBasicsScreen extends StatelessWidget {
             style: AppTextStyles.headlineMd.copyWith(color: AppColors.onSurface),
           ),
           const SizedBox(height: AppSpacing.spaceSm),
-          Text(
+          MarkupText(
             'El ajedrez se juega entre dos personas que mueven las piezas alternativamente. '
             'El juego se desarrolla sobre un tablero que contiene '
             '<strong>64 cuadrados</strong>, organizados en 8 filas y 8 columnas.',
@@ -201,32 +210,39 @@ class BoardBasicsScreen extends StatelessWidget {
                 color: AppColors.surfaceContainer,
                 borderRadius: AppRadius.radiusFull,
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
+              child: Wrap(
+                alignment: WrapAlignment.center,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 4,
                 children: [
                   const Icon(
                     Icons.verified,
                     size: 14,
                     color: AppColors.secondary,
                   ),
-                  const SizedBox(width: 4),
-                  Text(
-                    'Casilla ',
-                    style: AppTextStyles.labelSm.copyWith(
-                      color: AppColors.onSurfaceVariant,
-                    ),
-                  ),
-                  Text(
-                    'h1',
-                    style: AppTextStyles.labelSm.copyWith(
-                      color: AppColors.secondary,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Text(
-                    ': Blanca a la derecha',
-                    style: AppTextStyles.labelSm.copyWith(
-                      color: AppColors.onSurfaceVariant,
+                  Text.rich(
+                    TextSpan(
+                      children: [
+                        TextSpan(
+                          text: 'Casilla ',
+                          style: AppTextStyles.labelSm.copyWith(
+                            color: AppColors.onSurfaceVariant,
+                          ),
+                        ),
+                        TextSpan(
+                          text: 'h1',
+                          style: AppTextStyles.labelSm.copyWith(
+                            color: AppColors.secondary,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        TextSpan(
+                          text: ': Blanca a la derecha',
+                          style: AppTextStyles.labelSm.copyWith(
+                            color: AppColors.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],

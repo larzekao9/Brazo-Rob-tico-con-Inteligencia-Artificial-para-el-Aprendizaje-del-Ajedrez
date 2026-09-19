@@ -9,8 +9,17 @@ class AppUser {
   final String email;
   final String nombre;
   final String rol;
+  final int? nivelEstimado;
+  final String? rangoEstimado;
 
-  const AppUser({required this.id, required this.email, required this.nombre, required this.rol});
+  const AppUser({
+    required this.id,
+    required this.email,
+    required this.nombre,
+    required this.rol,
+    this.nivelEstimado,
+    this.rangoEstimado,
+  });
 
   factory AppUser.fromMap(Map<String, dynamic> map) {
     return AppUser(
@@ -18,6 +27,8 @@ class AppUser {
       email: map['email'] as String,
       nombre: map['nombre'] as String,
       rol: (map['rol'] as String?) ?? rolJugador,
+      nivelEstimado: map['nivel_estimado'] as int?,
+      rangoEstimado: map['rango_estimado'] as String?,
     );
   }
 

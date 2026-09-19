@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import '../models.dart';
 import '../services/chess_api.dart';
+import '../services/auth_provider.dart';
 
 class ConfigScreen extends StatefulWidget {
   final int diagnosticLevel;
@@ -23,7 +25,10 @@ class _ConfigScreenState extends State<ConfigScreen> {
   void initState() {
     super.initState();
     _selectedOpponent = OpponentType.stockfish;
-    _selectedLevel = widget.diagnosticLevel.clamp(1, 20);
+    // Prioridad: nivel guardado en backend > nivel del diagnóstico > 5
+    final user = context.read<AuthProvider>().user;
+    final nivelGuardado = user?.nivelEstimado;
+    _selectedLevel = (nivelGuardado ?? widget.diagnosticLevel).clamp(1, 20);
   }
 
   @override

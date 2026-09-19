@@ -108,13 +108,17 @@ class LearningInfoCard extends StatelessWidget {
     if (isColumnLayout) {
       return LearningCard(
         padding: AppSpacing.cardPadding,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            iconWidget,
-            const SizedBox(height: AppSpacing.spaceSm),
-            textWidget,
-          ],
+        child: SizedBox(
+          width: double.infinity,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              iconWidget,
+              const SizedBox(height: AppSpacing.spaceSm),
+              textWidget,
+            ],
+          ),
         ),
       );
     }
@@ -128,6 +132,63 @@ class LearningInfoCard extends StatelessWidget {
           Expanded(child: textWidget),
         ],
       ),
+    );
+  }
+}
+
+/// Texto que interpreta etiquetas `<strong>...</strong>` (heredadas del
+/// mockup web) y las dibuja en negrita en vez de mostrar el HTML crudo.
+/// Las clases `class="..."` dentro de la etiqueta se ignoran.
+class MarkupText extends StatelessWidget {
+  final String text;
+  final TextStyle? style;
+  final TextStyle? strongStyle;
+  final TextAlign textAlign;
+
+  const MarkupText(
+    this.text, {
+    super.key,
+    this.style,
+    this.strongStyle,
+    this.textAlign = TextAlign.start,
+  });
+
+  static final _strongPattern = RegExp(
+    r'<strong[^>]*>(.*?)</strong>',
+    caseSensitive: false,
+    dotAll: true,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final baseStyle = style ?? DefaultTextStyle.of(context).style;
+    final boldStyle = (strongStyle ?? baseStyle).copyWith(
+      fontWeight: FontWeight.bold,
+    );
+
+    if (!_strongPattern.hasMatch(text)) {
+      return Text(text, style: baseStyle, textAlign: textAlign);
+    }
+
+    final spans = <InlineSpan>[];
+    var cursor = 0;
+    for (final match in _strongPattern.allMatches(text)) {
+      if (match.start > cursor) {
+        spans.add(TextSpan(
+          text: text.substring(cursor, match.start),
+          style: baseStyle,
+        ));
+      }
+      spans.add(TextSpan(text: match.group(1), style: boldStyle));
+      cursor = match.end;
+    }
+    if (cursor < text.length) {
+      spans.add(TextSpan(text: text.substring(cursor), style: baseStyle));
+    }
+
+    return Text.rich(
+      TextSpan(children: spans),
+      textAlign: textAlign,
     );
   }
 }
@@ -193,7 +254,7 @@ class InfoCallout extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
+                MarkupText(
                   message,
                   style: AppTextStyles.bodyMd.copyWith(color: AppColors.onSurfaceVariant),
                 ),
@@ -231,11 +292,14 @@ class QuickCheck extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                title,
-                style: AppTextStyles.labelMd.copyWith(
-                  color: AppColors.onSurface,
-                  fontWeight: FontWeight.bold,
+              Flexible(
+                child: Text(
+                  title,
+                  style: AppTextStyles.labelMd.copyWith(
+                    color: AppColors.onSurface,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
               if (tipLabel != null)
@@ -442,7 +506,7 @@ class LearningBottomNav extends StatelessWidget {
                     shape: RoundedRectangleBorder(
                       borderRadius: AppRadius.radiusLg,
                     ),
-                    padding: EdgeInsets.zero,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
                     textStyle: AppTextStyles.labelMd.copyWith(
                       color: AppColors.primary,
                     ),
@@ -453,7 +517,12 @@ class LearningBottomNav extends StatelessWidget {
                     children: [
                       const Icon(Icons.arrow_back, size: 18),
                       const SizedBox(width: 8),
-                      Text(previousLabel),
+                      Flexible(
+                        child: Text(
+                          previousLabel,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -471,6 +540,7 @@ class LearningBottomNav extends StatelessWidget {
                     shape: RoundedRectangleBorder(
                       borderRadius: AppRadius.radiusLg,
                     ),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
                     textStyle: AppTextStyles.labelMd.copyWith(
                       color: AppColors.onPrimaryContainer,
                     ),
@@ -481,7 +551,12 @@ class LearningBottomNav extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(isLast ? 'Comenzar' : nextLabel),
+                      Flexible(
+                        child: Text(
+                          isLast ? 'Comenzar' : nextLabel,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                       const SizedBox(width: 8),
                       const Icon(Icons.arrow_forward, size: 18),
                     ],
@@ -532,7 +607,7 @@ class InteractiveChessBoard extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (showCoordinates)
-              _buildCoordinatesRow(files, squareSize, true),
+              _buildCoordinatesRow(files, boardSize, squareSize),
             SizedBox(
               width: boardSize,
               height: boardSize,
@@ -559,7 +634,9 @@ class InteractiveChessBoard extends StatelessWidget {
                               label: squareLabels?[squareId],
                               rank: rank,
                               file: file,
-                              showFileLabel: rankIndex == 7 && showCoordinates,
+                              // Las letras a-h ya van en las filas externas de
+                              // coordenadas; dentro solo los números de fila.
+                              showFileLabel: false,
                               showRankLabel: fileIndex == 0 && showCoordinates,
                               onTap: onSquareTap != null
                                   ? () => onSquareTap!()
@@ -574,7 +651,7 @@ class InteractiveChessBoard extends StatelessWidget {
               ),
             ),
             if (showCoordinates)
-              _buildCoordinatesRow(files, squareSize, false),
+              _buildCoordinatesRow(files, boardSize, squareSize),
           ],
         );
       },
@@ -582,31 +659,25 @@ class InteractiveChessBoard extends StatelessWidget {
   }
 
   Widget _buildCoordinatesRow(
-      List<String> files, double squareSize, bool isTop) {
+      List<String> files, double boardSize, double squareSize) {
     return SizedBox(
-      width: maxSize,
+      width: boardSize,
       height: 24,
       child: Row(
-        children: [
-          if (showCoordinates) const SizedBox(width: 24),
-          Expanded(
-            child: Row(
-              children: files.map((file) {
-                return SizedBox(
-                  width: squareSize,
-                  child: Center(
-                    child: Text(
-                      file,
-                      style: AppTextStyles.telemetrySm.copyWith(
-                        color: AppColors.outline,
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
+        children: files.map((file) {
+          return SizedBox(
+            width: squareSize,
+            child: Center(
+              child: Text(
+                file,
+                style: AppTextStyles.telemetrySm.copyWith(
+                  color: AppColors.outline,
+                  fontSize: 10,
+                ),
+              ),
             ),
-          ),
-        ],
+          );
+        }).toList(),
       ),
     );
   }
@@ -641,15 +712,13 @@ class InteractiveChessBoard extends StatelessWidget {
           children: [
             if (highlightWidget != null) highlightWidget,
             if (label != null)
-              Positioned(
-                bottom: 2,
-                right: 2,
+              Center(
                 child: Text(
                   label,
                   style: AppTextStyles.telemetrySm.copyWith(
                     color: AppColors.secondary,
                     fontWeight: FontWeight.bold,
-                    fontSize: 8,
+                    fontSize: 10,
                   ),
                 ),
               ),
@@ -807,7 +876,9 @@ class ChessPieceSvg extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final svg = _getSvg(pieceType);
-    final color = isWhite ? AppColors.onSurface : AppColors.inverseSurface;
+    // Piezas blancas: ícono oscuro sobre fondo claro.
+    // Piezas negras: ícono blanco sobre fondo oscuro + borde blanco para contraste.
+    final iconColor = isWhite ? AppColors.onSurface : Colors.white;
 
     return Container(
       width: size,
@@ -815,6 +886,9 @@ class ChessPieceSvg extends StatelessWidget {
       decoration: BoxDecoration(
         color: isWhite ? AppColors.surfaceContainer : AppColors.inverseSurface,
         borderRadius: AppRadius.radiusLg,
+        border: isWhite
+            ? null
+            : Border.all(color: Colors.white.withOpacity(0.55), width: 1.5),
         boxShadow: [
           BoxShadow(
             color: isWhite
@@ -826,21 +900,24 @@ class ChessPieceSvg extends StatelessWidget {
         ],
       ),
       child: Center(
-        child: Text(
-          svg,
-          style: TextStyle(
-            fontSize: size * 0.65,
-            color: color,
-            fontWeight: FontWeight.bold,
-            shadows: [
-              Shadow(
-                color: isWhite
-                    ? AppColors.primary.withOpacity(0.35)
-                    : Colors.black.withOpacity(0.45),
-                blurRadius: 2,
-                offset: const Offset(0, 1),
-              ),
-            ],
+        child: Transform.translate(
+          offset: Offset(0, -size * 0.08), // Compensar el margen inferior de la fuente
+          child: Text(
+            svg,
+            style: TextStyle(
+              fontSize: size * 0.65,
+              color: iconColor,
+              fontWeight: FontWeight.bold,
+              shadows: [
+                Shadow(
+                  color: isWhite
+                      ? AppColors.primary.withOpacity(0.35)
+                      : Colors.white.withOpacity(0.25),
+                  blurRadius: 2,
+                  offset: const Offset(0, 1),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1035,7 +1112,7 @@ class GoldenRuleCallout extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
+                MarkupText(
                   message,
                   style: AppTextStyles.bodyMd.copyWith(color: AppColors.onSurfaceVariant),
                 ),
