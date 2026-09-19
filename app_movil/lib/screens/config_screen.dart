@@ -84,7 +84,16 @@ class _TopBar extends StatelessWidget {
       child: Row(
         children: [
           IconButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () {
+              // Siempre se llega acá con context.go (reemplaza el stack, no
+              // lo apila) desde home/victory/defeat — Navigator.pop no tiene
+              // nada de donde volver y deja la pantalla colgada.
+              if (context.canPop()) {
+                context.pop();
+              } else {
+                context.go('/home');
+              }
+            },
             icon: const Icon(Icons.chevron_left, color: AppColors.onSurface),
           ),
           Expanded(

@@ -7,7 +7,7 @@ import '../services.dart';
 
 /// Pantalla de acceso de la app móvil: registro e inicio de sesión contra
 /// `/auth/*` del backend. Solo entran cuentas con rol `jugador`; al entrar,
-/// el router (`main.dart`) redirige solo a `/onboarding`.
+/// el router (`main.dart`) redirige a la pantalla principal `/home`.
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -278,11 +278,11 @@ class _LoginViewState extends State<_LoginView> {
       );
     }
 
-    // El redirect del router ya lleva a /learning/board-basics cuando cambia
+    // El redirect del router ya lleva a /home cuando cambia
     // la sesión; este go() solo cubre el caso en que la ruta no se haya
     // refrescado aún.
     if (success && mounted) {
-      context.go('/learning/board-basics');
+      context.go('/home');
     }
   }
 }

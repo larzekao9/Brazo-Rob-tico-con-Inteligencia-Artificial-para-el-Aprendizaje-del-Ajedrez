@@ -38,7 +38,6 @@ class GlassCard extends StatelessWidget {
       width: width,
       height: height,
       margin: margin,
-      padding: padding ?? AppSpacing.cardPadding,
       decoration: BoxDecoration(
         color: surfaceColor ?? AppColors.surfaceGlass,
         borderRadius: borderRadius ?? AppRadius.radiusXl,
@@ -53,10 +52,16 @@ class GlassCard extends StatelessWidget {
               borderRadius: borderRadius ?? AppRadius.radiusXl,
               child: BackdropFilter(
                 filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-                child: child,
+                child: Padding(
+                  padding: padding ?? AppSpacing.cardPadding,
+                  child: child,
+                ),
               ),
             )
-          : child,
+          : Padding(
+              padding: padding ?? AppSpacing.cardPadding,
+              child: child,
+            ),
     );
 
     if (onTap != null) {
@@ -95,7 +100,6 @@ class GlassHUD extends StatelessWidget {
       width: width,
       height: height,
       margin: margin,
-      padding: padding ?? AppSpacing.cardPadding,
       decoration: BoxDecoration(
         color: AppColors.surfaceGlass,
         borderRadius: borderRadius ?? AppRadius.radiusXl,
@@ -117,7 +121,10 @@ class GlassHUD extends StatelessWidget {
         borderRadius: borderRadius ?? AppRadius.radiusXl,
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-          child: child,
+          child: Padding(
+            padding: padding ?? AppSpacing.cardPadding,
+            child: child,
+          ),
         ),
       ),
     );

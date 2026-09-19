@@ -35,7 +35,7 @@ GoRouter crearRouter(AuthProvider auth) {
         return destino == '/login' ? null : '/login';
       }
       if (_rutasPublicas.contains(destino)) {
-        return '/learning/board-basics';
+        return '/home';
       }
       return null;
     },

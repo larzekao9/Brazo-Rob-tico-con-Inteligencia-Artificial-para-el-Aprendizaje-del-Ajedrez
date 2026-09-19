@@ -101,7 +101,7 @@ class _TopBar extends StatelessWidget {
           ),
           GlassCard(
             padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.spaceMd,
+              horizontal: AppSpacing.spaceSm, // Reducido para evitar recortes
               vertical: AppSpacing.spaceSm,
             ),
             child: Row(
@@ -175,7 +175,7 @@ class _HeroBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 180,
+      constraints: const BoxConstraints(minHeight: 180),
       decoration: BoxDecoration(
         borderRadius: AppRadius.radiusXl,
         gradient: const LinearGradient(
@@ -232,46 +232,7 @@ class _HeroBanner extends StatelessWidget {
               ],
             ),
           ),
-          Positioned(
-            top: AppSpacing.spaceMd,
-            right: AppSpacing.spaceMd,
-            child: Container(
-              width: 80,
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: AppColors.tertiary.withOpacity(0.2),
-                borderRadius: AppRadius.radiusMd,
-              ),
-              child: Column(
-                children: [
-                  Text(
-                    '“Cada partida es',
-                    style: AppTextStyles.labelSm.copyWith(
-                      color: AppColors.tertiary,
-                      fontSize: 9,
-                    ),
-                    textAlign: TextAlign.right,
-                  ),
-                  Text(
-                    'una oportunidad',
-                    style: AppTextStyles.labelSm.copyWith(
-                      color: AppColors.tertiary,
-                      fontSize: 9,
-                    ),
-                    textAlign: TextAlign.right,
-                  ),
-                  Text(
-                    'para ser mejor.”',
-                    style: AppTextStyles.labelSm.copyWith(
-                      color: AppColors.tertiary,
-                      fontSize: 9,
-                    ),
-                    textAlign: TextAlign.right,
-                  ),
-                ],
-              ),
-            ),
-          ),
+          // Se eliminó la caja amarilla con la frase motivacional a petición del usuario.
         ],
       ),
     );
@@ -608,7 +569,7 @@ class _QuickActions extends StatelessWidget {
                 title: 'Aprender',
                 subtitle: 'Lecciones y puzzles',
                 color: AppColors.secondary,
-                onTap: () {},
+                onTap: () => context.go('/learning/board-basics'),
               ),
             ),
           ],
