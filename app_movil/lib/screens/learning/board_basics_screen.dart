@@ -30,7 +30,7 @@ class BoardBasicsScreen extends StatelessWidget {
                   title: 'El Tablero',
                   currentStep: 1,
                   totalSteps: 5,
-                  onBack: null,
+                  onBack: () => context.go('/learning-path'),
                   badgeText: '1 de 5',
                 ),
               ),

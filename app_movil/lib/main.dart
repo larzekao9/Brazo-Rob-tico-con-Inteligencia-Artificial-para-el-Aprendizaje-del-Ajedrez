@@ -16,6 +16,7 @@ import 'screens/learning/board_basics_screen.dart';
 import 'screens/learning/pieces_screen.dart';
 import 'screens/learning/ranks_files_screen.dart';
 import 'screens/learning/initial_position_screen.dart';
+import 'screens/learning/learning_path_screen.dart';
 import 'services/api_config.dart';
 import 'services/auth_provider.dart';
 
@@ -119,6 +120,10 @@ GoRouter crearRouter(AuthProvider auth) {
         },
       ),
       // Rutas de aprendizaje (HU12)
+      GoRoute(
+        path: LearningPathScreen.routeName,
+        builder: (context, state) => const LearningPathScreen(),
+      ),
       GoRoute(
         path: '/learning/board-basics',
         builder: (context, state) => const BoardBasicsScreen(),

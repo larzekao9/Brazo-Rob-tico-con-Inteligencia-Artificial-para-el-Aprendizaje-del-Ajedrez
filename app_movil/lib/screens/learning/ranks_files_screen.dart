@@ -29,7 +29,7 @@ class RanksFilesScreen extends StatelessWidget {
                   title: 'Filas y Columnas',
                   currentStep: 3,
                   totalSteps: 5,
-                  onBack: () => context.go('/learning/pieces'),
+                  onBack: () => context.go('/learning-path'),
                   badgeText: '3 de 5',
                 ),
               ),

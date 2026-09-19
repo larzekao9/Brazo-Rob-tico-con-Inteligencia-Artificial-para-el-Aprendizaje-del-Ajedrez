@@ -11,3 +11,4 @@ export 'screens/learning/board_basics_screen.dart';
 export 'screens/learning/pieces_screen.dart';
 export 'screens/learning/ranks_files_screen.dart';
 export 'screens/learning/initial_position_screen.dart';
+export 'screens/learning/learning_path_screen.dart';

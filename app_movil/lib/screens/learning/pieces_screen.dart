@@ -29,7 +29,7 @@ class PiecesScreen extends StatelessWidget {
                   title: 'Las Piezas',
                   currentStep: 2,
                   totalSteps: 5,
-                  onBack: () => context.go('/learning/board-basics'),
+                  onBack: () => context.go('/learning-path'),
                   badgeText: '2 de 5',
                 ),
               ),

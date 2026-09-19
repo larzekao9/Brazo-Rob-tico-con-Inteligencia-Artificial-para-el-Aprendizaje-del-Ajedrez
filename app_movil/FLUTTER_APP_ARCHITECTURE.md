@@ -29,6 +29,9 @@ app_movil/
 ├── lib/
 │   ├── main.dart                # Entry point + GoRouter + Providers
 │   ├── models.dart              # Enums compartidos (OpponentType, MoveQuality)
+│   ├── models/
+│   │   └── learning/
+│   │       └── learning_models.dart  # Entidades pure Dart del módulo Aprender
 │   ├── theme.dart               # Barrel export del Design System
 │   ├── theme/
 │   │   ├── app_colors.dart      # Paleta completa (semántica, no solo valores)
@@ -38,53 +41,87 @@ app_movil/
 │   │   └── app_theme.dart       # ThemeData M3 + extensiones Chess/Glass
 │   ├── services/
 │   │   ├── services.dart        # Barrel export
-│   │   ├── local_auth_service.dart    # Auth local (SharedPreferences + SHA-256) — LEGACY
-│   │   ├── local_auth_provider.dart   # Provider auth local — LEGACY
-│   │   ├── local_auth_wrapper.dart    # Wrapper provider local — LEGACY
+│   │   ├── api_config.dart      # Config base URL del backend
 │   │   ├── auth_api_service.dart      # Cliente HTTP (Dio) + FlutterSecureStorage + Interceptors
-│   │   ├── auth_provider.dart         # Provider principal (AuthProvider) — BACKEND REAL
-│   │   ├── chess_api.dart             # API partidas, análisis, motor
-│   │   └── partida.dart               # Modelos Partida, Analisis, etc.
+│   │   ├── auth_service.dart         # Servicio helper de auth
+│   │   ├── auth_wrapper.dart         # Wrapper del AuthProvider
+│   │   ├── auth_provider.dart        # Provider global (AuthProvider) — BACKEND REAL
+│   │   ├── chess_api.dart            # API partidas, análisis, motor
+│   │   ├── partida.dart              # Modelos Partida, Analisis, etc.
+│   │   ├── local_auth_*.dart         # Auth local — LEGACY (no usar)
+│   │   └── learning/
+│   │       ├── learning_service.dart          # Catálogo + reglas de negocio del camino
+│   │       └── learning_path_controller.dart  # Estado reactivo (ChangeNotifier)
 │   ├── widgets/
 │   │   ├── widgets.dart         # Barrel export
+│   │   ├── brand_logo.dart      # Logo/identidad en pantallas
 │   │   ├── evaluation_bar.dart  # Barra eval horizontal/vertical (JetBrains Mono badge)
 │   │   ├── chess_clock.dart     # Relojes pill + pulse dot + low-time amber
 │   │   ├── move_history.dart    # Chips horizontales con quality dots
-│   │   └── glass_card.dart      # GlassCard, GlassHUD, TacticalCard, TelemetryPill
+│   │   ├── glass_card.dart      # GlassCard, GlassHUD, TacticalCard, TelemetryPill
+│   │   ├── chess_board.dart     # Tablero 8x8 (GridView + coordenadas)
+│   │   ├── turn_status_card.dart, evaluation_round_progress.dart, evaluation_history_chart.dart
+│   │   ├── learning_widgets.dart  # Base UI de lecciones de aprendizaje
+│   │   └── learning/             # Widgets del "Camino de Maestría"
+│   │       ├── chapter_symbol.dart   # ChapterSymbol → IconData/glifo
+│   │       ├── chapter_node.dart     # Nodo circular + ActiveChapterCard
+│   │       ├── path_connector.dart   # Curvas del péndulo S (pathSideOffset = 40)
+│   │       ├── path_header.dart      # LearningPathHeader + StreakBadge
+│   │       ├── path_progress_card.dart # Nivel/XP/barra de progreso
+│   │       ├── path_unit_banner.dart # Banner de la unidad en curso
+│   │       └── learning_path.dart    # Orquestador del camino + partículas
 │   └── screens/
 │       ├── screens.dart         # Barrel export
-│       ├── login_screen.dart    # Login/Register email+password (AuthWrapper)
-│       ├── onboarding_screen.dart  # 9 tarjetas interactivas (PageView)
-│       ├── diagnostic_screen.dart  # 8 preguntas, calcula nivel 1-20
+│       ├── login_screen.dart    # Login/Register email+password
+│       ├── mode_selection_screen.dart # "¿Qué quieres hacer hoy?" + diagnóstico por rondas
 │       ├── config_screen.dart   # Selector oponente + slider nivel 1-20
 │       ├── game_screen.dart     # Tablero + clocks + eval bar + análisis panel
 │       ├── evaluation_result_screen.dart # Trofeo animado + rank + métricas
 │       ├── home_screen.dart     # Dashboard (stats, radar chart, skills, actions)
 │       ├── victory_screen.dart  # Trofeo dorado + chart evolución + confeti
-│       └── defeat_screen.dart   # Reyes ilustración + chart caída + advice
+│       ├── defeat_screen.dart   # Reyes ilustración + chart caída + advice
+│       └── learning/
+│           ├── learning_path_screen.dart     # Camino de Maestría (/learning-path)
+│           ├── board_basics_screen.dart      # Lección (routeName en clase)
+│           ├── pieces_screen.dart
+│           ├── ranks_files_screen.dart
+│           └── initial_position_screen.dart
 ```
+
+Barrels: `widgets.dart`, `screens.dart` re-exportan todos los widgets/pantallas
+(incluidos los de `learning/`).
 
 ---
 
 ## 3. Flujo de Navegación (GoRouter)
 
 ```
-Rutas públicas:
-  /login          → LoginScreen (AuthWrapper)
-  /onboarding     → OnboardingScreen
-  /diagnostic     → DiagnosticScreen
-  /config         → ConfigScreen (recibe diagnosticLevel)
+Rutas públicas (`_rutasPublicas = {/splash, /login}`):
+  /splash         → Splash (mientras `isInitializing`; con sesión salta a /home)
+  /login          → LoginScreen
 
 Rutas autenticadas (redirect en GoRouter):
+  /mode-selection → ModeSelectionScreen (diagnóstico por rondas / test rápido)
+  /config         → ConfigScreen (recibe diagnosticLevel como extra)
+  /game           → GameScreen (partidaId, opponent, level, enableFeedback,
+                                esDiagnostico, diagnosticoRonda, diagnosticoPrecisiones)
+  /evaluation-result → EvaluationResultScreen (level, rank, accuracy, gamesPlayed)
   /home           → HomeScreen (BottomNav: Home, Stats, Progress, Profile)
-  /game           → GameScreen (partidaId, opponent, level, enableFeedback)
   /victory        → VictoryScreen (playerName, accuracy, moves, finalEval, opponent)
   /defeat         → DefeatScreen (playerName, accuracy, moves, finalEval, opponent)
-  /evaluation-result → EvaluationResultScreen (level, rank, accuracy, gamesPlayed)
+
+Rutas de aprendizaje (HU12):
+  /learning-path          → LearningPathScreen ("Camino de Maestría")
+  /learning/board-basics  → BoardBasicsScreen
+  /learning/pieces        → PiecesScreen
+  /learning/ranks-files   → RanksFilesScreen
+  /learning/initial-position → InitialPositionScreen
 
 Redirect logic:
-  - Si !loggedIn && ruta != /login → /login
-  - Si loggedIn && ruta == /login → /onboarding (o /home si ya completó onboarding)
+  - Si isInitializing → /splash (mantiene el splash mientras arranca auth)
+  - Si !loggedIn && destino != /login → /login
+  - Si loggedIn && destino ∈ {/splash, /login} → /home
+  - Sino → null (deja navegar)
 ```
 
 ---
@@ -149,58 +186,136 @@ Login/Register → POST /auth/login|registro
 ## 6. Pantallas — Detalle Lógico
 
 ### 1. LoginScreen (`login_screen.dart`)
-- **AuthWrapper** → `AuthProvider` + loading skeleton
+- **AuthProvider** (via `AuthWrapper`) + loading skeleton
 - **Form**: Email + Password + "Recordarme"
 - **Toggle**: Login ↔ Register (misma pantalla, `_isLogin` boolean)
 - **Validación**: Email regex, password ≥ 6 chars, confirmación en register
 - **Error handling**: SnackBar/inline desde `auth.error`
 
-### 2. OnboardingScreen (`onboarding_screen.dart`)
-- **PageView** 9 tarjetas (`OnboardingCard` data class)
-- Cada tarjeta: pieza (emoji), nombre, descripción, movimiento, ejemplo interactivo (placeholder)
-- **Indicador**: Dots animados abajo
-- **Completado**: `context.go('/diagnostic')` (persistir en backend/local después)
+### 2. ModeSelectionScreen (`mode_selection_screen.dart` — reemplazó a Onboarding/Diagnostic)
+- "¿Qué quieres hacer ahora?" (diseño `03_seleccion_de_modo`)
+- **Diagnóstico por rondas**: 3 partidas cortas seguidas contra Stockfish
+  fijo (`_nivelDiagnostico = 10`) → promedia precisión para calcular el nivel
+- **Test rápido**: 1 ronda, nivel bajo (`_nivelTestRapido = 2`)
+- Navega a `/game` con `esDiagnostico`, `diagnosticoRonda`, `diagnosticoTotalRondas`
+  y acumula `diagnosticoPrecisiones` entre rondas → al terminar, `/evaluation-result`
 
-### 3. DiagnosticScreen (`diagnostic_screen.dart`)
-- **8 preguntas** (experiencia, aperturas, tácticas, finales, rating, estudio, objetivos, estilo)
-- **Progress bar** lineal arriba
-- **Opciones**: Radio buttons estilo cards (selección visual)
-- **Navegación**: Prev/Next + "Saltar" solo en primera
-- **Cálculo nivel**: Score 0-12 → Principiante (5), Intermedio (12), Avanzado (18)
-- **Navega**: `context.go('/config', extra: level)`
-
-### 4. ConfigScreen (`config_screen.dart`)
+### 3. ConfigScreen (`config_screen.dart`)
 - **Oponente**: Radio cards (Stockfish habilitado, Modelo IA disabled "Próximamente")
 - **Nivel**: Slider 1-20 con labels (Principiante/Club/Experto/Maestro/GM)
 - **Feedback toggle**: Switch (retroalimentación en vivo)
 - **Botón**: "Comenzar Partida" → `context.go('/game', extra: {opponent, level, enableFeedback})`
 
-### 5. GameScreen (`game_screen.dart`)
+### 4. GameScreen (`game_screen.dart`)
 - **TopBar**: Oponente + nivel + menu (pausa, config, rendirse)
 - **EvaluationBar** vertical (lado derecho) — `VerticalEvaluationBar`
 - **ChessClock** dual (blancas/negras) con pulse dot turno activo
 - **Tablero**: `AspectRatio 1:1` + `GridView 8x8` + coordenadas overlay
 - **AnalysisPanel** (si enableFeedback): Evaluation + Best Move + Win%
 - **MoveHistory** horizontal scroll (chips con quality dots)
+- **Modo diagnóstico**: rondas encadenadas + ronda de evaluación (ver item 2)
 
-### 6. HomeScreen (`home_screen.dart`)
+### 5. HomeScreen (`home_screen.dart`)
 - **TopBar**: Avatar + nombre + nivel + Streak pill (amber)
 - **HeroBanner**: Gradient verde + CTA "Jugar" → `/config`
 - **StatsRow**: 3 métricas (Partidas, Victorias, Precisión) con divider
 - **SkillsProgressCard**: Radar chart (CustomPaint) + 6 skill bars animados
-- **QuickActions**: 4 cards (Jugar, Aprender, Progreso, Config)
+- **QuickActions**: 4 cards (Jugar, **Aprender → `/learning-path`**, Progreso, Config)
 - **BottomNavBar**: 4 tabs (Home, Stats, Progress, Profile)
 
-### 7. Victory/Defeat Screens
+### 6. Victory/Defeat Screens
 - **Ilustración custom** (CustomPaint: trofeo dorado / reyes caídos)
 - **MetricsRow**: 3 columnas (Precisión, Movimientos, Evaluación final)
 - **Chart evolución** (CustomPaint: área verde/roja + líneas)
 - **AdviceBox** (derrota) / QuoteBadge (victoria)
 - **Actions**: "Inicio" / "Otra partida" / "Reintentar"
 
+### 7. LearningPathScreen + Lecciones (módulo Aprender)
+- **LearningPathScreen** (`/learning-path`): compone los widgets del camino
+  sobre el `LearningPathController` (detalle completo en la sección 8).
+- **Lecciones** por capítulo (`/learning/board-basics`, `/learning/pieces`,
+  `/learning/ranks-files`, `/learning/initial-position`): pantallas de lección
+  reutilizan la base de UI de `learning_widgets.dart`.
+
 ---
 
-## 7. Integración Backend (AuthApiService)
+## 7. Módulo de Aprendizaje ("Camino de Maestría")
+
+Arquitectura en capas: la lógica de negocio vive en capas sin Flutter y la UI
+solo compone widgets reutilizables y dinámicos.
+
+```
+models/learning/learning_models.dart        → Entidades pure Dart (sin Flutter)
+services/learning/learning_service.dart     → Catálogo + reglas de derivación
+services/learning/learning_path_controller.dart → Estado reactivo (ChangeNotifier)
+widgets/learning/…                           → Widgets dinámicos y reutilizables
+screens/learning/learning_path_screen.dart  → Composición (sin lógica)
+```
+
+### Entidades (`models/learning/learning_models.dart`)
+| Entidad | Descripción |
+|---------|-------------|
+| `ChapterStatus` | `completed` / `inProgress` / `available` / `locked` |
+| `PathAlignment` | `left` / `center` / `right` (péndulo S del camino) |
+| `ChapterSymbol` | Símbolo del capítulo (board, queen, knight, capture, checkmate, strategy, trophy, start, pawn). Se guarda como **enum, no IconData**, para que los modelos sigan siendo pure Dart; `ChapterSymbolIcon` lo mapea a IconData/glifos |
+| `LearningChapter` | id, title, subtitle, symbol, alignment, xp, stepsTotal, route (nullable), description, isBoss |
+| `LearningUnit` | Unidad que agrupa capítulos (badge, título, descripción, symbol) |
+| `LearningProgress` | Estado del jugador: `completedChapters`, `activeChapterIndex`, `activeChapterSteps`, `xp`, `streakDays`, `nivel`, `rankLabel`. `inicial()` = semilla demo del mockup (3 completados, cap. 4 activo 3/8 pasos, 350 XP, racha 3, nivel 4, rank "Aprendiz Táctico") → 38% completado, "5 lecciones pendientes" |
+| `ResolvedChapter` | Capítulo + estado derivado + stepsDone (par de presentación) |
+
+### LearningService (`services/learning/learning_service.dart`)
+- **Catálogo**: `unidadInicial()` define 8 capítulos ("Fundamentos y Táctica
+  Inicial"). Cap. 1-4 con `route` a lecciones existentes; cap. 5-8 sin ruta
+  aún (bloqueados/por construir).
+- **Regla de desbloqueo** (`resolver`): secuencial — capítulos antes de
+  `completedChapters` → `completed`; índice activo → `inProgress`; el siguiente
+  → `available`; el resto → `locked`. Corrige `activeChapterIndex <
+  completedChapters` con clamp.
+- Métricas: `fraccionCompletada()` (0..1), `leccionesPendientes()` (coincide
+  con la métrica del mockup), `capituloActivo()`, `xpTotal()`.
+
+### LearningPathController (`services/learning/learning_path_controller.dart`)
+- `ChangeNotifier`; recibe `LearningService` y `LearningProgress` opcionales
+  (inyectables para tests; a futuro la fuente puede ser la API sin tocar UI).
+- Getters reactivos: `unidad`, `capitulos` (List<ResolvedChapter>),
+  `capituloActivo`, `fraccionCompletada`, `leccionesPendientes`, `xp`, `racha`,
+  `nivel`, `rankLabel`, `capitulosCompletados`, `totalCapitulos`, `xpTotal`.
+- Acciones: `completarPaso()` (suma XP proporcional por paso; auto-completa el
+  capítulo al llegar al último) y `marcarCapituloCompletado(chapterId, xpGanada)`.
+
+### Widgets (`widgets/learning/`)
+| Widget | Descripción |
+|--------|-------------|
+| `LearningPathHeader` + `StreakBadge` | Cabecera: volver, título "Camino de Maestría", label "APRENDER", racha 🔥 |
+| `LearningPathProgressCard` | Nivel/rank, XP, barra de progreso, "N de 8 capítulos listos", lecciones pendientes |
+| `LearningPathUnitBanner` | Banner de unidad en curso con badge "EN PROGRESO" |
+| `LearningPath` | Orquestador: pendulo S de nodos + conectores + partículas decorativas (♟ ♝ ♜) |
+| `ChapterNode` | Nodo circular dinámico según estado (completado, en curso, disponible, bloqueado, jefe final) + badges; para el capítulo activo embebe `ActiveChapterCard` con "Continuar Lección" |
+| `ActiveChapterCard` | Card del capítulo en curso: badge de avance, título, descripción, botón continuar |
+| `PathConnector` | Curvas entre nodos según par: `completed` (sólido), `activeLeap` (gradiente primary→teal), `upcoming` (dash), `locked` (dash claro). Comparte `pathSideOffset = 40` (const) |
+| `ChapterSymbolIcon` | Mapea `ChapterSymbol` → IconData o glifo (♟♞♛♜♝ para piezas sin icono Material) |
+
+Geometría del péndulo S: `PathAlignment` alterna los nodos entre centro, borde
+izquierdo y borde derecho; los conectores dibujan curvas bezier entre los
+anclajes usando las mismas fracciones de anclaje.
+
+### Pantalla y feedback
+- `LearningPathScreen` (`/learning-path`): `ChangeNotifierProvider` +
+  `context.watch<LearningPathController>`; sin lógica de negocio propia.
+- Nodos con `route` → `context.go(route)` (lecciones existentes).
+- Nodos bloqueados o sin lección → `SnackBar` ("Completa el capítulo anterior…"
+  / "Esta lección llega pronto."). Los nodos bloqueados son tappables por diseño.
+
+### Tests
+- `test/learning_path_test.dart`: unit tests de `LearningService` (8),
+  `LearningPathController` (3, estado + XP + auto-completado) y widget tests de
+  la pantalla (4) con stub de `GoRouter`.
+- `test/learning_screens_test.dart`: render sin errores de las 4 lecciones en
+  375×667 y 430×932.
+
+---
+
+## 8. Integración Backend (AuthApiService)
 
 ```dart
 // lib/services/auth_api_service.dart
@@ -230,7 +345,7 @@ class AuthApiService {
 
 ---
 
-## 8. Dependencias Clave (`pubspec.yaml`)
+## 9. Dependencias Clave (`pubspec.yaml`)
 
 ```yaml
 dependencies:
@@ -247,7 +362,7 @@ dependencies:
 
 ---
 
-## 9. Build & Run
+## 10. Build & Run
 
 ### Android (Emulador):
 ```bash
@@ -276,7 +391,7 @@ flutter build apk --debug
 
 ---
 
-## 10. Archivos Legacy (Auth Local — No Usar)
+## 11. Archivos Legacy (Auth Local — No Usar)
 
 Estos archivos existen pero **no se usan** en el flujo actual (mantenidos por referencia):
 - `lib/services/local_auth_service.dart`
@@ -287,7 +402,7 @@ El flujo actual usa `AuthProvider` + `AuthApiService` (backend real).
 
 ---
 
-## 11. Pendientes / TODO
+## 12. Pendientes / TODO
 
 | Área | Tarea |
 |------|-------|
@@ -297,11 +412,16 @@ El flujo actual usa `AuthProvider` + `AuthApiService` (backend real).
 | **HU14** | Implementar `StatsTab` / `ProgressTab` / `ProfileTab` reales |
 | **HU4** | Pipeline Colab reentrenamiento + evaluación modelo vs Stockfish |
 | **HU6** | Conectar `GameScreen` con WebSocket/analysis en vivo |
-| **Tests** | Unit tests providers, widget tests screens, integration tests |
+| **Aprender** | Rutas de lección + contenido de capítulos 5-8 del camino (hoy muestran SnackBar) |
+| **Aprender** | Persistir `LearningProgress` (hoy es memoria/semilla demo) |
+| **Tests** | Widget tests de pantallas restantes (stats/progress/profile) + integration tests |
+
+> ✅ HU12 (pantalla "Camino de Maestría" + lecciones) implementada y testeada:
+> `test/learning_path_test.dart` + `test/learning_screens_test.dart`.
 
 ---
 
-## 12. Referencias Rápidas
+## 13. Referencias Rápidas
 
 | Archivo | Ubicación |
 |---------|-----------|
@@ -311,6 +431,13 @@ El flujo actual usa `AuthProvider` + `AuthApiService` (backend real).
 | Tipografía | `lib/theme/app_text_styles.dart` |
 | Auth provider | `lib/services/auth_provider.dart` |
 | API client | `lib/services/auth_api_service.dart` |
-| Router | `lib/main.dart` (variable `_router`) |
+| Router | `lib/main.dart` (función `crearRouter`) |
 | Pantallas | `lib/screens/` |
 | Widgets | `lib/widgets/` |
+| Modelos Aprender | `lib/models/learning/learning_models.dart` |
+| Servicio Aprender | `lib/services/learning/learning_service.dart` |
+| Controller Aprender | `lib/services/learning/learning_path_controller.dart` |
+| Widgets Aprender | `lib/widgets/learning/` |
+| Pantalla camino | `lib/screens/learning/learning_path_screen.dart` |
+| Lecciones | `lib/screens/learning/` |
+| Tests Aprender | `test/learning_path_test.dart` |
