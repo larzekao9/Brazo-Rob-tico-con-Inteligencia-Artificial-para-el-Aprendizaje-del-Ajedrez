@@ -1,0 +1,38 @@
+.git
+.gitignore
+.claude
+.venv
+venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.DS_Store
+
+# Datos y checkpoints pesados (no van en la imagen)
+training/data
+training/checkpoints
+training/dataset_tablero
+*.pgn
+*.pgn.zst
+
+# Frontend: se compila dentro de la imagen
+frontend/node_modules
+frontend/dist
+frontend/.git
+
+# Documentación
+docs
+*.md
+
+# Docker files (no van en la imagen)
+Dockerfile
+Dockerfile.backend
+Dockerfile.frontend
+docker-compose.yml
+scripts/
+
+# Base de datos local (no va en la imagen)
+test.db
+*.db
+*.sqlite
+*.sqlite3

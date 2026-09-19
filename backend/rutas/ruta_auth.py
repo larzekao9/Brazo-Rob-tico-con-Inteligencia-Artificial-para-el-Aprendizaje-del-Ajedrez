@@ -1,4 +1,4 @@
-"""Rutas de autenticación: registro, login, refresh, me."""
+"""Rutas de autenticación: registro, login, refresh, me, gestión de usuarios (admin)."""
 from __future__ import annotations
 
 from functools import lru_cache
@@ -6,6 +6,7 @@ from typing import Iterator
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.database import DATABASE_URL, crear_fabrica_sesiones, crear_tablas, obtener_engine
@@ -18,6 +19,8 @@ from backend.esquemas.auth_esquema import (
     AuthResponse,
     UsuarioResponse,
 )
+from backend.esquemas.usuario_esquema import HistorialPartidasResponse
+from backend.modelos.tablas_orm import PartidaORM, UsuarioORM
 from backend.servicios.auth import (
     actualizar_nivel_estimado,
     authenticate_user,
@@ -29,6 +32,7 @@ from backend.servicios.auth import (
     get_user_by_email,
     get_user_by_id,
 )
+from backend.servicios.usuario.servicio_estadisticas import obtener_historial_partidas
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 security = HTTPBearer(auto_error=False)
@@ -78,6 +82,17 @@ def get_current_user(
     user = get_user_by_id(db, user_id)
     if not user or not user.activo:
         raise HTTPException(status_code=401, detail="Usuario no encontrado o inactivo")
+    return user_id
+
+
+def get_current_facilitador(
+    user_id: int = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> int:
+    """Verifica que el usuario autenticado tenga rol facilitador."""
+    user = get_user_by_id(db, user_id)
+    if not user or user.rol != "facilitador":
+        raise HTTPException(status_code=403, detail="Acceso solo para facilitadores")
     return user_id
 
 
@@ -188,3 +203,35 @@ def guardar_nivel_estimado(
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     user = actualizar_nivel_estimado(db, user, data.nivel, data.rango)
     return _a_respuesta(user)
+
+
+@router.get(
+    "/usuarios",
+    response_model=list[UsuarioResponse],
+    summary="Listar todos los usuarios (solo facilitadores)",
+)
+def listar_usuarios(
+    _: int = Depends(get_current_facilitador),
+    db: Session = Depends(get_db),
+) -> list[UsuarioResponse]:
+    """Lista todos los usuarios registrados. Requiere rol facilitador."""
+    usuarios = db.scalars(select(UsuarioORM).order_by(UsuarioORM.creado_en.desc())).all()
+    return [_a_respuesta(u) for u in usuarios]
+
+
+@router.get(
+    "/usuarios/{usuario_id}/historial-partidas",
+    response_model=HistorialPartidasResponse,
+    summary="Historial de partidas de un usuario (solo facilitadores)",
+)
+def historial_partidas_usuario(
+    usuario_id: int,
+    limit: int = 10,
+    offset: int = 0,
+    _: int = Depends(get_current_facilitador),
+    db: Session = Depends(get_db),
+) -> HistorialPartidasResponse:
+    """Historial paginado de partidas de un usuario específico. Requiere rol facilitador."""
+    if not get_user_by_id(db, usuario_id):
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return HistorialPartidasResponse(**obtener_historial_partidas(db, usuario_id, limit, offset))
