@@ -36,6 +36,9 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app/backend:ro
+      - ./training/__init__.py:/app/training/__init__.py:ro
+      - ./training/data_pipeline.py:/app/training/data_pipeline.py:ro
+      - ./training/checkpoints:/app/training/checkpoints:ro
     restart: unless-stopped
 
   frontend:
