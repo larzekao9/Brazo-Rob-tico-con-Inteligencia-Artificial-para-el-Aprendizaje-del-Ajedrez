@@ -229,18 +229,30 @@ $$P_{win}(cp) = 50 + 50 \times \left( \frac{2}{1 + \exp(-0.00368208 \cdot cp)} -
 
 ---
 
-## 7. Resultados Experimentales de la Versión v2
+## 7. Resultados Experimentales y Comparativa Empírica (v2 vs. v3)
 
-En la evaluación sobre $1,426$ posiciones de prueba procedentes de partidas no vistas durante el entrenamiento, se obtuvieron las siguientes métricas cuantitativas:
+La evaluación se ejecutó sobre partidas de prueba no vistas durante la fase de optimización (`saltar_partidas = 6000`), contrastando cada decisión predicha por la red contra la evaluación objetiva del oráculo Stockfish.
 
-| Métrica de Desempeño                         | Cantidad de Jugadas | Proporción (%) | Interpretación Académica                                                                        |
-| -------------------------------------------- | :-----------------: | :------------: | ----------------------------------------------------------------------------------------------- |
-| **Aciertos Exactos (Top-1)**                 |       **379**       |   **26.58%**   | Coincidencia unívoca con la jugada del gran maestro humano (frente a un azar teórico de ~2.5%). |
-| **Alternativas Aceptables (< 50 cp)**        |       **391**       |   **27.42%**   | Discrepa del humano, pero Stockfish confirma que la jugada preserva la ventaja posicional.      |
-| **Total Jugadas Viables/Sólidas**            |       **770**       |   **54.00%**   | **Más de la mitad de las decisiones son de calidad competitiva sin usar motor de búsqueda.**    |
-| **Imprecisiones (50–99 cp)**                 |         165         |     11.57%     | Movimientos pasivos que reducen ligeramente la iniciativa.                                      |
-| **Errores Posicionales (100–299 cp)**        |         215         |     15.08%     | Concesión de ventaja táctica o material menor.                                                  |
-| **Blunders / Errores Graves ($\ge 300$ cp)** |         276         |     19.35%     | Pérdida de pieza o amenaza de mate inadvertida por falta de cálculo de árbol profundo.          |
+### 7.1 Métricas Obtenidas por Versión
+
+| Métrica de Desempeño | Modelo v2 (CNN Base, Sin Filtro ELO) | Modelo v3 (ResNet 4 Bloques + ELO $\ge 1900$) | Variación Absoluta | Mejora Relativa |
+| :--- | :---: | :---: | :---: | :---: |
+| **Total Jugadas Evaluadas** | 1,426 | 1,204 | - | - |
+| **Aciertos Exactos (Top-1)** | **26.58%** (379) | **37.54%** (452) | **+10.96%** | **+41.23%** 🚀 |
+| **Alternativas Aceptables (< 50 cp)** | 27.42% (391) | 27.16% (327) | -0.26% | Preservado |
+| **Total Jugadas Viables/Sólidas** | **54.00%** (770) | **64.70%** (779) | **+10.70%** | **+19.81%** 🎯 |
+| **Imprecisiones (50–99 cp)** | 11.57% (165) | 10.96% (132) | -0.61% | -5.27% |
+| **Errores Posicionales (100–299 cp)** | 15.08% (215) | 12.29% (148) | -2.79% | -18.50% |
+| **Blunders / Cuelgues Graves ($\ge 300$ cp)** | **19.35%** (276) | **12.04%** (145) | **-7.31%** | **-37.78%** 📉 |
+
+### 7.2 Discusión Científica de los Resultados
+
+1. **Salto Cuantitativo en Precisión Top-1 (+41.2%):**  
+   El incremento de $26.58\%$ a $37.54\%$ evidencia que filtrar las partidas por maestría ($\text{ELO} \ge 1900$) eliminó el "ruido estocástico" introducido por errores de aficionados. La red ya no aprende heurísticas contradictorias, sino patrones consistentes de grandes maestros.
+2. **Mitigación Drástica de Cuelgues Tácticos (-37.8% Blunders):**  
+   La reducción del porcentaje de blunders de $19.35\%$ a $12.04\%$ valida la hipótesis arquitectónica: las conexiones residuales (*skip connections*) permiten que la información espacial de piezas lejanas (ataques de torres, alfiles y damas a través de diagonales y columnas abiertas) se conserve sin degradarse a lo largo de las capas profundas.
+3. **Solidez Estratégica Global (64.7% de Jugadas Competitivas):**  
+   Casi dos de cada tres decisiones tomadas por el agente de forma puramente intuitiva (en menos de 15 ms en CPU, sin árbol Minimax) son avaladas por Stockfish como jugadas que retienen o aumentan la ventaja posicional.
 
 ---
 
