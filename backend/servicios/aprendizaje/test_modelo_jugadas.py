@@ -14,6 +14,7 @@ from training.data_pipeline import board_to_tensor  # noqa: E402
 from backend.servicios.aprendizaje.modelo_jugadas import (  # noqa: E402
     NUM_CLASES,
     RedPrediccionJugadas,
+    RedResNetAjedrez,
     tensor_a_entrada_red,
 )
 
@@ -29,3 +30,11 @@ def test_forward_devuelve_logits_por_lote():
     lote = torch.stack([tensor_a_entrada_red(board_to_tensor(chess.Board())) for _ in range(4)])
     salida = red(lote)
     assert tuple(salida.shape) == (4, NUM_CLASES)
+
+
+def test_forward_resnet_devuelve_logits_por_lote():
+    red = RedResNetAjedrez(canales=64, cantidad_bloques=2)
+    lote = torch.stack([tensor_a_entrada_red(board_to_tensor(chess.Board())) for _ in range(2)])
+    salida = red(lote)
+    assert tuple(salida.shape) == (2, NUM_CLASES)
+

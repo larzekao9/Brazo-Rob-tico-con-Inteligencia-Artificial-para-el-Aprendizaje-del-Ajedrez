@@ -17,24 +17,50 @@ import chess
 import torch
 import torch.nn.functional as F
 
-from backend.servicios.aprendizaje.modelo_jugadas import RedPrediccionJugadas, tensor_a_entrada_red
+from backend.servicios.aprendizaje.modelo_jugadas import (
+    NUM_CLASES,
+    RedPrediccionJugadas,
+    RedResNetAjedrez,
+    tensor_a_entrada_red,
+)
 from training.data_pipeline import board_to_tensor, jugada_a_etiqueta
 
 RUTA_CHECKPOINT_POR_DEFECTO = Path("training/checkpoints/modelo_jugadas_v1_2026-09-14.pt")
 
 
 @lru_cache(maxsize=None)
-def cargar_modelo(ruta_checkpoint: str | Path = RUTA_CHECKPOINT_POR_DEFECTO) -> RedPrediccionJugadas:
+def cargar_modelo(ruta_checkpoint: str | Path = RUTA_CHECKPOINT_POR_DEFECTO) -> torch.nn.Module:
     """Carga los pesos del checkpoint y devuelve el modelo listo para inferencia.
 
-    Cachea por ruta de checkpoint para no releer el archivo (26MB) en cada
-    predicción — la app llama a esto una vez por partida como mucho.
+    Detecta automáticamente si el checkpoint corresponde a la arquitectura
+    clásica (v1/v2) o a la nueva ResNet (v3) por metadatos o por sus capas.
+    Cachea por ruta de checkpoint para no releer el archivo en cada predicción.
     """
     checkpoint = torch.load(Path(ruta_checkpoint), map_location="cpu")
-    modelo = RedPrediccionJugadas(cantidad_clases=checkpoint["num_clases"])
-    modelo.load_state_dict(checkpoint["state_dict"])
+    num_clases = checkpoint.get("num_clases", NUM_CLASES)
+    arquitectura = checkpoint.get("arquitectura", "")
+    state_dict = checkpoint["state_dict"]
+
+    if arquitectura == "resnet" or any(k.startswith("torre_residual") for k in state_dict):
+        indices = [int(k.split(".")[1]) for k in state_dict if k.startswith("torre_residual.")]
+        num_bloques = max(indices) + 1 if indices else 4
+        canales = checkpoint.get("canales")
+        if canales is None and "entrada.0.weight" in state_dict:
+            canales = state_dict["entrada.0.weight"].shape[0]
+        if canales is None:
+            canales = 128
+        modelo = RedResNetAjedrez(
+            canales=canales,
+            cantidad_bloques=num_bloques,
+            cantidad_clases=num_clases,
+        )
+    else:
+        modelo = RedPrediccionJugadas(cantidad_clases=num_clases)
+
+    modelo.load_state_dict(state_dict)
     modelo.eval()
     return modelo
+
 
 
 def predecir_jugada(fen: str, ruta_checkpoint: str | Path = RUTA_CHECKPOINT_POR_DEFECTO) -> str:

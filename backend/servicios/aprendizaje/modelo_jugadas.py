@@ -53,3 +53,67 @@ class RedPrediccionJugadas(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.clasificador(self.caracteristicas(x))
+
+
+class BloqueResidual(nn.Module):
+    """Bloque residual estándar de 2 convoluciones 3x3 con Batch Normalization y conexión skip.
+
+    Permite a la red aprender relaciones tácticas profundas (rayos X, clavadas, diagonales)
+    sin que se desvanezca el gradiente, siguiendo el diseño probado de AlphaZero / Leela Chess Zero.
+    """
+
+    def __init__(self, canales: int):
+        super().__init__()
+        self.conv1 = nn.Conv2d(canales, canales, kernel_size=3, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(canales)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(canales, canales, kernel_size=3, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(canales)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        residual = x
+        out = self.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        out = out + residual
+        return self.relu(out)
+
+
+class RedResNetAjedrez(nn.Module):
+    """Arquitectura ResNet moderna para ajedrez (v3).
+
+    Consta de una capa de entrada para expandir los 12 canales del tablero a `canales`,
+    una torre de N bloques residuales y una cabeza de política proyectada a las 4096 clases
+    de jugadas posibles.
+    """
+
+    def __init__(
+        self,
+        canales: int = 128,
+        cantidad_bloques: int = 4,
+        cantidad_clases: int = NUM_CLASES,
+    ):
+        super().__init__()
+        self.entrada = nn.Sequential(
+            nn.Conv2d(12, canales, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(canales),
+            nn.ReLU(inplace=True),
+        )
+        self.torre_residual = nn.Sequential(
+            *[BloqueResidual(canales) for _ in range(cantidad_bloques)]
+        )
+        self.cabeza_politica = nn.Sequential(
+            nn.Conv2d(canales, 32, kernel_size=1, bias=False),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            nn.Flatten(),
+            nn.Linear(32 * 8 * 8, 512),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.3),
+            nn.Linear(512, cantidad_clases),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.entrada(x)
+        x = self.torre_residual(x)
+        return self.cabeza_politica(x)
+

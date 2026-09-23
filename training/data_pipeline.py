@@ -60,14 +60,22 @@ def jugada_a_etiqueta(board: chess.Board, jugada: chess.Move) -> int:
     return origen * 64 + destino
 
 
-def pgn_to_samples(path: str | Path, limite_partidas: int) -> list[tuple[np.ndarray, int]]:
+def pgn_to_samples(
+    path: str | Path,
+    limite_partidas: int,
+    elo_minimo: int | None = None,
+    saltar_partidas: int = 0,
+) -> list[tuple[np.ndarray, int]]:
     """Lee un `.pgn.zst` de Lichess y devuelve pares (tensor, etiqueta) de sus jugadas.
 
     Args:
         path: ruta al archivo `.pgn.zst` (se descomprime en streaming, sin
             volcar el archivo completo a disco).
-        limite_partidas: cantidad de partidas a procesar desde el inicio del
-            archivo.
+        limite_partidas: cantidad máxima de partidas a procesar.
+        elo_minimo: si se especifica, solo procesa partidas donde ambos
+            jugadores tengan un ELO mayor o igual a este umbral (ej. 2000).
+        saltar_partidas: cantidad de partidas a saltar al inicio del archivo
+            antes de empezar a recolectar muestras.
 
     Returns:
         Lista de pares (tensor de la posición antes de la jugada, etiqueta de
@@ -77,14 +85,33 @@ def pgn_to_samples(path: str | Path, limite_partidas: int) -> list[tuple[np.ndar
     descompresor = zstd.ZstdDecompressor()
     with open(path, "rb") as comprimido, descompresor.stream_reader(comprimido) as flujo_binario:
         flujo_texto = io.TextIOWrapper(flujo_binario, encoding="utf-8", errors="replace")
+
+        # Saltar partidas iniciales si se solicita
+        for _ in range(saltar_partidas):
+            if not chess.pgn.skip_game(flujo_texto):
+                return muestras
+
         partidas_leidas = 0
         while partidas_leidas < limite_partidas:
             partida = chess.pgn.read_game(flujo_texto)
             if partida is None:
                 break
+
+            # Filtrar por ELO si está configurado
+            if elo_minimo is not None:
+                try:
+                    white_elo = int(partida.headers.get("WhiteElo", "0"))
+                    black_elo = int(partida.headers.get("BlackElo", "0"))
+                    if white_elo < elo_minimo or black_elo < elo_minimo:
+                        continue
+                except (ValueError, TypeError):
+                    continue
+
             tablero = partida.board()
             for jugada in partida.mainline_moves():
                 muestras.append((board_to_tensor(tablero), jugada_a_etiqueta(tablero, jugada)))
                 tablero.push(jugada)
             partidas_leidas += 1
+
     return muestras
+
