@@ -117,3 +117,91 @@ class RedResNetAjedrez(nn.Module):
         x = self.torre_residual(x)
         return self.cabeza_politica(x)
 
+
+class BloqueSE(nn.Module):
+    """Mecanismo de atención por canales (Squeeze-and-Excitation).
+
+    Permite a la red aprender a priorizar canales específicos según el contexto del
+    tablero (ej. atención máxima a casillas del rey en jaque o torres en columnas abiertas),
+    emulando la atención selectiva de un jugador experimentado.
+    """
+
+    def __init__(self, canales: int, reduccion: int = 8):
+        super().__init__()
+        self.fc = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Flatten(),
+            nn.Linear(canales, canales // reduccion, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(canales // reduccion, canales, bias=False),
+            nn.Sigmoid(),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        b, c, _, _ = x.size()
+        pesos = self.fc(x).view(b, c, 1, 1)
+        return x * pesos
+
+
+class BloqueResidualSE(nn.Module):
+    """Bloque residual con atención por canales (SE-ResNet)."""
+
+    def __init__(self, canales: int, reduccion: int = 8):
+        super().__init__()
+        self.conv1 = nn.Conv2d(canales, canales, kernel_size=3, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(canales)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(canales, canales, kernel_size=3, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(canales)
+        self.se = BloqueSE(canales, reduccion=reduccion)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        residual = x
+        out = self.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        out = self.se(out)
+        out = out + residual
+        return self.relu(out)
+
+
+class RedSEResNetAjedrez(nn.Module):
+    """Arquitectura SE-ResNet avanzada para ajedrez (v4).
+
+    Integra N bloques residuales con atención por canales Squeeze-and-Excitation,
+    permitiendo a la red emular la atención selectiva de un Gran Maestro humano.
+    """
+
+    def __init__(
+        self,
+        canales: int = 128,
+        cantidad_bloques: int = 6,
+        cantidad_clases: int = NUM_CLASES,
+    ):
+        super().__init__()
+        self.canales = canales
+        self.cantidad_bloques = cantidad_bloques
+        self.entrada = nn.Sequential(
+            nn.Conv2d(12, canales, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(canales),
+            nn.ReLU(inplace=True),
+        )
+        self.torre_residual = nn.Sequential(
+            *[BloqueResidualSE(canales) for _ in range(cantidad_bloques)]
+        )
+        self.cabeza_politica = nn.Sequential(
+            nn.Conv2d(canales, 32, kernel_size=1, bias=False),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            nn.Flatten(),
+            nn.Linear(32 * 8 * 8, 512),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.3),
+            nn.Linear(512, cantidad_clases),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.entrada(x)
+        x = self.torre_residual(x)
+        return self.cabeza_politica(x)
+
+

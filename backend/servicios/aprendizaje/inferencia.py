@@ -21,6 +21,7 @@ from backend.servicios.aprendizaje.modelo_jugadas import (
     NUM_CLASES,
     RedPrediccionJugadas,
     RedResNetAjedrez,
+    RedSEResNetAjedrez,
     tensor_a_entrada_red,
 )
 from training.data_pipeline import board_to_tensor, jugada_a_etiqueta
@@ -33,7 +34,7 @@ def cargar_modelo(ruta_checkpoint: str | Path = RUTA_CHECKPOINT_POR_DEFECTO) -> 
     """Carga los pesos del checkpoint y devuelve el modelo listo para inferencia.
 
     Detecta automáticamente si el checkpoint corresponde a la arquitectura
-    clásica (v1/v2) o a la nueva ResNet (v3) por metadatos o por sus capas.
+    clásica (v1/v2), ResNet (v3) o SE-ResNet con atención (v4) por metadatos o por sus capas.
     Cachea por ruta de checkpoint para no releer el archivo en cada predicción.
     """
     checkpoint = torch.load(Path(ruta_checkpoint), map_location="cpu")
@@ -41,7 +42,20 @@ def cargar_modelo(ruta_checkpoint: str | Path = RUTA_CHECKPOINT_POR_DEFECTO) -> 
     arquitectura = checkpoint.get("arquitectura", "")
     state_dict = checkpoint["state_dict"]
 
-    if arquitectura == "resnet" or any(k.startswith("torre_residual") for k in state_dict):
+    if arquitectura == "se_resnet" or any("se.fc" in k for k in state_dict):
+        indices = [int(k.split(".")[1]) for k in state_dict if k.startswith("torre_residual.")]
+        num_bloques = max(indices) + 1 if indices else 6
+        canales = checkpoint.get("canales")
+        if canales is None and "entrada.0.weight" in state_dict:
+            canales = state_dict["entrada.0.weight"].shape[0]
+        if canales is None:
+            canales = 128
+        modelo = RedSEResNetAjedrez(
+            canales=canales,
+            cantidad_bloques=num_bloques,
+            cantidad_clases=num_clases,
+        )
+    elif arquitectura == "resnet" or any(k.startswith("torre_residual") for k in state_dict):
         indices = [int(k.split(".")[1]) for k in state_dict if k.startswith("torre_residual.")]
         num_bloques = max(indices) + 1 if indices else 4
         canales = checkpoint.get("canales")

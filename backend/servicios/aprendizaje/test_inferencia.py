@@ -21,6 +21,7 @@ from backend.servicios.aprendizaje.modelo_jugadas import (
     NUM_CLASES,
     RedPrediccionJugadas,
     RedResNetAjedrez,
+    RedSEResNetAjedrez,
 )  # noqa: E402
 
 
@@ -45,6 +46,20 @@ def checkpoint_resnet_de_prueba(tmp_path):
     return ruta
 
 
+@pytest.fixture
+def checkpoint_se_resnet_de_prueba(tmp_path):
+    ruta = tmp_path / "checkpoint_se_resnet_prueba.pt"
+    torch.save(
+        {
+            "state_dict": RedSEResNetAjedrez(canales=64, cantidad_bloques=2).state_dict(),
+            "num_clases": NUM_CLASES,
+            "arquitectura": "se_resnet",
+        },
+        ruta,
+    )
+    return ruta
+
+
 def test_cargar_modelo_devuelve_red_en_modo_eval(checkpoint_de_prueba):
     modelo = cargar_modelo(checkpoint_de_prueba)
     assert isinstance(modelo, RedPrediccionJugadas)
@@ -55,6 +70,13 @@ def test_cargar_modelo_detecta_y_soporta_resnet(checkpoint_resnet_de_prueba):
     modelo = cargar_modelo(checkpoint_resnet_de_prueba)
     assert isinstance(modelo, RedResNetAjedrez)
     assert not modelo.training
+
+
+def test_cargar_modelo_detecta_y_soporta_se_resnet(checkpoint_se_resnet_de_prueba):
+    modelo = cargar_modelo(checkpoint_se_resnet_de_prueba)
+    assert isinstance(modelo, RedSEResNetAjedrez)
+    assert not modelo.training
+
 
 
 

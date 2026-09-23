@@ -256,40 +256,49 @@ La evaluación se ejecutó sobre partidas de prueba no vistas durante la fase de
 
 ---
 
-## 8. Fases Evolutivas del Entrenamiento (Maduración del Agente)
+## 8. Fases Evolutivas del Entrenamiento (Metáfora Antropomórfica del Aprendizaje)
 
-El desarrollo del modelo de inteligencia artificial no fue un proceso estático, sino una evolución iterativa guiada por mediciones empíricas y resolución de cuellos de botella:
+Para la sustentación académica y defensa de grado, el proceso de entrenamiento del agente inteligente se estructura bajo la **Metáfora del Desarrollo Cognitivo Antropomórfico**, fundamentada rigurosamente en la *Teoría del Aprendizaje por Currículo* (*Curriculum Learning*, Bengio et al., 2009) y la *Teoría de Plantillas y Bloques Perceptuales en Ajedrez* (*Template Theory*, Chase & Simon, 1973; Gobet & Simon, 1996).
+
+El sistema no nació siendo un Gran Maestro; su red neuronal fue "educada" de manera análoga a las etapas de maduración de un ajedrecista humano a lo largo de su vida:
 
 ```mermaid
 timeline
-    title Evolución Histórica del Agente Neuronal
-    Fase 1 : v1 (Prototipo Inicial) : 200 partidas sin filtrar : Split 90/10 por posición : Validación del pipeline
-    Fase 2 : v2 (Escalado & Oráculo) : 2,000 partidas Lichess : Split limpio por partida : Integración con Stockfish : 26.58% Top-1, 54% viables
-    Fase 3 : v3 (ResNet & Maestros) : ELO >= 1900 (3,000 partidas) : Torre de 4 Bloques Residuales : AdamW + CosineAnnealing : Mitigación de Blunders
-    Fase 4 : v4+ (MLOps Continuo) : Partidas de usuarios reales : Base de datos PostgreSQL : Fine-Tuning en lotes
+    title Evolución Cognitiva del Agente Neuronal (De la Infancia a la Maestría)
+    Fase 1 (La Infancia - 10 años) : Prototipo v1 : 200 partidas sin filtrar : Reglas elementales y visión miope : Comprobación de tubería de datos
+    Fase 2 (La Adolescencia de Club - 15 años) : Modelo v2 : 2,000 partidas Lichess : Comprensión de patrones comunes : Auditoría con Oráculo Stockfish (26.5% Top-1, 19.3% Blunders)
+    Fase 3 (El Maestro Titulado - 20 años) : Modelo v3 : 3,000 partidas (ELO >= 1900) : ResNet profunda con Skip Connections : Gran reducción de colgadas (37.5% Top-1, 12.0% Blunders)
+    Fase 4 (El Gran Maestro de Élite - 25+ años) : Modelo v4 : 8,000 partidas (ELO >= 2000) : SE-ResNet 6 Bloques con Atención Selectiva : Label Smoothing y Refinamiento Posicional
 ```
 
-### Fase 1: Prototipo Mínimo Viable (Versión v1 - HU3)
-- **Propósito:** Comprobar la viabilidad del flujo de datos de extremo a extremo (lectura de PGN comprimido $\to$ tensores $\to$ entrenamiento en GPU $\to$ exportación a Drive $\to$ inferencia en backend).
-- **Parámetros:** 200 partidas tomadas al azar, 10 épocas, optimizador Adam convencional.
-- **Hallazgo y Limitación Descubierta:** El split aleatorio 90/10 por posiciones sueltas generaba fuga de información (*data leakage*), ya que posiciones de la misma partida quedaban en ambos conjuntos.
+---
 
-### Fase 2: Escalado Inicial y Auditoría con Oráculo (Versión v2 - HU4 Inicial)
-- **Propósito:** Medir la capacidad real de generalización del modelo frente a partidas completamente nuevas y catalogar sus errores.
-- **Parámetros:** 2,000 partidas (~140,000 posiciones), 10 épocas, split estricto por partida completa en `evaluar_modelo.py`.
-- **Resultados Obtenidos:** 26.58% de coincidencia exacta Top-1 y 54.00% de decisiones estratégicamente sólidas (< 50 cp de pérdida).
-- **Hallazgo y Limitación Descubierta:** Un 19.35% de jugadas fueron catalogadas como *blunders* (errores graves). El análisis cualitativo reveló que al entrenar con partidas sin filtrar, la red asimiló errores tácticos típicos de jugadores aficionados (< 1500 ELO), sumado a la incapacidad de una CNN plana de 3 capas para resolver clavadas y ataques a larga distancia.
+### Fase 1: La Infancia del Agente (Versión v1 - "El Niño de 10 Años")
+* **Edad Cognitiva:** ~10 años (Principiante que recién asimila las reglas de movimiento).
+* **Parámetros Técnicos:** 200 partidas tomadas al azar, 10 épocas, optimizador Adam convencional, CNN básica de 3 capas.
+* **Comportamiento Lúdico:** Juega por imitación inmediata de jugadas observadas. No evalúa consecuencias a medio plazo; mueve piezas atacadas sin coordinar planes defensivos.
+* **Aporte Académico:** Demostró la viabilidad técnica del flujo completo (lectura de PGN streaming $\to$ codificación tensorial $8 \times 8 \times 12 \to$ inferencia en tiempo real).
 
-### Fase 3: Especialización con ResNet y Filtrado Experto (Versión v3 - HU4 Avanzada)
-- **Propósito:** Eliminar los errores graves mediante enriquecimiento de datos de alta graduación y una arquitectura profunda.
-- **Mejoras Metodológicas:**
-  1. **Filtro de Admisión:** $\min(\text{WhiteElo}, \text{BlackElo}) \ge 1900$, garantizando que la red aprenda únicamente teoría de aperturas sólida y táctica limpia.
-  2. **Arquitectura:** Sustitución de la CNN plana por `RedResNetAjedrez` con 4 bloques residuales (conexiones skip).
-  3. **Optimización:** Implementación de AdamW con decaimiento de pesos desacoplado ($10^{-4}$) y programación de tasa de aprendizaje mediante *Cosine Annealing*.
+### Fase 2: La Adolescencia de Club (Versión v2 - "El Joven de 15 Años")
+* **Edad Cognitiva:** ~15 años (Jugador de club escolar que asiste a torneos locales).
+* **Parámetros Técnicos:** 2,000 partidas de Lichess sin filtro ELO (~140,000 posiciones), 10 épocas, split limpio por partida completa.
+* **Comportamiento Lúdico:** Conoce tácticas estándar (jaques directos, capturas obvias, desarrollo de piezas menores), pero sufre de distracciones tácticas frecuentes cuando el rival elabora clavadas o amenazas a distancia.
+* **Resultados Empíricos:** Coincidencia Top-1 del $26.58\%$ y $54.00\%$ de jugadas sólidas, pero con un $19.35\%$ de errores catastróficos (*blunders* $\ge 300$ cp) debido al ruido de partidas de aficionados.
 
-### Fase 4: Ciclo de Vida MLOps y Aprendizaje en Producción (Versión v4+ - Fase Futura)
-- **Propósito:** Implementar la mejora continua a partir del uso real del sistema (RF15/RF16).
-- **Operación:** Cada partida jugada en la aplicación móvil o web persiste sus movimientos en la tabla relacional `jugada`. Periódicamente, el pipeline extrae las posiciones problemáticas para realizar un *fine-tuning* supervisado que corrija los patrones de error específicos identificados en la interacción con usuarios.
+### Fase 3: La Juventud Competitiva (Versión v3 - "El Maestro de 20 Años")
+* **Edad Cognitiva:** ~20 años (Aspirante a Maestro FIDE / Candidato a Maestro).
+* **Parámetros Técnicos:** 3,000 partidas rigurosamente filtradas ($\text{ELO} \ge 1900$), 4 bloques residuales (`RedResNetAjedrez`), optimizador AdamW con *Cosine Annealing*.
+* **Comportamiento Lúdico:** Estudia exclusivamente las obras de maestros. Las conexiones residuales (*skip connections*) actúan como la memoria de trabajo humana, permitiendo seguir la trayectoria de diagonales y columnas abiertas sin degradación.
+* **Resultados Empíricos:** Salto extraordinario a **$37.54\%$ en precisión Top-1 (+41.2% relativo)**, **$64.70\%$ de decisiones competitivas** y caída drástica de errores graves al **$12.04\%$ (-37.8% de blunders)**.
+
+### Fase 4: La Madurez y Atención Selectiva (Versión v4 - "El Gran Maestro de 25+ Años")
+* **Edad Cognitiva:** 25+ años (Gran Maestro Internacional con alta capacidad de cálculo y atención focalizada).
+* **Fundamento Teórico:** Incorpora la **Teoría de la Atención Selectiva** mediante bloques *Squeeze-and-Excitation* (Hu et al., 2018). Un Gran Maestro no calcula mecánicamente cada casilla; focaliza su atención cognitiva en las piezas desprotegidas y las rupturas críticas del centro.
+* **Parámetros Técnicos:**
+  1. **Datos de Élite:** 8,000 partidas con $\min(\text{WhiteElo}, \text{BlackElo}) \ge 2000$ (~600,000 a 700,000 posiciones magistrales).
+  2. **Arquitectura:** `RedSEResNetAjedrez` con 6 bloques residuales y recalibración adaptativa de canales.
+  3. **Regularización Cognitiva:** Pérdida de entropía cruzada con *Label Smoothing* ($\alpha = 0.05$), que impide la sobreconfianza dogmática y reconoce que en posiciones ricas pueden coexistir múltiples planes correctos.
+  4. **Optimización:** 20 épocas con decaimiento de peso y programación coseno de la tasa de aprendizaje.
 
 ---
 
