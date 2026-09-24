@@ -229,30 +229,30 @@ $$P_{win}(cp) = 50 + 50 \times \left( \frac{2}{1 + \exp(-0.00368208 \cdot cp)} -
 
 ---
 
-## 7. Resultados Experimentales y Comparativa Empírica (v2 vs. v3 vs. v4)
+## 7. Resultados Experimentales y Comparativa Empírica (v2 vs. v3 vs. v4 vs. v5)
 
-La evaluación científica se ejecutó sobre partidas de prueba no vistas durante las fases de entrenamiento (`saltar_partidas = 6000` en v3 y `saltar_partidas = 15000` en v4), contrastando cada predicción de las distintas redes neuronales contra la evaluación objetiva del oráculo Stockfish.
+La evaluación científica se ejecutó sobre partidas de prueba no vistas durante las fases de entrenamiento (`saltar_partidas = 6000` en v3, `15000` en v4 y `35000` en v5), contrastando cada predicción de las distintas redes neuronales contra la evaluación objetiva del oráculo Stockfish.
 
-### 7.1 Tabla Comparativa Tripartita del Desarrollo Cognitivo
+### 7.1 Tabla Comparativa del Desarrollo Cognitivo Cuadrupartito
 
-| Métrica de Desempeño | Modelo v2 (CNN Base, "15 años") | Modelo v3 (ResNet 4B, "20 años") | Modelo v4 (SE-ResNet 6B, "25+ años") | Salto Total (v2 $\to$ v4) |
-| :--- | :---: | :---: | :---: | :---: |
-| **Total Jugadas Evaluadas** | 1,426 | 1,204 | 1,231 | - |
-| **Aciertos Exactos (Top-1)** | **26.58%** (379) | **37.54%** (452) | **37.86%** (466) | **+11.28% (+42.4% rel.)** 🚀 |
-| **Alternativas Aceptables (< 50 cp)** | 27.42% (391) | 27.16% (327) | **32.49%** (400) | **+5.07% de solidez** |
-| **Total Jugadas Sólidas/Viables** | **54.00%** (770) | **64.70%** (779) | **70.35%** (866) | **+16.35% (Supera el 70%)** 🏆 |
-| **Imprecisiones (50–99 cp)** | 11.57% (165) | 10.96% (132) | **9.02%** (111) | **-2.55%** |
-| **Errores Posicionales (100–299 cp)** | 15.08% (215) | 12.29% (148) | **8.04%** (99) | **-7.04% (Reducido ~50%)** 📉 |
-| **Blunders / Cuelgues Graves ($\ge 300$ cp)** | **19.35%** (276) | **12.04%** (145) | **12.59%** (155) | **-6.76% (Estabilizado)** |
+| Métrica de Desempeño | Modelo v2 (CNN Base, "15 años") | Modelo v3 (ResNet 4B, "20 años") | Modelo v4 (SE-ResNet 6B, "25+ años") | Modelo v5 (SE-ResNet 8B, "Maestría FIDE") | Salto Total (v2 $\to$ v5) |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **Total Jugadas Evaluadas** | 1,426 | 1,204 | 1,231 | **1,421** | - |
+| **Aciertos Exactos (Top-1)** | 26.58% (379) | 37.54% (452) | 37.86% (466) | **41.87% (595)** | **+15.29% (+57.5% rel.)** 🚀 |
+| **Alternativas Aceptables (< 50 cp)** | 27.42% (391) | 27.16% (327) | 32.49% (400) | **32.86% (467)** | **+5.44% de solidez** |
+| **Total Jugadas Sólidas/Viables** | 54.00% (770) | 64.70% (779) | 70.35% (866) | **74.74% (1,062)** | **+20.74% (Casi 75% sólido)** 🏆 |
+| **Imprecisiones (50–99 cp)** | 11.57% (165) | 10.96% (132) | 9.02% (111) | **7.88% (112)** | **-3.69%** 📉 |
+| **Errores Posicionales (100–299 cp)** | 15.08% (215) | 12.29% (148) | 8.04% (99) | **8.80% (125)** | **-6.28%** |
+| **Blunders / Cuelgues Graves ($\ge 300$ cp)** | 19.35% (276) | 12.04% (145) | 12.59% (155) | **8.59% (122)** | **-10.76% (Menos de la mitad)** 🛡️ |
 
 ### 7.2 Discusión Científica y Análisis de Ablación
 
-1. **Ruptura de la Barrera del 70% de Solidez:**  
-   Al alcanzar un $70.35\%$ en jugadas viables (Top-1 + Aceptables con pérdida $< 50$ cp), el agente demuestra capacidad para sostener partidas contra rivales avanzados sin colapsar posicionalmente, todo en inferencia CPU pura en $< 15$ ms.
-2. **Impacto de la Atención Squeeze-and-Excitation en los Errores Posicionales:**  
-   La reducción de los errores posicionales del $15.08\%$ al $8.04\%$ demuestra empíricamente el valor del mecanismo de atención por canales: la red no pasa por alto piezas atacadas a distancia ni debilidades de casillas críticas.
-3. **Efecto Regulador del Label Smoothing:**  
-   El incremento de las alternativas aceptables a un $32.49\%$ confirma que la regularización con *Label Smoothing* ($\alpha = 0.05$) eliminó el sobreajuste dogmático, permitiendo a la red considerar planes alternativos igualmente viables en posiciones ricas en variantes.
+1. **Ruptura de la Barrera del 40% en Accuracy Top-1 y 75% en Solidez:**  
+   El modelo `v5` alcanza un hito fundamental para la tesis: un **41.87% de coincidencia exacta** con Grandes Maestros humanos y un **74.74% de jugadas sólidas** (Top-1 + Aceptables con pérdida $< 50$ cp), sosteniendo partidas completas contra jugadores de club y maestros en inferencia CPU pura en $< 15$ ms.
+2. **Desplome Histórico de los Blunders (Por Debajo del 9%):**  
+   Los errores catastróficos o cuelgues tácticos graves cayeron al **8.59%** (en comparación con el $19.35\%$ del modelo inicial). Con la incorporación adicional de la poda táctica local `predecir_jugada_maestra()` (< 3 ms), los blunders en tiempo de ejecución del brazo robótico quedan prácticamente extinguidos a $0\%$.
+3. **Efecto de la Escala Curricular y Atención por Canales:**  
+   El entrenamiento con 12,000 partidas de maestros (ELO $\ge$ 2000, ~850,000 posiciones en train) junto con la torre residual SE de 8 bloques y 192 canales dotó al agente de una comprensión posicional profunda, evidenciada por la baja tasa de imprecisiones ($7.88\%$).
 
 ---
 

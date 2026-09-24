@@ -26,7 +26,16 @@ from backend.servicios.aprendizaje.modelo_jugadas import (
 )
 from training.data_pipeline import board_to_tensor, jugada_a_etiqueta
 
-RUTA_CHECKPOINT_POR_DEFECTO = Path("training/checkpoints/modelo_jugadas_v1_2026-09-14.pt")
+def _obtener_checkpoint_por_defecto() -> Path:
+    carpeta = Path("training/checkpoints")
+    if carpeta.exists():
+        checkpoints = sorted(carpeta.glob("modelo_jugadas_v*.pt"))
+        if checkpoints:
+            return checkpoints[-1]
+    return Path("training/checkpoints/modelo_jugadas_v1_2026-09-14.pt")
+
+
+RUTA_CHECKPOINT_POR_DEFECTO = _obtener_checkpoint_por_defecto()
 
 
 @lru_cache(maxsize=None)
