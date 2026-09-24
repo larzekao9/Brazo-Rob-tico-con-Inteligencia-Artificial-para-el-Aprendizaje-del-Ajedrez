@@ -31,6 +31,32 @@ class ModeSelectionScreen extends StatefulWidget {
 class _ModeSelectionScreenState extends State<ModeSelectionScreen> {
   bool _creandoDiagnostico = false;
   bool _creandoTestRapido = false;
+  bool _creandoModeloIA = false;
+
+  Future<void> _comenzarContraModelo() async {
+    setState(() => _creandoModeloIA = true);
+    try {
+      final partida = await ChessApi.instancia.crearPartida(
+        nivel: 20,
+        tipoOponente: 'modelo',
+      );
+      if (!mounted) return;
+      context.go('/game', extra: {
+        'partidaId': partida.id,
+        'opponent': OpponentType.model,
+        'level': 20,
+        'enableFeedback': true,
+        'esDiagnostico': false,
+      });
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ChessApi.mensajeDeError(error))),
+      );
+    } finally {
+      if (mounted) setState(() => _creandoModeloIA = false);
+    }
+  }
 
   Future<void> _comenzarDiagnostico() async {
     setState(() => _creandoDiagnostico = true);
@@ -126,6 +152,18 @@ class _ModeSelectionScreenState extends State<ModeSelectionScreen> {
                 child: SingleChildScrollView(
                   child: Column(
                     children: [
+                      _ModeCard(
+                        icon: Icons.psychology,
+                        color: AppColors.primary,
+                        title: 'Desafío IA: Red Neuronal v5',
+                        description:
+                            'Enfréntate a la IA de maestría FIDE propia (SE-ResNet-8). Juega de forma 100% autónoma con poda táctica y visión posicional.',
+                        enabled: true,
+                        badge: 'Maestría FIDE',
+                        cargando: _creandoModeloIA,
+                        onTap: _comenzarContraModelo,
+                      ),
+                      const SizedBox(height: AppSpacing.spaceLg),
                       _ModeCard(
                         icon: Icons.school_outlined,
                         color: AppColors.primary,

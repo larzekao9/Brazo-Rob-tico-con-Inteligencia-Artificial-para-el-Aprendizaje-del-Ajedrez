@@ -1,0 +1,49 @@
+# Un comando levanta todo (parado en la raíz del repo):
+#   docker compose -f deploy/docker-compose.yml up -d --build
+#
+# Requiere antes: (1) los checkpoints descargados en training/checkpoints/ (ver
+# training/checkpoints/README.md — se bajan de la carpeta de Drive del equipo, nunca van al repo
+# ni a la imagen); (2) un archivo deploy/.env con POSTGRES_PASSWORD (ver deploy/.env.example).
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: ajedrez_db
+    environment:
+      POSTGRES_DB: ajedrez
+      POSTGRES_USER: ajedrez
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?falta POSTGRES_PASSWORD en deploy/.env}
+    volumes:
+      - ajedrez_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ajedrez -d ajedrez"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: ajedrez_web
+    environment:
+      DATABASE_URL: postgresql+psycopg2://ajedrez:${POSTGRES_PASSWORD:?falta POSTGRES_PASSWORD en deploy/.env}@db:5432/ajedrez
+    ports:
+      - "${PUERTO_HOST:-8000}:8000"
+    volumes:
+      # Los checkpoints entrenados en Colab (ver training/checkpoints/README.md): viven en el
+      # host, no en la imagen, así una versión nueva del modelo se cambia sin reconstruir nada.
+      - ../training/checkpoints:/app/training/checkpoints:ro
+    depends_on:
+      # `depends_on` sin `condition` solo espera a que el CONTENEDOR arranque, no a que Postgres ya
+      # acepte conexiones — y hace falta que ya las acepte: `servicio_partida.py` crea el
+      # repositorio (y las tablas) al importarse, ni bien arranca `uvicorn`, sin reintentos. Sin
+      # esperar la salud real de `db`, el backend se cae en un crash-loop cada vez que arranca antes
+      # que Postgres (ver backend/database.py y backend/repositorios/repositorio_partida.py).
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  ajedrez_db_data:

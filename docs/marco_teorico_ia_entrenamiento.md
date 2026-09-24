@@ -127,13 +127,13 @@ Esto garantiza que el término $\mathbf{I}$ prevenga el desvanecimiento del grad
 
 ### 3.3 Arquitectura Squeeze-and-Excitation ResNet (Versiones v4 y v5)
 
-Para superar las limitaciones de las redes residuales convencionales y modelar la **atención selectiva visual** inherente a los ajedrecistas de alta competencia, las versiones `v4` y `v5` implementan la clase `RedSEResNetAjedrez` incorporando bloques *Squeeze-and-Excitation* (SE) (Hu et al., 2018).
+Para superar las limitaciones de las redes residuales convencionales y modelar la **atención selectiva visual** inherente a los ajedrecistas de alta competencia, las versiones `v4` y `v5` implementan la clase `RedSEResNetAjedrez` incorporando bloques _Squeeze-and-Excitation_ (SE) (Hu et al., 2018).
 
 ```mermaid
 graph TD
     In["Entrada x (Tensor C x 8 x 8)"] --> C1["Conv2D 3x3 (C -> C) + BN + ReLU"]
     C1 --> C2["Conv2D 3x3 (C -> C) + BN"]
-    
+
     subgraph BloqueSE ["Mecanismo Squeeze-and-Excitation (Recalibración Adaptativa)"]
         GAP["Squeeze: AdaptiveAvgPool2d(1) -> Vector z (C x 1 x 1)"]
         FC1["Excitation 1: Linear(C -> C // r) + ReLU"]
@@ -141,7 +141,7 @@ graph TD
         Scale["Scale: Multiplicación Canal a Canal (s * U)"]
         GAP --> FC1 --> FC2 --> Scale
     end
-    
+
     C2 --> GAP
     C2 --> Scale
     In -.-> Sum["Suma Residual: F_SE(x) + x"]
@@ -153,17 +153,18 @@ graph TD
 
 Sea $\mathbf{U} = [\mathbf{u}_1, \mathbf{u}_2, \dots, \mathbf{u}_C] \in \mathbb{R}^{C \times 8 \times 8}$ el tensor generado tras las convoluciones y normalizaciones del bloque residual. El operador SE realiza:
 
-1. **Compresión (*Squeeze*):** Agrega la información espacial del tablero ($8 \times 8$) para cada canal en un descriptor estadístico escalar $z_c$:
+1. **Compresión (_Squeeze_):** Agrega la información espacial del tablero ($8 \times 8$) para cada canal en un descriptor estadístico escalar $z_c$:
    $$z_c = \mathbf{F}_{sq}(\mathbf{u}_c) = \frac{1}{64} \sum_{i=1}^{8} \sum_{j=1}^{8} u_c(i, j), \quad \forall c \in \{1, \dots, C\}$$
 
-2. **Excitación no lineal (*Excitation*):** Captura las correlaciones y dependencias cruzadas entre piezas aliadas y rivales mediante un mecanismo bottleneck con reducción $r = 8$:
+2. **Excitación no lineal (_Excitation_):** Captura las correlaciones y dependencias cruzadas entre piezas aliadas y rivales mediante un mecanismo bottleneck con reducción $r = 8$:
    $$\mathbf{s} = \mathbf{F}_{ex}(\mathbf{z}, \mathbf{W}) = \sigma\Big(\mathbf{W}_2 \cdot \text{ReLU}(\mathbf{W}_1 \cdot \mathbf{z})\Big)$$
    donde $\mathbf{W}_1 \in \mathbb{R}^{\frac{C}{r} \times C}$ contrae la dimensionalidad, $\mathbf{W}_2 \in \mathbb{R}^{C \times \frac{C}{r}}$ la restituye y $\sigma(v) = \frac{1}{1 + e^{-v}}$ acota las ponderaciones en $[0, 1]$.
 
-3. **Recalibración de Características (*Scale*):** Re-pondera dinámicamente cada canal según su relevancia táctica en la posición actual (por ejemplo, amplificando canales asociados a columnas semiabiertas o casillas del enroque amenazado):
+3. **Recalibración de Características (_Scale_):** Re-pondera dinámicamente cada canal según su relevancia táctica en la posición actual (por ejemplo, amplificando canales asociados a columnas semiabiertas o casillas del enroque amenazado):
    $$\tilde{\mathbf{x}}_c = \mathbf{F}_{scale}(\mathbf{u}_c, s_c) = s_c \cdot \mathbf{u}_c$$
 
 #### Escalado Estructural entre Versiones:
+
 - **Modelo v4:** 6 bloques residuales SE con $C = 128$ canales (~1.8M de parámetros entrenables).
 - **Modelo v5 (Maestría Consolidada):** 8 bloques residuales SE con $C = 192$ canales (~4.5M de parámetros), dotando al agente de la capacidad representacional requerida para discernir planes posicionales profundos a nivel de Gran Maestro FIDE.
 
@@ -182,7 +183,8 @@ donde $a^*$ representa la acción seleccionada por el jugador humano de referenc
 $$\hat{p}_k = \frac{\exp(z_k)}{\sum_{j=1}^{K} \exp(z_j)}$$
 
 #### Regularización por Suavizado de Etiquetas (Label Smoothing)
-En el ajedrez magistral coexisten con frecuencia dos o tres jugadas de idéntica solidez teórica. Forzar a la red a predecir con probabilidad $1.0$ una única variante genera dogmatismo y penaliza indebidamente jugadas maestras alternativas válidas (Müller et al., 2019). Para mitigar este efecto, en las versiones avanzadas (`v4` y `v5`) se introduce *Label Smoothing* con parámetro $\alpha = 0.05$:
+
+En el ajedrez magistral coexisten con frecuencia dos o tres jugadas de idéntica solidez teórica. Forzar a la red a predecir con probabilidad $1.0$ una única variante genera dogmatismo y penaliza indebidamente jugadas maestras alternativas válidas (Müller et al., 2019). Para mitigar este efecto, en las versiones avanzadas (`v4` y `v5`) se introduce _Label Smoothing_ con parámetro $\alpha = 0.05$:
 
 $$y_k^{LS} = (1 - \alpha) y_k + \frac{\alpha}{K}$$
 
@@ -239,7 +241,7 @@ Para mitigar este sesgo:
 
 ## 6. Marco de Evaluación Científica, Indicadores Pedagógicos y el Oráculo de Stockfish (HU4 / HU5 / HU6)
 
-Evaluar un modelo de ajedrez exclusivamente por *Accuracy Top-1* resulta insuficiente: en muchas posiciones existen dos o tres jugadas de idéntica calidad teórica. Si el gran maestro jugó $1.\,\text{c4}$ y el modelo predice $1.\,\text{Nf3}$, el Accuracy tradicional contabiliza un error (0%), a pesar de que ambas son jugadas maestras de primer nivel.
+Evaluar un modelo de ajedrez exclusivamente por _Accuracy Top-1_ resulta insuficiente: en muchas posiciones existen dos o tres jugadas de idéntica calidad teórica. Si el gran maestro jugó $1.\,\text{c4}$ y el modelo predice $1.\,\text{Nf3}$, el Accuracy tradicional contabiliza un error (0%), a pesar de que ambas son jugadas maestras de primer nivel.
 
 Por ello, el sistema implementa una infraestructura integral de evaluación de doble eje en `training/evaluar_modelo.py` y un motor de tutoría pedagógica y análisis en tiempo real en `backend/servicios/retroalimentacion/servicio_retroalimentacion.py`:
 
@@ -261,15 +263,15 @@ donde $\mathcal{E}_{motor}(s)$ representa la evaluación de la mejor jugada seg�
 
 En correspondencia con los estándares modernos de las plataformas internacionales de ajedrez (Lichess y Chess.com) y para cumplir con los requerimientos pedagógicos del proyecto (**RF18** y **RF20**), las decisiones se clasifican formalmente en siete niveles jerárquicos:
 
-| Indicador | Etiqueta en Sistema | Criterio Matemático y Táctico | Significado Pedagógico |
-| :--- | :--- | :--- | :--- |
-| 💎 **Brillante** | `brillante` | Sacrificio de material ventajoso ($Val(P_{sac}) > 0$) o jugada táctica única de alta profundidad con $P_{win} \ge 60\%$. | Decisión táctica magistral que supera la visión convencional y desarticula la defensa rival. |
-| ⭐ **Mejor Jugada** | `mejor` | $\hat{a} = a_{oraculo}^*$ o pérdida mínima imperceptible $\Delta_{cp} \le 10 \text{ cp}$. | La jugada óptima teórica según el oráculo de cálculo profundo. |
-| ✨ **Excelente** | `excelente` | $10 < \Delta_{cp} \le 30 \text{ cp}$. | Movimiento casi perfecto que conserva la totalidad de la ventaja estratégica. |
-| 👍 **Buena** | `buena` | $30 < \Delta_{cp} < 50 \text{ cp}$. | Movimiento sólido, aceptable y funcional que mantiene la estabilidad de la posición. |
-| ⚠️ **Imprecisión** | `imprecision` | $50 \le \Delta_{cp} < 100 \text{ cp}$ (pérdida entre medio y un peón). | Desviación posicional leve que cede parte de la iniciativa o disminuye el dinamismo. |
-| ❌ **Error** | `error` | $100 \le \Delta_{cp} < 300 \text{ cp}$ (pérdida de 1 a 3 peones). | Fallo táctico relevante que transfiere ventaja al contrincante. |
-| 🛑 **Blunder (Colgada)** | `blunder` | $\Delta_{cp} \ge 300 \text{ cp}$ o transición que permite jaque mate forzado ($mate\_en \le -1$). | Error grave catastrófico: pérdida neta de pieza o desprotección letal del rey. |
+| Indicador                | Etiqueta en Sistema | Criterio Matemático y Táctico                                                                                            | Significado Pedagógico                                                                       |
+| :----------------------- | :------------------ | :----------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------- |
+| 💎 **Brillante**         | `brillante`         | Sacrificio de material ventajoso ($Val(P_{sac}) > 0$) o jugada táctica única de alta profundidad con $P_{win} \ge 60\%$. | Decisión táctica magistral que supera la visión convencional y desarticula la defensa rival. |
+| ⭐ **Mejor Jugada**      | `mejor`             | $\hat{a} = a_{oraculo}^*$ o pérdida mínima imperceptible $\Delta_{cp} \le 10 \text{ cp}$.                                | La jugada óptima teórica según el oráculo de cálculo profundo.                               |
+| ✨ **Excelente**         | `excelente`         | $10 < \Delta_{cp} \le 30 \text{ cp}$.                                                                                    | Movimiento casi perfecto que conserva la totalidad de la ventaja estratégica.                |
+| 👍 **Buena**             | `buena`             | $30 < \Delta_{cp} < 50 \text{ cp}$.                                                                                      | Movimiento sólido, aceptable y funcional que mantiene la estabilidad de la posición.         |
+| ⚠️ **Imprecisión**       | `imprecision`       | $50 \le \Delta_{cp} < 100 \text{ cp}$ (pérdida entre medio y un peón).                                                   | Desviación posicional leve que cede parte de la iniciativa o disminuye el dinamismo.         |
+| ❌ **Error**             | `error`             | $100 \le \Delta_{cp} < 300 \text{ cp}$ (pérdida de 1 a 3 peones).                                                        | Fallo táctico relevante que transfiere ventaja al contrincante.                              |
+| 🛑 **Blunder (Colgada)** | `blunder`           | $\Delta_{cp} \ge 300 \text{ cp}$ o transición que permite jaque mate forzado ($mate\_en \le -1$).                        | Error grave catastrófico: pérdida neta de pieza o desprotección letal del rey.               |
 
 ### 6.4 Modelo Logístico de Probabilidad de Victoria (Curva Lichess Win%)
 
@@ -280,6 +282,7 @@ $$P_{win}(cp) = 50 + 50 \times \left( \frac{2}{1 + \exp(-k \cdot cp)} - 1 \right
 donde $k = 0.00368208$ representa la constante empírica calibrada sobre cientos de millones de partidas maestras de torneos.
 
 #### Propiedades Matemáticas y Puntos Notables:
+
 1. **Punto Neutro (Equilibrio Inicial):** Para una posición teóricamente igualada ($cp = 0$):
    $$P_{win}(0) = 50 + 50 \times \left( \frac{2}{1 + 1} - 1 \right) = 50.0\%$$
 2. **Monotonía y Simetría Perfecta:** $P_{win}(cp) = 100 - P_{win}(-cp)$, preservando neutralidad e invariancia entre ambos bandos.
@@ -294,6 +297,7 @@ donde $k = 0.00368208$ representa la constante empírica calibrada sobre cientos
    $$P_{win}(\text{mate}) = \begin{cases} 100.0\%, & \text{si } mate > 0 \text{ (mate forzado a favor)} \\ 0.0\%, & \text{si } mate < 0 \text{ (mate forzado en contra)} \end{cases}$$
 
 #### Justificación Pedagógica (HU6):
+
 La reducción de la carga cognitiva es sustancial: un estudiante escolar no requiere saber qué es un "centipeón", sino que visualiza en la interfaz una barra dinámica que refleja qué jugador tiene el control del tablero, reforzando la relación causa-efecto de cada decisión inmediata.
 
 ### 6.5 Algoritmo de Detección de Principios Ajedrecísticos (Tutoría Pedagógica HU5 / HU6)
@@ -318,6 +322,7 @@ Para la vista resumen post-partida (**HU5**), el sistema consolida el rendimient
 $$\text{Precisión Global} = \frac{1}{N} \sum_{i=1}^{N} w(q_i)$$
 
 con los siguientes coeficientes empíricos según la calidad de cada jugada $q_i$:
+
 - $w(\text{brillante}) = 100.0$
 - $w(\text{mejor}) = 100.0$
 - $w(\text{excelente}) = 95.0$
@@ -482,11 +487,11 @@ Donde:
 
 Una decisión arquitectónica deliberada del proyecto fue priorizar la eficiencia de inferencia en hardware accesible:
 
-| Parámetro                |         Modelo Neuronal Propio (v5 SE-ResNet-8)     |                 Motor Stockfish 16                  |
+| Parámetro                |       Modelo Neuronal Propio (v5 SE-ResNet-8)       |                 Motor Stockfish 16                  |
 | ------------------------ | :-------------------------------------------------: | :-------------------------------------------------: |
 | **Paradigma**            |     Reconocimiento de Patrones (Intuición pura)     |      Búsqueda Minimax Alfa-Beta (Fuerza bruta)      |
 | **Tiempo de Inferencia** |              **10 – 15 ms por jugada**              |    500 – 2,000 ms por jugada (según profundidad)    |
-| **Consumo de Memoria**   |              ~34.3 MB (pesos del modelo)            | Variable (16 MB – 2 GB según Hash de transposición) |
+| **Consumo de Memoria**   |             ~34.3 MB (pesos del modelo)             | Variable (16 MB – 2 GB según Hash de transposición) |
 | **Requerimiento de GPU** | **Solo en Entrenamiento** (Inferencia corre en CPU) |       No aplicable (Corre en CPU multi-hilo)        |
 | **Dependencia Externa**  |       Totalmente autónomo (In-Memory PyTorch)       |       Requiere binario nativo compilado en SO       |
 
