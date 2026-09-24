@@ -12,13 +12,14 @@ previo del plan (por área, sin las 11 HU balanceadas).
 **Objetivo:** motor de ajedrez respondiendo jugadas de forma aislada, reconocimiento de
 tablero funcionando sobre fotos de prueba, y el pipeline de datos corriendo de punta a punta.
 
-| HU | Descripción | Puntos | Responsable | Estado |
-|---|---|---|---|---|
-| HU2 | Motor de Jugadas y Niveles de Dificultad | 3 | Hebert | ✅ Hecho |
-| HU1 | Reconocimiento de Tablero y Piezas | 8 | Hebert | ✅ Hecho |
-| HU3 | Entrenamiento del Modelo con Partidas de Referencia | 5 | Luis Ángel | ✅ Hecho |
+| HU  | Descripción                                         | Puntos | Responsable | Estado   |
+| --- | --------------------------------------------------- | ------ | ----------- | -------- |
+| HU2 | Motor de Jugadas y Niveles de Dificultad            | 3      | Hebert      | ✅ Hecho |
+| HU1 | Reconocimiento de Tablero y Piezas                  | 8      | Hebert      | ✅ Hecho |
+| HU3 | Entrenamiento del Modelo con Partidas de Referencia | 5      | Luis Ángel  | ✅ Hecho |
 
 ### HU2 — Motor (Hebert) — ✅ Hecho
+
 - [x] Stockfish instalado y probado desde `python-chess`.
 - [x] `backend/servicios/motor/motor_ajedrez.py`: `calcular_jugada(fen, nivel)`,
       `analizar_posicion(fen, nivel)` (evaluación en centipawns + mate), `obtener_variaciones`
@@ -27,6 +28,7 @@ tablero funcionando sobre fotos de prueba, y el pipeline de datos corriendo de p
 - [x] Expuesto vía `POST /jugada` y `POST /analisis` en el backend.
 
 ### HU3 — Modelo (Luis Ángel) — ✅ Hecho
+
 - [x] Un mes de partidas de Lichess descargado (2017-02, 1.8 GB comprimido; el pipeline lee
       en streaming, no hace falta descomprimir entero).
 - [x] `training/data_pipeline.py`: `board_to_tensor` y `pgn_to_samples` — validado localmente
@@ -49,6 +51,7 @@ tablero funcionando sobre fotos de prueba, y el pipeline de datos corriendo de p
       escalar a más partidas y evaluar en serio es HU4.
 
 ### HU1 — Visión (Hebert) — ✅ Hecho (con limitación conocida en las damas)
+
 - [x] Set de fotos de tablero — en vez de sacar 15-20 propias, se usó el dataset público
       "Chess Pieces" de Roboflow (licencia dominio público, `training/dataset_tablero/`,
       ignorado por git): 289 fotos reales con piezas, distintas posiciones y algo de variación
@@ -80,6 +83,7 @@ tablero funcionando sobre fotos de prueba, y el pipeline de datos corriendo de p
       siendo la pieza menos confiable del clasificador. El resto (peones, torres, alfiles, reyes)
       anda entre 82-100% de recall. Sirve como versión demostrable; seguir mejorando esto
       (más fotos reales propias, no solo el dataset de Roboflow) queda para si sobra tiempo.
+
 - [x] `reconocer_tablero(imagen) -> fen` — `backend/servicios/vision/reconocimiento.py`, junta la detección
       de esquinas + clasificación de piezas y arma el FEN completo. El turno ("w"/"b") se recibe
       como parámetro porque una sola foto no alcanza para saber de quién es — tampoco se puede
@@ -113,21 +117,22 @@ retroalimentación post-partida, estadísticas personales, y reentrenamiento del
 no React. Flutter permite compilar a iOS/Android/Web desde el mismo código, con mejor
 performance en mobile y UX más nativa.
 
-| HU | Descripción | Puntos | Responsable | Orden |
-|---|---|---|---|---|
-| HU12 | Onboarding Educativo Visual | 5 | Luis Ángel | 1️⃣ Primero |
-| HU13 | Cuestionario Diagnóstico de Nivel | 3 | Luis Ángel | 2️⃣ Segundo |
-| HU10 | Configuración de Partida (frontend Flutter) | 3 | Luis Ángel | 3️⃣ Tercero |
-| HU6 | Análisis en Tiempo Real Durante la Partida | 5 | Hebert | 4️⃣ Cuarto |
-| HU5 | Retroalimentación Técnica Post-Partida | 5 | Luis Ángel | ✅ Hecho |
-| HU14 | Estadísticas Personales y Progreso | 3 | Luis Ángel | 5️⃣ Quinto |
-| HU4 | Reentrenamiento y Evaluación del Modelo | 5 | Luis Ángel | 6️⃣ Último |
+| HU   | Descripción                                 | Puntos | Responsable | Orden      |
+| ---- | ------------------------------------------- | ------ | ----------- | ---------- |
+| HU12 | Onboarding Educativo Visual                 | 5      | Luis Ángel  | 1️⃣ Primero |
+| HU13 | Cuestionario Diagnóstico de Nivel           | 3      | Luis Ángel  | 2️⃣ Segundo |
+| HU10 | Configuración de Partida (frontend Flutter) | 3      | Luis Ángel  | 3️⃣ Tercero |
+| HU6  | Análisis en Tiempo Real Durante la Partida  | 5      | Hebert      | 4️⃣ Cuarto  |
+| HU5  | Retroalimentación Técnica Post-Partida      | 5      | Luis Ángel  | ✅ Hecho   |
+| HU14 | Estadísticas Personales y Progreso          | 3      | Luis Ángel  | 5️⃣ Quinto  |
+| HU4  | Reentrenamiento y Evaluación del Modelo     | 5      | Luis Ángel  | 6️⃣ Último  |
 
 **Total Sprint 2: 29 puntos.**
 
 ### **HU12 — Onboarding Educativo Visual** (5 pts, Luis Ángel)
 
 Flujo de tarjetas interactivas que enseñan las reglas antes de jugar:
+
 - [ ] 8-10 tarjetas (una por pieza + movimientos básicos)
 - [ ] Cada tarjeta: imagen, nombre, movimiento, ejemplo interactivo en miniatura
 - [ ] Prueba final: pequeño puzzle de 1-2 movimientos para validar comprensión
@@ -138,6 +143,7 @@ Flujo de tarjetas interactivas que enseñan las reglas antes de jugar:
 ### **HU13 — Cuestionario Diagnóstico de Nivel** (3 pts, Luis Ángel)
 
 Evaluación dinámica de nivel antes de la primera partida:
+
 - [ ] 5-8 preguntas (ej: "¿Has jugado ajedrez antes?", "¿Conoces aperturas?", "¿Sabes tácticas?")
 - [ ] Backend calcula puntuación → asigna nivel de Stockfish (1-20)
 - [ ] Alternativa: si elige "principiante", nivel=5; si "intermedio", nivel=12; si "avanzado", nivel=18
@@ -148,6 +154,7 @@ Evaluación dinámica de nivel antes de la primera partida:
 ### **HU10 — Configuración de Partida (Frontend Flutter)** (3 pts, Luis Ángel)
 
 Pantalla para elegir oponente y parámetros antes de jugar:
+
 - [ ] Selector de oponente: "Motor Stockfish" o "Modelo IA" (grisado si modelo aún no existe)
 - [ ] Pre-carga nivel diagnosticado de HU13
 - [ ] Opción de cambiar nivel manualmente (slider 1-20)
@@ -163,6 +170,7 @@ Pantalla para elegir oponente y parámetros antes de jugar:
 ### **HU6 — Análisis en Tiempo Real Durante la Partida** (5 pts, Hebert)
 
 ✅ **Completado.** Retroalimentación visual en vivo mientras el jugador juega:
+
 - [x] **Evaluación actual:** barra de porcentaje ganador (0-100%, no centipawns crudos)
   - Usa fórmula Lichess: `Win% = 50 + 50 * (2 / (1 + exp(-0.00368208 * cp)) - 1)`
 - [x] **Indicador de calidad de la jugada:** después de que el jugador mueve, muestra si fue buena/mala
@@ -176,6 +184,7 @@ Pantalla para elegir oponente y parámetros antes de jugar:
 ### **HU5 — Retroalimentación Técnica Post-Partida** (5 pts, Luis Ángel)
 
 ✅ **Completado.** Vista "Aprendizaje" y Tutoría Pedagógica:
+
 - [x] Lista de jugadas clasificadas con explicación del principio ajedrecístico violado o aplicado (qué/por qué/cómo)
 - [x] Curva de efectividad (Win% turno a turno a lo largo de la partida)
 - [x] Resumen post-partida: precisión global ponderada, conteo de calidades y consejo pedagógico del tutor virtual
@@ -186,6 +195,7 @@ Pantalla para elegir oponente y parámetros antes de jugar:
 ### **HU14 — Estadísticas Personales y Progreso** (3 pts, Luis Ángel)
 
 Dashboard post-partida con métricas personales:
+
 - [ ] Partidas jugadas (total, por oponente)
 - [ ] Promedio de efectividad (Win% promedio de todas sus partidas)
 - [ ] Errores más frecuentes (si tiene 3+ partidas, muestra top 3 categorías)
@@ -200,6 +210,7 @@ Dashboard post-partida con métricas personales:
 ### **HU4 — Reentrenamiento y Evaluación del Modelo** (5 pts, Luis Ángel)
 
 Ciclo de mejora automática del modelo propio:
+
 - [ ] **Recopilación:** después de N partidas contra el modelo (ej. 10), recopila historial
 - [ ] **Análisis:** llama `GET /partida/{id}/analisis-completo` para cada partida
 - [ ] **Clasificación de errores:** identifica en qué tipo de posiciones falla el modelo
@@ -246,15 +257,15 @@ de usuarios.
 
 ### **Cambios vs Sprint 2 Original**
 
-| Aspecto | Antes | Ahora |
-|---|---|---|
-| **HU en Sprint 2** | 4 (HU6, HU4, HU5, HU10) | 7 (HU12-14 nuevas) |
-| **Puntos totales** | 18 | 29 (más realista) |
-| **Plataforma frontend** | React (web) | **Flutter (mobile-first)** |
-| **Flujo del jugador** | Desorganizado, sin onboarding | Completo de punta a punta |
-| **HU6 bloqueador** | Bloqueada por HU4 | Desacoplada, se hace independiente |
-| **Diferenciadores** | Solo análisis post-partida | + Onboarding + Diagnóstico + Análisis en tiempo real + Progreso personal |
-| **Competencia** | Vs Chess.com/Lichess (genéricos) | Vs ChessKid (pero mejor UX) |
+| Aspecto                 | Antes                            | Ahora                                                                    |
+| ----------------------- | -------------------------------- | ------------------------------------------------------------------------ |
+| **HU en Sprint 2**      | 4 (HU6, HU4, HU5, HU10)          | 7 (HU12-14 nuevas)                                                       |
+| **Puntos totales**      | 18                               | 29 (más realista)                                                        |
+| **Plataforma frontend** | React (web)                      | **Flutter (mobile-first)**                                               |
+| **Flujo del jugador**   | Desorganizado, sin onboarding    | Completo de punta a punta                                                |
+| **HU6 bloqueador**      | Bloqueada por HU4                | Desacoplada, se hace independiente                                       |
+| **Diferenciadores**     | Solo análisis post-partida       | + Onboarding + Diagnóstico + Análisis en tiempo real + Progreso personal |
+| **Competencia**         | Vs Chess.com/Lichess (genéricos) | Vs ChessKid (pero mejor UX)                                              |
 
 ---
 
@@ -285,14 +296,15 @@ HU4 (Reentrenamiento) — depende de HU5 (usa `analisis-completo`)
 **Objetivo:** interconexión con el brazo (simulado), rostro y expresiones, panel de
 progreso, administración de sesiones, e integración completa para la defensa.
 
-| HU | Descripción | Puntos | Responsable |
-|---|---|---|---|
-| HU9 | Interconexión con el Brazo Robótico | 8 | Hebert |
-| HU7 | Rostro y Expresiones del Sistema | 3 | Luis Ángel |
-| HU8 | Panel de Progreso | 3 | Luis Ángel |
-| HU11 | Administración de Sesiones y Participantes | 3 | Luis Ángel |
+| HU   | Descripción                                | Puntos | Responsable |
+| ---- | ------------------------------------------ | ------ | ----------- |
+| HU9  | Interconexión con el Brazo Robótico        | 8      | Hebert      |
+| HU7  | Rostro y Expresiones del Sistema           | 3      | Luis Ángel  |
+| HU8  | Panel de Progreso                          | 3      | Luis Ángel  |
+| HU11 | Administración de Sesiones y Participantes | 3      | Luis Ángel  |
 
 ### Sobre el simulador ya iniciado
+
 Ya existe una versión temprana en `backend/servicios/simulacion/escena.py` (escena de PyBullet con
 tablero 3D estático y `resaltar_jugada(desde, hasta)`, sin cinemática inversa ni animación de
 brazo — deliberadamente simple). Esto se adelantó mientras Visión estaba en pausa; queda como

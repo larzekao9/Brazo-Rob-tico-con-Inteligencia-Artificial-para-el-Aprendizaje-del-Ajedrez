@@ -259,18 +259,17 @@ eso el despliegue se piensa en dos partes:
 - Cámara conectada por USB
 - Comunicación WiFi con el ESP32 del brazo (alcance de tesis)
 
-**En la nube (opcional — para tener el proyecto accesible fuera de la demo en vivo):**
-- Backend: Railway o Render (capa gratuita para proyectos chicos en Python)
-- Base de datos: Supabase (Postgres gratis) o la misma capa gratuita de Railway
-- Frontend: Vercel o Netlify (gratis, hechos para proyectos React)
+**En la nube (opcional — para tener el proyecto accesible fuera de la demo en vivo):** AWS,
+con todo containerizado en Docker (backend, frontend y PostgreSQL cada uno en su propio
+contenedor, orquestados con `docker-compose`) corriendo sobre una instancia EC2.
 - Checkpoints del modelo entrenado: Google Drive, o Hugging Face Hub (pensado
-  específicamente para alojar modelos de IA, también gratis)
+  específicamente para alojar modelos de IA, gratis) — no van dentro del contenedor.
 
 **Recomendación concreta para el día de la defensa:** correr todo en local. No conviene
-depender de internet ni de que un servicio gratuito "despierte" a tiempo (Render, por ejemplo,
-duerme los servicios inactivos) justo en el momento de mostrarlo al jurado. La versión en la
-nube es un plus para demostrar que el software es desplegable — no el plan principal para el
-día de la presentación.
+depender de internet justo en el momento de mostrarlo al jurado, y la cámara/el brazo de todas
+formas tienen que estar conectados físicamente a la laptop, no al contenedor en AWS. La versión
+en la nube es un plus para demostrar que el software es desplegable — no el plan principal para
+el día de la presentación.
 
 ---
 
