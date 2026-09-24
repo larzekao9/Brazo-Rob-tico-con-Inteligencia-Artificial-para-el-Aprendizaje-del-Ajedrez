@@ -1,3 +1,7 @@
+import pytest
+
+pytest.importorskip("pybullet")
+
 from backend.servicios.simulacion import cerrar_escena, crear_escena, resaltar_jugada
 
 

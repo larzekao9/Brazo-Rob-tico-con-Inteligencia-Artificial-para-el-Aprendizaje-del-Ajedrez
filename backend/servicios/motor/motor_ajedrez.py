@@ -6,11 +6,26 @@ import os
 import chess
 import chess.engine
 
-# Por defecto asume que "stockfish" está en el PATH del sistema (instalado con el
-# paquete del sistema operativo). Si no, `STOCKFISH_PATH` en el entorno puede
-# apuntar directo al ejecutable (ej. el binario oficial en `tools/stockfish/`,
-# para no necesitar permisos de administrador en la máquina de cada quien).
-STOCKFISH_PATH = os.environ.get("STOCKFISH_PATH", "stockfish")
+from pathlib import Path
+
+
+def _obtener_ruta_stockfish() -> str:
+    env_path = os.environ.get("STOCKFISH_PATH")
+    if env_path:
+        return env_path
+    posibles = [
+        Path("tools/stockfish/stockfish.exe"),
+        Path("tools/stockfish/stockfish"),
+        Path(__file__).resolve().parent.parent.parent.parent / "tools" / "stockfish" / "stockfish.exe",
+        Path(__file__).resolve().parent.parent.parent.parent / "tools" / "stockfish" / "stockfish",
+    ]
+    for ruta in posibles:
+        if ruta.is_file():
+            return str(ruta)
+    return "stockfish"
+
+
+STOCKFISH_PATH = _obtener_ruta_stockfish()
 
 # Rango del parámetro "Skill Level" de Stockfish.
 NIVEL_MIN = 0

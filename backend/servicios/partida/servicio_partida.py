@@ -17,6 +17,12 @@ from backend.modelos.partida import Partida
 from backend.repositorios.repositorio_partida import RepositorioPartidas, crear_repositorio_partidas
 from backend.servicios.estrategias.fabrica_estrategias import TIPOS_SOPORTADOS, crear_estrategia_jugada
 from backend.servicios.motor.motor_ajedrez import analizar_posicion
+from backend.servicios.retroalimentacion.servicio_retroalimentacion import (
+    centipawns_a_probabilidad_victoria,
+    clasificar_calidad_jugada,
+    explicar_jugada,
+    generar_resumen_partida,
+)
 from backend.servicios.vision.camara import capturar_foto_tablero
 from backend.servicios.vision.deteccion_movimiento import detectar_jugada
 from backend.servicios.vision.reconocimiento import reconocer_tablero
@@ -178,11 +184,24 @@ def mover(partida_id: str, jugada_uci: str) -> dict:
         _repositorio.registrar_jugada(partida.id, numero, fen_antes, movimiento, decidido_por)
 
     # Analizar la posición resultante de la jugada humana para obtener variantes candidatas
-    # (útil para el frontend: barra Win% + indicador calidad en tiempo real, HU6)
+    # y retroalimentación pedagógica en vivo (HU6)
     variantes_candidatas: list[dict] = []
+    retroalimentacion_en_vivo: dict | None = None
     if not partida.terminada and jugada_motor_san is not None:
         analisis = analizar_posicion(partida.fen, partida.nivel)
         variantes_candidatas = analisis.get("variantes_candidatas", [])
+
+        eval_cp = analisis.get("evaluacion_cp")
+        mate_en = analisis.get("mate_en")
+        prob_win = centipawns_a_probabilidad_victoria(eval_cp, mate_en)
+        retroalimentacion_en_vivo = {
+            "calidad": "buena",
+            "perdida_cp": 0,
+            "probabilidad_victoria": prob_win,
+            "principio_ajedrecistico": "posicion_activa",
+            "explicacion": f"Posición activa con {prob_win:.1f}% de probabilidad de victoria.",
+            "mejor_alternativa": analisis.get("jugada"),
+        }
 
     return {
         "fen": partida.fen,
@@ -191,6 +210,7 @@ def mover(partida_id: str, jugada_uci: str) -> dict:
         "resultado": partida.resultado,
         "jugadas": partida.jugadas_san,
         "variantes_candidatas": variantes_candidatas,
+        "retroalimentacion_en_vivo": retroalimentacion_en_vivo,
     }
 
 
@@ -287,6 +307,27 @@ def analisis_completo(partida_id: str, tiempo_limite: float = 0.3) -> dict:
             antes["evaluacion_cp"], antes["mate_en"],
         )
 
+        cp_antes = antes["evaluacion_cp"] if antes["evaluacion_cp"] is not None else 0
+        cp_despues = eval_resultante_cp if eval_resultante_cp is not None else 0
+        perdida_cp = max(0, cp_antes - cp_despues)
+
+        es_mejor = (antes["jugada"] == jugada_san) or (perdida_cp <= 10)
+        calidad = clasificar_calidad_jugada(
+            perdida_cp=perdida_cp,
+            es_mejor_jugada=es_mejor,
+            mate_en_antes=antes["mate_en"],
+            mate_en_despues=mate_resultante,
+        )
+        principio, explicacion = explicar_jugada(
+            fen_antes=posiciones_fen[i],
+            jugada_san=jugada_san,
+            fen_despues=posiciones_fen[i + 1],
+            mejor_jugada_san=antes["jugada"],
+            clasificacion=calidad,
+            perdida_cp=perdida_cp,
+        )
+        prob_win = centipawns_a_probabilidad_victoria(eval_resultante_cp, mate_resultante)
+
         resultado.append({
             "numero_ply": numero_ply,
             "color": "blanco" if i % 2 == 0 else "negro",
@@ -299,6 +340,12 @@ def analisis_completo(partida_id: str, tiempo_limite: float = 0.3) -> dict:
             "evaluacion_mejor_cp": antes["evaluacion_cp"],
             "mate_en_mejor": antes["mate_en"],
             "variantes_candidatas": antes["variantes_candidatas"],
+            "calidad": calidad,
+            "perdida_cp": perdida_cp,
+            "probabilidad_victoria": prob_win,
+            "principio_ajedrecistico": principio,
+            "explicacion": explicacion,
         })
 
-    return {"partida_id": partida_id, "jugadas": resultado}
+    resumen = generar_resumen_partida(resultado)
+    return {"partida_id": partida_id, "jugadas": resultado, "resumen": resumen}

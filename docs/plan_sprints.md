@@ -162,30 +162,26 @@ Pantalla para elegir oponente y parámetros antes de jugar:
 
 ### **HU6 — Análisis en Tiempo Real Durante la Partida** (5 pts, Hebert)
 
-Retroalimentación visual en vivo mientras el jugador juega:
-- [ ] **Evaluación actual:** barra de porcentaje ganador (0-100%, no centipawns crudos)
+✅ **Completado.** Retroalimentación visual en vivo mientras el jugador juega:
+- [x] **Evaluación actual:** barra de porcentaje ganador (0-100%, no centipawns crudos)
   - Usa fórmula Lichess: `Win% = 50 + 50 * (2 / (1 + exp(-0.00368208 * cp)) - 1)`
-- [ ] **Indicador de calidad de la jugada:** después de que el jugador mueve, muestra si fue buena/mala
-  - Colores: verde (buena), amarillo (inexacta), naranja (error), rojo (blunder)
-- [ ] **Sugerencia de mejor jugada:** muestra la jugada que Stockfish elegiría (sin ser obligatoria)
-- [ ] **Mate forzado:** si hay mate en N, muestra "MATE en 3" en vez de la barra normal
-
-**Nota:** Mientras HU4 no esté lista, la sugerencia viene de Stockfish. Cuando HU4 esté lista,
-se puede cambiar para mostrar la comparación modelo-vs-Stockfish en paralelo.
-
-**Bloqueador temporal:** `EstrategiaModelo` todavía no existe (depende de HU4), así que hoy
-muestra análisis contra Stockfish solo.
+- [x] **Indicador de calidad de la jugada:** después de que el jugador mueve, muestra si fue buena/mala
+  - Colores y categorías: brillante, mejor, excelente, buena (verde), imprecisión (amarillo), error (naranja), blunder (rojo)
+- [x] **Sugerencia de mejor jugada:** muestra la jugada óptima calculada
+- [x] **Mate forzado:** si hay mate en N, muestra "MATE en N" en vez de la barra normal
+- [x] **Integración con EstrategiaModelo:** el modelo v5 propio (SE-ResNet-8) decide jugadas maestras de forma autónoma con poda táctica.
 
 **Salida:** Jugador ve feedback visual EN TIEMPO REAL, diferenciador vs ChessKid/Chess.com.
 
 ### **HU5 — Retroalimentación Técnica Post-Partida** (5 pts, Luis Ángel)
 
-✅ **Ya implementado en Sprint 2 anterior.** Vista "Aprendizaje" con:
-- [ ] Lista de jugadas clasificadas (qué/por qué/cómo)
-- [ ] Curva de efectividad (Win% a lo largo de la partida)
-- [ ] Panel de detalle de cada jugada
+✅ **Completado.** Vista "Aprendizaje" y Tutoría Pedagógica:
+- [x] Lista de jugadas clasificadas con explicación del principio ajedrecístico violado o aplicado (qué/por qué/cómo)
+- [x] Curva de efectividad (Win% turno a turno a lo largo de la partida)
+- [x] Resumen post-partida: precisión global ponderada, conteo de calidades y consejo pedagógico del tutor virtual
+- [x] Panel de detalle de cada jugada con FEN antes/después y sugerencia de alternativa óptima
 
-**Salida:** Jugador entiende qué salió mal y cómo mejorar.
+**Salida:** Jugador entiende qué salió mal y cómo mejorar de manera amena y educativa.
 
 ### **HU14 — Estadísticas Personales y Progreso** (3 pts, Luis Ángel)
 

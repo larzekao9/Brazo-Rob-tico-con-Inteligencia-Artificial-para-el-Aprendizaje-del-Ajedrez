@@ -59,12 +59,22 @@ class MoverRequest(BaseModel):
     jugada: str
 
 
+class RetroalimentacionEnVivo(BaseModel):
+    """Retroalimentación pedagógica e indicador de calidad en tiempo real (HU6)."""
+
+    calidad: str = "buena"  # 'brillante', 'mejor', 'excelente', 'buena', 'imprecision', 'error', 'blunder'
+    perdida_cp: int = 0
+    probabilidad_victoria: float = 50.0  # Win% según fórmula Lichess
+    principio_ajedrecistico: str = "general"
+    explicacion: str = ""
+    mejor_alternativa: str | None = None
+
+
 class ResultadoMovimientoResponse(BaseModel):
     """Cuerpo de salida tras aplicar la jugada humana y la respuesta de Stockfish.
 
-    `variantes_candidatas` permite al frontend (HU6) pintar la barra Win% y el
-    indicador de calidad de la jugada en tiempo real, sin tener que llamar a
-    `/analisis` por separado tras cada movimiento.
+    `variantes_candidatas` y `retroalimentacion_en_vivo` permiten al frontend y móvil
+    (HU6) pintar la barra Win%, el indicador de calidad y el consejo pedagógico en tiempo real.
     """
 
     fen: str
@@ -73,6 +83,7 @@ class ResultadoMovimientoResponse(BaseModel):
     resultado: str | None
     jugadas: list[str] = Field(default_factory=list)
     variantes_candidatas: list[VarianteCandidata] = Field(default_factory=list)
+    retroalimentacion_en_vivo: RetroalimentacionEnVivo | None = None
 
 
 class JugadasLegalesResponse(BaseModel):
@@ -82,14 +93,7 @@ class JugadasLegalesResponse(BaseModel):
 
 
 class JugadaAnalisisResponse(BaseModel):
-    """El análisis de Stockfish de una jugada ya jugada, para la vista de aprendizaje.
-
-    `evaluacion_cp`/`mate_en` son lo que valió la jugada REALMENTE jugada,
-    ya reexpresado en la perspectiva de quien la jugó. `mejor_jugada_motor`,
-    `evaluacion_mejor_cp` y `mate_en_mejor` son lo que Stockfish hubiera
-    jugado en esa misma posición, en la misma perspectiva — comparar ambos
-    pares es lo que permite clasificar la jugada como buena/inexactitud/error/blunder.
-    """
+    """El análisis de una jugada ya jugada con evaluación y tutoría pedagógica (HU5)."""
 
     numero_ply: int
     color: str
@@ -102,10 +106,26 @@ class JugadaAnalisisResponse(BaseModel):
     evaluacion_mejor_cp: int | None
     mate_en_mejor: int | None
     variantes_candidatas: list[VarianteCandidata] = Field(default_factory=list)
+    calidad: str = "buena"
+    perdida_cp: int = 0
+    probabilidad_victoria: float = 50.0
+    principio_ajedrecistico: str = "general"
+    explicacion: str = ""
+
+
+class ResumenRendimiento(BaseModel):
+    """Resumen analítico post-partida, curva de efectividad y consejo del tutor (HU5)."""
+
+    precision_global: float
+    conteo_calidad: dict[str, int]
+    curva_efectividad: list[dict] = Field(default_factory=list)
+    consejo_tutor: str
+    total_jugadas: int
 
 
 class AnalisisCompletoResponse(BaseModel):
-    """Cuerpo de salida para GET /partida/{id}/analisis-completo."""
+    """Cuerpo de salida para GET /partida/{id}/analisis-completo (HU5/HU6)."""
 
     partida_id: str
     jugadas: list[JugadaAnalisisResponse] = Field(default_factory=list)
+    resumen: ResumenRendimiento | None = None

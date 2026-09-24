@@ -48,8 +48,8 @@ class EstrategiaModelo(EstrategiaJugada):
     def decidir_jugada(self, fen: str) -> str:
         from backend.servicios.aprendizaje.inferencia import (
             RUTA_CHECKPOINT_POR_DEFECTO,
-            predecir_jugada,
+            predecir_jugada_maestra,
         )
 
         ruta = self.ruta_checkpoint if self.ruta_checkpoint is not None else RUTA_CHECKPOINT_POR_DEFECTO
-        return predecir_jugada(fen, ruta)
+        return predecir_jugada_maestra(fen, ruta)
