@@ -13,6 +13,7 @@ torch = pytest.importorskip("torch")
 from backend.servicios.aprendizaje.inferencia import (
     cargar_modelo,
     predecir_jugada,
+    predecir_jugada_maestra,
     predecir_top_jugadas,
     calcular_saliencia,
     estado_modelo,
@@ -86,10 +87,23 @@ def test_predecir_jugada_devuelve_una_jugada_legal(checkpoint_de_prueba):
     assert jugada in [tablero.san(m) for m in tablero.legal_moves]
 
 
+def test_predecir_jugada_maestra_devuelve_jugada_legal(checkpoint_de_prueba):
+    tablero = chess.Board()
+    jugada = predecir_jugada_maestra(tablero.fen(), checkpoint_de_prueba)
+    assert jugada in [tablero.san(m) for m in tablero.legal_moves]
+
+
 def test_predecir_jugada_sin_jugadas_legales_falla(checkpoint_de_prueba):
     fen_ahogado = "7k/5Q2/6K1/8/8/8/8/8 b - - 0 1"
     with pytest.raises(ValueError):
         predecir_jugada(fen_ahogado, checkpoint_de_prueba)
+
+
+def test_predecir_jugada_maestra_sin_jugadas_legales_falla(checkpoint_de_prueba):
+    fen_ahogado = "7k/5Q2/6K1/8/8/8/8/8 b - - 0 1"
+    with pytest.raises(ValueError):
+        predecir_jugada_maestra(fen_ahogado, checkpoint_de_prueba)
+
 
 
 def test_predecir_top_jugadas_devuelve_top_n_y_probabilidades_suman_uno(checkpoint_de_prueba):
