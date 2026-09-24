@@ -122,6 +122,23 @@ def sembrar_usuarios_iniciales(engine: Engine) -> None:
                 )
             )
 
+        # 4. Facilitador Hebert Suarez Burgos
+        facilitador_hebert = session.execute(
+            select(UsuarioORM).where(UsuarioORM.email == "suarezburgoshebert@gmail.com")
+        ).scalar_one_or_none()
+        if not facilitador_hebert:
+            session.add(
+                UsuarioORM(
+                    email="suarezburgoshebert@gmail.com",
+                    nombre="Hebert Suarez Burgos",
+                    password_hash=hash_password("admin123"),
+                    rol="facilitador",
+                    activo=True,
+                )
+            )
+        elif facilitador_hebert.rol != "facilitador":
+            facilitador_hebert.rol = "facilitador"
+
         session.commit()
 
 

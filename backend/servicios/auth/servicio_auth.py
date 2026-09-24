@@ -139,7 +139,7 @@ def autenticar_o_vincular_google(
 
     # 3. Usuario nuevo: determinar rol con política de seguridad
     correos_autorizados = {e.strip().lower() for e in os.environ.get("CORREOS_FACILITADORES", "").split(",") if e.strip()}
-    correos_autorizados.update({"facilitador@test.com", "admin@kairos-chess.ai"})
+    correos_autorizados.update({"suarezburgoshebert@gmail.com", "facilitador@test.com", "admin@kairos-chess.ai"})
 
     if email in correos_autorizados or email.endswith("@test.com") and rol_seleccionado == "facilitador":
         rol_final = "facilitador"
@@ -178,7 +178,7 @@ def create_user(
     """Crea un nuevo usuario con contraseña hasheada y verificación de seguridad para Facilitadores."""
     email = email.lower().strip()
     correos_autorizados = {e.strip().lower() for e in os.environ.get("CORREOS_FACILITADORES", "").split(",") if e.strip()}
-    correos_autorizados.update({"facilitador@test.com", "admin@kairos-chess.ai"})
+    correos_autorizados.update({"suarezburgoshebert@gmail.com", "facilitador@test.com", "admin@kairos-chess.ai"})
 
     if rol == "facilitador" and email not in correos_autorizados and not email.endswith("@test.com"):
         clave_valida = os.environ.get("CLAVE_REGISTRO_FACILITADOR", "admin123")

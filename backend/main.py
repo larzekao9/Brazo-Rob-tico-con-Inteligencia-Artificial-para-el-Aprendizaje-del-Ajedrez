@@ -1,7 +1,13 @@
 """API FastAPI del backend de ajedrez."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
+
+if os.environ.get("PYTEST_RUNNING") != "1":
+    load_dotenv()
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
