@@ -15,6 +15,15 @@ class RegistroRequest(BaseModel):
     nombre: str = Field(min_length=2, max_length=100)
     password: str = Field(min_length=6, max_length=100)
     rol: Rol = "jugador"
+    clave_facilitador: str | None = None
+
+
+class GoogleAuthRequest(BaseModel):
+    """Cuerpo para POST /auth/google."""
+
+    credential: str
+    rol_seleccionado: Rol | None = "jugador"
+    clave_facilitador: str | None = None
 
 
 class LoginRequest(BaseModel):
@@ -52,6 +61,8 @@ class UsuarioResponse(BaseModel):
     nombre: str
     rol: str
     creado_en: str
+    google_id: str | None = None
+    avatar_url: str | None = None
     nivel_estimado: int | None = None
     rango_estimado: str | None = None
 

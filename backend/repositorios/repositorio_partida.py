@@ -224,9 +224,10 @@ def crear_repositorio_partidas() -> RepositorioPartidas:
     `RepositorioPartidasEnMemoria` — así ninguna máquina del equipo necesita
     tener Postgres corriendo solo para levantar el backend.
     """
-    from backend.database import DATABASE_URL, crear_fabrica_sesiones, crear_tablas, obtener_engine
+    import os
+    from backend.database import crear_fabrica_sesiones, crear_tablas, obtener_engine
 
-    if not DATABASE_URL:
+    if not os.environ.get("DATABASE_URL"):
         return RepositorioPartidasEnMemoria()
     engine = obtener_engine()
     crear_tablas(engine)

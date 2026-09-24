@@ -46,10 +46,13 @@ class UsuarioORM(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(unique=True, nullable=False, index=True)
     nombre: Mapped[str] = mapped_column(nullable=False)
-    password_hash: Mapped[str] = mapped_column(nullable=False)
+    password_hash: Mapped[str | None] = mapped_column(nullable=True)
     rol: Mapped[str] = mapped_column(nullable=False, default="jugador", server_default="jugador")
     creado_en: Mapped[datetime] = mapped_column(server_default=func.now())
     activo: Mapped[bool] = mapped_column(default=True, nullable=False)
+    # Autenticación federada (Google OAuth) y perfil
+    google_id: Mapped[str | None] = mapped_column(nullable=True, index=True)
+    avatar_url: Mapped[str | None] = mapped_column(nullable=True)
     # Resultado de la última "Mide tu nivel" completada (HU5/HU10) — se pisa
     # en cada diagnóstico nuevo, no se guarda historial (ver PLAN_IMPLEMENTACION_COMPLETO.md).
     nivel_estimado: Mapped[int | None] = mapped_column(nullable=True)

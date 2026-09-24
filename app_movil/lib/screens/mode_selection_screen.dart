@@ -124,27 +124,35 @@ class _ModeSelectionScreenState extends State<ModeSelectionScreen> {
           child: Column(
             children: [
               const SizedBox(height: AppSpacing.spaceLg),
-              Text('♛', style: AppTextStyles.displayLg.copyWith(fontSize: 56, color: AppColors.primary)),
+              Text('♛',
+                  style: AppTextStyles.displayLg
+                      .copyWith(fontSize: 56, color: AppColors.primary)),
               const SizedBox(height: AppSpacing.spaceSm),
               RichText(
                 text: TextSpan(
                   style: AppTextStyles.headlineLg,
                   children: [
-                    TextSpan(text: 'Chess', style: TextStyle(color: AppColors.onSurface)),
-                    TextSpan(text: 'IA', style: TextStyle(color: AppColors.tertiaryFixedDim)),
+                    TextSpan(
+                        text: 'Chess',
+                        style: TextStyle(color: AppColors.onSurface)),
+                    TextSpan(
+                        text: 'IA',
+                        style: TextStyle(color: AppColors.tertiaryFixedDim)),
                   ],
                 ),
               ),
               const SizedBox(height: AppSpacing.spaceXl),
               Text(
                 '¿Qué quieres hacer ahora?',
-                style: AppTextStyles.headlineMd.copyWith(color: AppColors.onSurface),
+                style: AppTextStyles.headlineMd
+                    .copyWith(color: AppColors.onSurface),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: AppSpacing.spaceXs),
               Text(
                 'Elige la opción que mejor se adapte a tu objetivo.',
-                style: AppTextStyles.bodyMd.copyWith(color: AppColors.onSurfaceVariant),
+                style: AppTextStyles.bodyMd
+                    .copyWith(color: AppColors.onSurfaceVariant),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: AppSpacing.spaceXl),
@@ -206,7 +214,8 @@ class _ModeSelectionScreenState extends State<ModeSelectionScreen> {
                 onPressed: () => context.go('/learning/board-basics'),
                 icon: const Icon(Icons.chevron_left, size: 18),
                 label: const Text('Volver'),
-                style: TextButton.styleFrom(foregroundColor: AppColors.onSurfaceVariant),
+                style: TextButton.styleFrom(
+                    foregroundColor: AppColors.onSurfaceVariant),
               ),
             ],
           ),
@@ -243,9 +252,11 @@ class _ModeCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.spaceLg),
       decoration: BoxDecoration(
-        color: enabled ? color.withOpacity(0.08) : AppColors.surfaceContainerLow,
+        color:
+            enabled ? color.withOpacity(0.08) : AppColors.surfaceContainerLow,
         borderRadius: AppRadius.radiusXl,
-        border: Border.all(color: enabled ? color.withOpacity(0.4) : AppColors.outlineVariant),
+        border: Border.all(
+            color: enabled ? color.withOpacity(0.4) : AppColors.outlineVariant),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -256,20 +267,27 @@ class _ModeCard extends StatelessWidget {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: enabled ? color.withOpacity(0.15) : AppColors.outlineVariant,
+                  color: enabled
+                      ? color.withOpacity(0.15)
+                      : AppColors.outlineVariant,
                   borderRadius: AppRadius.radiusMd,
                 ),
-                child: Icon(icon, color: enabled ? color : AppColors.onSurfaceVariant),
+                child: Icon(icon,
+                    color: enabled ? color : AppColors.onSurfaceVariant),
               ),
               const Spacer(),
               if (badge != null)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: AppSpacing.spaceSm, vertical: AppSpacing.spaceXs),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.spaceSm,
+                      vertical: AppSpacing.spaceXs),
                   decoration: BoxDecoration(
                     color: AppColors.tertiaryContainer,
                     borderRadius: AppRadius.radiusFull,
                   ),
-                  child: Text(badge!, style: AppTextStyles.labelSm.copyWith(color: AppColors.onTertiaryContainer)),
+                  child: Text(badge!,
+                      style: AppTextStyles.labelSm
+                          .copyWith(color: AppColors.onTertiaryContainer)),
                 ),
             ],
           ),
@@ -283,7 +301,8 @@ class _ModeCard extends StatelessWidget {
           const SizedBox(height: AppSpacing.spaceXs),
           Text(
             description,
-            style: AppTextStyles.bodySm.copyWith(color: AppColors.onSurfaceVariant),
+            style: AppTextStyles.bodySm
+                .copyWith(color: AppColors.onSurfaceVariant),
           ),
           const SizedBox(height: AppSpacing.spaceMd),
           SizedBox(
@@ -294,13 +313,15 @@ class _ModeCard extends StatelessWidget {
                   ? const SizedBox(
                       width: 16,
                       height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.onPrimary),
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: AppColors.onPrimary),
                     )
                   : const Icon(Icons.chevron_right, size: 18),
               label: Text(cargando ? 'Creando partida…' : 'Comenzar'),
               style: FilledButton.styleFrom(
                 backgroundColor: enabled ? color : AppColors.outlineVariant,
-                foregroundColor: enabled ? AppColors.onPrimary : AppColors.onSurfaceVariant,
+                foregroundColor:
+                    enabled ? AppColors.onPrimary : AppColors.onSurfaceVariant,
               ),
             ),
           ),

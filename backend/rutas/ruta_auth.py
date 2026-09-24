@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from backend.database import DATABASE_URL, crear_fabrica_sesiones, crear_tablas, obtener_engine
 from backend.esquemas.auth_esquema import (
+    GoogleAuthRequest,
     LoginRequest,
     NivelEstimadoRequest,
     RegistroRequest,
@@ -24,6 +25,7 @@ from backend.modelos.tablas_orm import PartidaORM, UsuarioORM
 from backend.servicios.auth import (
     actualizar_nivel_estimado,
     authenticate_user,
+    autenticar_o_vincular_google,
     create_access_token,
     create_user,
     create_tokens,
@@ -31,6 +33,7 @@ from backend.servicios.auth import (
     decode_and_validate_refresh_token,
     get_user_by_email,
     get_user_by_id,
+    verificar_token_google,
 )
 from backend.servicios.usuario.servicio_estadisticas import obtener_historial_partidas
 
@@ -47,9 +50,7 @@ def _fabrica_sesiones() -> sessionmaker[Session]:
 
 
 def get_db() -> Iterator[Session]:
-    """Dependencia de sesión de base de datos (requiere `DATABASE_URL`)."""
-    if not DATABASE_URL:
-        raise HTTPException(status_code=503, detail="Base de datos no configurada")
+    """Dependencia de sesión de base de datos."""
     db = _fabrica_sesiones()()
     try:
         yield db
@@ -64,6 +65,8 @@ def _a_respuesta(user) -> UsuarioResponse:
         nombre=user.nombre,
         rol=user.rol,
         creado_en=user.creado_en.isoformat(),
+        google_id=user.google_id,
+        avatar_url=user.avatar_url,
         nivel_estimado=user.nivel_estimado,
         rango_estimado=user.rango_estimado,
     )
@@ -107,7 +110,18 @@ def registro(data: RegistroRequest, db: Session = Depends(get_db)) -> AuthRespon
     if get_user_by_email(db, data.email):
         raise HTTPException(status_code=400, detail="Email ya registrado")
 
-    user = create_user(db, data.email, data.nombre, data.password, rol=data.rol)
+    try:
+        user = create_user(
+            db,
+            data.email,
+            data.nombre,
+            data.password,
+            rol=data.rol,
+            clave_facilitador=data.clave_facilitador,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     access, refresh = create_tokens(user)
 
     return AuthResponse(
@@ -115,7 +129,38 @@ def registro(data: RegistroRequest, db: Session = Depends(get_db)) -> AuthRespon
         tokens=TokenResponse(
             access_token=access,
             refresh_token=refresh,
-            expires_in=30 * 60,
+            expires_in=60 * 60 * 12,
+        ),
+    )
+
+
+@router.post(
+    "/google",
+    response_model=AuthResponse,
+    summary="Iniciar sesión o registrarse con Google OAuth",
+)
+def login_google(data: GoogleAuthRequest, db: Session = Depends(get_db)) -> AuthResponse:
+    """Verifica el token de Google, vincula cuentas existentes o crea un nuevo usuario seguro."""
+    try:
+        google_info = verificar_token_google(data.credential)
+        user = autenticar_o_vincular_google(
+            db=db,
+            google_info=google_info,
+            rol_seleccionado=data.rol_seleccionado or "jugador",
+            clave_facilitador=data.clave_facilitador,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error en autenticación con Google: {str(e)}")
+
+    access, refresh = create_tokens(user)
+    return AuthResponse(
+        usuario=_a_respuesta(user),
+        tokens=TokenResponse(
+            access_token=access,
+            refresh_token=refresh,
+            expires_in=60 * 60 * 12,
         ),
     )
 

@@ -164,3 +164,46 @@ def test_crear_tablas_agrega_columna_rol_a_base_vieja() -> None:
     assert fila.rol == "jugador"
     assert fila.nivel_estimado is None
     assert fila.rango_estimado is None
+
+
+def test_google_login_crea_jugador_por_defecto(cliente) -> None:
+    res = cliente.post("/auth/google", json={"credential": "demo_nuevo.jugador@gmail.com", "rol_seleccionado": "jugador"})
+    assert res.status_code == 200
+    datos = res.json()
+    assert datos["usuario"]["email"] == "nuevo.jugador@gmail.com"
+    assert datos["usuario"]["rol"] == "jugador"
+    assert datos["usuario"]["google_id"] is not None
+    assert datos["tokens"]["access_token"]
+
+
+def test_google_login_vincula_cuenta_existente_y_preserva_rol(cliente) -> None:
+    # 1. Se registra previamente con correo y contraseña
+    cliente.post("/auth/registro", json={"email": "vinculado@test.com", "nombre": "Vinculado", "password": "pass1234"})
+    
+    # 2. Inicia sesión con Google usando el mismo correo
+    res = cliente.post("/auth/google", json={"credential": "demo_vinculado@test.com"})
+    assert res.status_code == 200
+    datos = res.json()
+    assert datos["usuario"]["email"] == "vinculado@test.com"
+    assert datos["usuario"]["rol"] == "jugador"
+    assert datos["usuario"]["google_id"] is not None
+
+
+def test_google_login_intento_facilitador_sin_clave_falla(cliente) -> None:
+    res = cliente.post(
+        "/auth/google",
+        json={"credential": "demo_intruso@gmail.com", "rol_seleccionado": "facilitador", "clave_facilitador": "clave_erronea"},
+    )
+    assert res.status_code == 400
+    assert "incorrecto" in res.json()["detail"].lower()
+
+
+def test_google_login_facilitador_con_clave_valida_entra(cliente) -> None:
+    res = cliente.post(
+        "/auth/google",
+        json={"credential": "demo_docente.nuevo@gmail.com", "rol_seleccionado": "facilitador", "clave_facilitador": "admin123"},
+    )
+    assert res.status_code == 200
+    datos = res.json()
+    assert datos["usuario"]["rol"] == "facilitador"
+

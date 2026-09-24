@@ -1,8 +1,11 @@
-# Entornos virtuales
+# Entornos virtuales y secretos
 .venv/
 venv/
 __pycache__/
 *.pyc
+.env
+.env.*
+
 
 # Configuración local de Claude Code (personal, no compartida)
 .claude/settings.local.json

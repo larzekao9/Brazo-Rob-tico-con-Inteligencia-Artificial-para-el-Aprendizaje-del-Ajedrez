@@ -12,6 +12,8 @@ from .servicio_auth import (
     create_tokens,
     decode_and_validate_access_token,
     decode_and_validate_refresh_token,
+    autenticar_o_vincular_google,
+    verificar_token_google,
 )
 
 __all__ = [
@@ -28,4 +30,6 @@ __all__ = [
     "create_tokens",
     "decode_and_validate_access_token",
     "decode_and_validate_refresh_token",
+    "autenticar_o_vincular_google",
+    "verificar_token_google",
 ]
