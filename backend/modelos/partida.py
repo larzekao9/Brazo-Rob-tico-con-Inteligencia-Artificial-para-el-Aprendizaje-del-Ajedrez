@@ -42,6 +42,25 @@ class Partida:
     `None` para partidas creadas antes de que la autenticación fuera
     obligatoria en `POST /partida`; esas quedan sin dueño y no se bloquean
     por el chequeo de autorización (ver `ruta_partida.py::estado`)."""
+    permite_simulacion_3d: bool = False
+    permite_camara: bool = False
+    """Funciones educativas opcionales que el jugador ve apagadas por defecto
+    y el facilitador puede prender por partida (`PATCH /partida/{id}/permisos`,
+    solo facilitador — ver `ruta_partida.py`). El E-STOP del brazo no es una de
+    estas: es un control de seguridad, se queda hardcodeado solo-facilitador
+    sin toggle y no vive en este dataclass."""
+    es_demostracion: bool = False
+    """Marca la partida que el facilitador está transmitiendo en vivo a toda
+    la clase (jugar de ejemplo delante de los jugadores) — se prende con el
+    mismo `PATCH /partida/{id}/permisos` que los dos campos de arriba, pero
+    solo tiene sentido sobre una partida propia del facilitador (ver
+    `servicio_partida.actualizar_permisos`, que valida eso y además apaga
+    cualquier otra partida que estuviera en demostración: solo puede haber
+    una transmisión activa a la vez en todo el sistema). Mientras está en
+    `True`, cualquier jugador autenticado puede leer esta partida vía
+    `GET /partida/{id}` sin ser su dueño ni facilitador (ver
+    `ruta_partida.py::estado`), y `GET /partida/demostracion-activa` la
+    devuelve sin necesidad de conocer su id de antemano."""
 
     @property
     def fen(self) -> str:

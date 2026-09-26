@@ -54,6 +54,15 @@ _COLUMNAS_AGREGADAS: dict[str, dict[str, str]] = {
         "rango_estimado": "VARCHAR",
         "google_id": "VARCHAR",
         "avatar_url": "VARCHAR",
+        "edad": "INTEGER",
+        "descripcion": "VARCHAR",
+        "preset_ensenanza": "VARCHAR",
+    },
+    "partida": {
+        "permite_simulacion_3d": "BOOLEAN NOT NULL DEFAULT FALSE",
+        "permite_camara": "BOOLEAN NOT NULL DEFAULT FALSE",
+        "fen_inicial": "VARCHAR",
+        "es_demostracion": "BOOLEAN NOT NULL DEFAULT FALSE",
     },
 }
 

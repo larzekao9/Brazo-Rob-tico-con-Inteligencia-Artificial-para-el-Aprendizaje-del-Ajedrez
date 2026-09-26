@@ -16,7 +16,7 @@ import chess
 from backend.modelos.partida import Partida
 from backend.repositorios.repositorio_partida import RepositorioPartidas, crear_repositorio_partidas
 from backend.servicios.estrategias.fabrica_estrategias import TIPOS_SOPORTADOS, crear_estrategia_jugada
-from backend.servicios.motor.motor_ajedrez import analizar_posicion
+from backend.servicios.motor.motor_ajedrez import NIVEL_MAX, analizar_posicion
 from backend.servicios.retroalimentacion.servicio_retroalimentacion import (
     centipawns_a_probabilidad_victoria,
     clasificar_calidad_jugada,
@@ -101,6 +101,70 @@ def listar_partidas() -> list[Partida]:
     a disco. Ver sección 4.3 y 7 de PLAN_IMPLEMENTACION_COMPLETO.md.
     """
     return _repositorio.listar()
+
+
+def actualizar_permisos(partida_id: str, campos: dict, usuario_id_facilitador: int | None = None) -> Partida:
+    """Activa o desactiva, por partida, funciones educativas opcionales para
+    el jugador (simulación 3D, cámara del tablero físico) — decisión del
+    facilitador (ver `ruta_partida.py`, que exige `get_current_facilitador`
+    antes de llegar acá; esta función no vuelve a chequear el rol).
+
+    `campos` trae solo las claves que vinieron en el request
+    (`exclude_unset`, igual que `servicio_auth.actualizar_perfil`) — las que
+    no vinieron quedan como estaban, no se pisan con `False`.
+
+    `es_demostracion` es un caso especial dentro de estos mismos permisos
+    togglables: a diferencia de los otros dos (que aplican sobre cualquier
+    partida que el facilitador esté supervisando), transmitir en vivo solo
+    tiene sentido sobre una partida propia del facilitador — activarla en la
+    partida de un estudiante no tendría a quién mostrarle nada como "su"
+    demostración. `usuario_id_facilitador` es quién hace el PATCH (lo manda
+    `ruta_partida.py` desde el token, nunca el cuerpo del request) y se usa
+    solo para esa validación. Además, como solo puede haber una
+    demostración activa a la vez en todo el sistema, prenderla acá apaga
+    automáticamente cualquier otra partida que la tuviera activa.
+
+    Raises:
+        KeyError: si no existe una partida con ese id.
+        ValueError: si se pide `es_demostracion=True` sobre una partida que
+            no es del facilitador que hace el pedido.
+    """
+    partida = obtener_partida(partida_id)
+    if campos.get("es_demostracion") is True and partida.usuario_id != usuario_id_facilitador:
+        raise ValueError(
+            "Solo se puede activar la demostración en una partida propia del facilitador"
+        )
+    for campo, valor in campos.items():
+        setattr(partida, campo, valor)
+    _repositorio.guardar(partida)
+    if campos.get("es_demostracion") is True:
+        _apagar_otras_demostraciones(partida.id)
+    return partida
+
+
+def _apagar_otras_demostraciones(partida_id_activa: str) -> None:
+    """Apaga `es_demostracion` en cualquier otra partida que la tuviera
+    activa — solo puede haber una transmisión en vivo a la vez en todo el
+    sistema (ver `actualizar_permisos`), a nivel global, no por facilitador."""
+    for otra in _repositorio.listar():
+        if otra.id != partida_id_activa and otra.es_demostracion:
+            otra.es_demostracion = False
+            _repositorio.guardar(otra)
+
+
+def obtener_partida_en_demostracion() -> Partida | None:
+    """Partida marcada `es_demostracion=True` ahora mismo, si hay alguna.
+
+    Usa `listar()` en vez de un método de repositorio dedicado porque no hay
+    volumen ni paginación real todavía (ver `ruta_partida.py::listar`, mismo
+    criterio) — agregar un índice/consulta especial para esto sería
+    sobre-ingeniería para 3 semanas de proyecto. Devuelve `None` si ninguna
+    partida está en demostración (ver `GET /partida/demostracion-activa`).
+    """
+    for partida in _repositorio.listar():
+        if partida.es_demostracion:
+            return partida
+    return None
 
 
 def jugadas_legales_desde(partida_id: str, casilla: str) -> list[str]:
@@ -254,7 +318,7 @@ def mover_desde_foto(partida_id: str) -> dict:
     return mover(partida_id, jugada_uci)
 
 
-def analisis_completo(partida_id: str, tiempo_limite: float = 0.3) -> dict:
+def analisis_completo(partida_id: str, tiempo_limite: float = 0.3, rango: str = "Intermedio") -> dict:
     """Analiza con Stockfish cada jugada ya jugada de una partida (vista de aprendizaje, HU5/HU6).
 
     Reconstruye, jugada por jugada, todas las posiciones por las que pasó la
@@ -272,11 +336,30 @@ def analisis_completo(partida_id: str, tiempo_limite: float = 0.3) -> dict:
     `tiempo_limite` por defecto es más bajo que en el resto del motor para
     no tardar demasiado.
 
+    El análisis retrospectivo siempre corre con `NIVEL_MAX` (fuerza máxima de
+    Stockfish), nunca con `partida.nivel`. `partida.nivel` debilita cómo
+    juega Stockfish EN VIVO contra el jugador (vía `Skill Level`) para que un
+    principiante tenga chance — pero acá el motor no está jugando, está
+    evaluando qué tan buena fue una jugada ya hecha, y esa evaluación tiene
+    que ser la verdad objetiva de la posición. Si se usara `partida.nivel`,
+    un análisis a nivel bajo puede devolver evaluaciones sin sentido (ej.
+    "0 cp" en una posición con una dama de desventaja) porque Stockfish
+    debilitado no ve tácticas simples — y esa evaluación rota alimenta
+    `mejor_jugada_motor`, `variantes_candidatas`, la clasificación de calidad
+    y la retroalimentación pedagógica (`explicar_jugada`), pudiendo terminar
+    diciéndole a un jugador principiante justo lo contrario de lo que pasó.
+
     De paso, persiste la evaluación de cada jugada vía
     `RepositorioPartidas.actualizar_evaluacion_jugada` — es la única llamada a
     Stockfish que necesita `top_errores` en `/usuario/estadisticas` (HU14):
     como esta acción ya recalcula todo con Stockfish, guardarlo acá es gratis
     y evita que las estadísticas tengan que volver a llamar al motor.
+
+    `rango` (RF20) adapta el texto de `explicacion` y de `consejo_tutor` al
+    nivel del jugador ("Principiante", "Intermedio" o "Avanzado" — mismos
+    valores que `UsuarioORM.rango_estimado`); lo decide la ruta HTTP según el
+    usuario autenticado, acá solo se reenvía a `explicar_jugada` y
+    `generar_resumen_partida`.
 
     Raises:
         KeyError: si no existe una partida con ese id.
@@ -290,7 +373,7 @@ def analisis_completo(partida_id: str, tiempo_limite: float = 0.3) -> dict:
         posiciones_fen.append(tablero.fen())
 
     analisis_por_posicion = [
-        analizar_posicion(fen, partida.nivel, tiempo_limite) for fen in posiciones_fen
+        analizar_posicion(fen, NIVEL_MAX, tiempo_limite) for fen in posiciones_fen
     ]
 
     resultado = []
@@ -325,6 +408,7 @@ def analisis_completo(partida_id: str, tiempo_limite: float = 0.3) -> dict:
             mejor_jugada_san=antes["jugada"],
             clasificacion=calidad,
             perdida_cp=perdida_cp,
+            rango=rango,
         )
         prob_win = centipawns_a_probabilidad_victoria(eval_resultante_cp, mate_resultante)
 
@@ -347,5 +431,5 @@ def analisis_completo(partida_id: str, tiempo_limite: float = 0.3) -> dict:
             "explicacion": explicacion,
         })
 
-    resumen = generar_resumen_partida(resultado)
+    resumen = generar_resumen_partida(resultado, rango=rango)
     return {"partida_id": partida_id, "jugadas": resultado, "resumen": resumen}

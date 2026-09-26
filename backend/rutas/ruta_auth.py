@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from backend.database import DATABASE_URL, crear_fabrica_sesiones, crear_tablas, obtener_engine
 from backend.esquemas.auth_esquema import (
+    ActualizarPerfilRequest,
     GoogleAuthRequest,
     LoginRequest,
     NivelEstimadoRequest,
@@ -24,6 +25,7 @@ from backend.esquemas.usuario_esquema import HistorialPartidasResponse
 from backend.modelos.tablas_orm import PartidaORM, UsuarioORM
 from backend.servicios.auth import (
     actualizar_nivel_estimado,
+    actualizar_perfil,
     authenticate_user,
     autenticar_o_vincular_google,
     create_access_token,
@@ -69,6 +71,9 @@ def _a_respuesta(user) -> UsuarioResponse:
         avatar_url=user.avatar_url,
         nivel_estimado=user.nivel_estimado,
         rango_estimado=user.rango_estimado,
+        edad=user.edad,
+        descripcion=user.descripcion,
+        preset_ensenanza=user.preset_ensenanza,
     )
 
 
@@ -79,6 +84,26 @@ def get_current_user(
     """Extrae y valida el access token, retorna user_id."""
     if not credentials:
         raise HTTPException(status_code=401, detail="Token requerido")
+    user_id = decode_and_validate_access_token(credentials.credentials)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Token inválido o expirado")
+    user = get_user_by_id(db, user_id)
+    if not user or not user.activo:
+        raise HTTPException(status_code=401, detail="Usuario no encontrado o inactivo")
+    return user_id
+
+
+def get_current_user_opcional(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+) -> int | None:
+    """Igual que `get_current_user`, pero devuelve `None` en vez de 401 cuando no
+    viene token — para endpoints que personalizan la respuesta si hay sesión
+    (ej. RF20: adaptar la retroalimentación al `rango_estimado` del jugador)
+    sin exigir login. Un token presente pero inválido/expirado sí sigue
+    dando 401, igual que en `get_current_user`."""
+    if not credentials:
+        return None
     user_id = decode_and_validate_access_token(credentials.credentials)
     if not user_id:
         raise HTTPException(status_code=401, detail="Token inválido o expirado")
@@ -247,6 +272,29 @@ def guardar_nivel_estimado(
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     user = actualizar_nivel_estimado(db, user, data.nivel, data.rango)
+    return _a_respuesta(user)
+
+
+@router.patch(
+    "/me",
+    response_model=UsuarioResponse,
+    summary="Editar el perfil del usuario autenticado",
+)
+def actualizar_perfil_propio(
+    data: ActualizarPerfilRequest,
+    user_id: int = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> UsuarioResponse:
+    """Edita el perfil del usuario actual (nombre, foto, edad, descripción).
+
+    Disponible para cualquier rol. Edición parcial: solo se actualizan los
+    campos que vengan en el request, los que no vienen quedan como estaban.
+    """
+    user = get_user_by_id(db, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    campos = data.model_dump(exclude_unset=True)
+    user = actualizar_perfil(db, user, campos)
     return _a_respuesta(user)
 
 

@@ -25,7 +25,19 @@ class CrearPartidaRequest(BaseModel):
 
 
 class EstadoPartidaResponse(BaseModel):
-    """Estado completo de una partida, incluidas todas sus jugadas hasta ahora."""
+    """Estado completo de una partida, incluidas todas sus jugadas hasta ahora.
+
+    `usuario_id`/`usuario_nombre` identifican de quién es la partida — los
+    necesita Sala de Control para que el facilitador sepa a qué estudiante
+    está supervisando al abrir una partida ajena (RF20/HU10). `usuario_nombre`
+    es `None` si la partida no tiene dueño (`usuario_id` también `None`) o si
+    el usuario dueño ya no existe.
+
+    `es_demostracion` marca la partida que el facilitador está transmitiendo
+    en vivo a la clase — mientras está en `True`, este mismo endpoint
+    (`GET /partida/{id}`) se puede leer sin ser su dueño ni facilitador (ver
+    `ruta_partida.py::estado`).
+    """
 
     id: str
     tipo: str
@@ -37,10 +49,45 @@ class EstadoPartidaResponse(BaseModel):
     terminada: bool
     resultado: str | None = None
     jugadas: list[str] = Field(default_factory=list)
+    permite_simulacion_3d: bool = False
+    permite_camara: bool = False
+    es_demostracion: bool = False
+    usuario_id: int | None = None
+    usuario_nombre: str | None = None
+
+
+class ActualizarPermisosPartidaRequest(BaseModel):
+    """Cuerpo para PATCH /partida/{id}/permisos — solo facilitador (`get_current_facilitador`).
+
+    Activa/desactiva por partida funciones educativas opcionales para el
+    jugador (ventana de simulación 3D, cámara del tablero físico). Edición
+    parcial: solo se pisan los campos que vengan (ver `exclude_unset` en la
+    ruta), igual que `ActualizarPerfilRequest` en `auth_esquema.py`.
+
+    `es_demostracion` es distinto de los otros dos: no es un permiso sobre lo
+    que ve el jugador, sino "transmitir esta partida en vivo a toda la
+    clase" — por eso `servicio_partida.actualizar_permisos` exige que la
+    partida sea del propio facilitador que hace el pedido (400 si no) y apaga
+    cualquier otra partida que estuviera en demostración (solo una a la vez).
+
+    El E-STOP del brazo no pasa por acá — es un control de seguridad
+    hardcodeado solo-facilitador, sin toggle.
+    """
+
+    permite_simulacion_3d: bool | None = None
+    permite_camara: bool | None = None
+    es_demostracion: bool | None = None
 
 
 class ResumenPartidaResponse(BaseModel):
-    """Una fila del registro de partidas — sin la lista completa de jugadas."""
+    """Una fila del registro de partidas — sin la lista completa de jugadas.
+
+    `usuario_id`/`usuario_nombre` identifican de qué estudiante es cada fila
+    (Registro de Partidas necesita mostrarlo para que el facilitador sepa a
+    quién pertenece cada una) — mismo criterio de `None` que
+    `EstadoPartidaResponse`. `es_demostracion` deja marcar en la lista cuál
+    fila es la transmisión en vivo actual, si hay alguna.
+    """
 
     id: str
     tipo: str
@@ -51,6 +98,9 @@ class ResumenPartidaResponse(BaseModel):
     terminada: bool
     resultado: str | None = None
     cantidad_jugadas: int
+    es_demostracion: bool = False
+    usuario_id: int | None = None
+    usuario_nombre: str | None = None
 
 
 class MoverRequest(BaseModel):

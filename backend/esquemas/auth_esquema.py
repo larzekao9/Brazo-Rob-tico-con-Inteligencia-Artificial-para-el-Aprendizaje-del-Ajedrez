@@ -7,6 +7,8 @@ from pydantic import BaseModel, EmailStr, Field
 
 Rol = Literal["jugador", "facilitador"]
 
+PresetEnsenanza = Literal["infantil", "estandar", "adultos"]
+
 
 class RegistroRequest(BaseModel):
     """Cuerpo para POST /auth/registro. La app móvil siempre registra `jugador`."""
@@ -65,6 +67,9 @@ class UsuarioResponse(BaseModel):
     avatar_url: str | None = None
     nivel_estimado: int | None = None
     rango_estimado: str | None = None
+    edad: int | None = None
+    descripcion: str | None = None
+    preset_ensenanza: str | None = None
 
     class Config:
         from_attributes = True
@@ -75,6 +80,28 @@ class NivelEstimadoRequest(BaseModel):
 
     nivel: int = Field(ge=0, le=20)
     rango: Literal["Principiante", "Intermedio", "Avanzado"]
+
+
+class ActualizarPerfilRequest(BaseModel):
+    """Cuerpo para PATCH /auth/me — edición del propio perfil, cualquier rol.
+
+    Todos los campos son opcionales: es edición parcial, solo se actualizan
+    los campos que vengan en el request (ver `exclude_unset` en la ruta).
+
+    `preset_ensenanza` es una preferencia del facilitador sobre el tono con
+    el que Turing le habla a sus estudiantes ("infantil", "estandar" o
+    "adultos"). Por ahora es solo un dato guardado: todavía no existe en el
+    sistema un vínculo formal entre facilitador y sus estudiantes (no hay
+    tabla de "curso"/"grupo"), así que este valor NO cambia automáticamente
+    lo que ve un jugador en su Panel de Aprendizaje — eso queda para cuando
+    exista esa relación.
+    """
+
+    nombre: str | None = Field(default=None, min_length=2, max_length=100)
+    avatar_url: str | None = None
+    edad: int | None = Field(default=None, ge=0, le=120)
+    descripcion: str | None = Field(default=None, max_length=1000)
+    preset_ensenanza: PresetEnsenanza | None = None
 
 
 class AuthResponse(BaseModel):

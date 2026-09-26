@@ -3,7 +3,7 @@ import os
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Iterable, Optional
 
 from jose import jwt, JWTError
 from passlib.context import CryptContext
@@ -63,6 +63,20 @@ def get_user_by_email(db: Session, email: str) -> Optional[UsuarioORM]:
 def get_user_by_id(db: Session, user_id: int) -> Optional[UsuarioORM]:
     """Busca usuario por ID."""
     return db.get(UsuarioORM, user_id)
+
+
+def get_users_by_ids(db: Session, user_ids: Iterable[int]) -> dict[int, UsuarioORM]:
+    """Busca varios usuarios de una sola consulta (`WHERE id IN (...)`).
+
+    Pensado para listados (ej. `GET /partida`, Registro de Partidas) donde se
+    necesita el nombre del dueño de cada fila — evita hacer una consulta N+1
+    por fila llamando a `get_user_by_id` en un loop.
+    """
+    ids = {user_id for user_id in user_ids if user_id is not None}
+    if not ids:
+        return {}
+    filas = db.execute(select(UsuarioORM).where(UsuarioORM.id.in_(ids))).scalars().all()
+    return {usuario.id: usuario for usuario in filas}
 
 
 def verificar_token_google(token: str) -> dict:
@@ -206,6 +220,20 @@ def actualizar_nivel_estimado(db: Session, user: UsuarioORM, nivel: int, rango: 
     """
     user.nivel_estimado = nivel
     user.rango_estimado = rango
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def actualizar_perfil(db: Session, user: UsuarioORM, campos: dict) -> UsuarioORM:
+    """Actualiza el perfil del usuario con edición parcial.
+
+    `campos` trae solo las claves que el cliente mandó (ver `exclude_unset`
+    en la ruta) — las que no vinieron no se tocan, así una edición de un solo
+    campo (ej. `edad`) no pisa el resto con `None`.
+    """
+    for campo, valor in campos.items():
+        setattr(user, campo, valor)
     db.commit()
     db.refresh(user)
     return user

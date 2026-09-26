@@ -1,7 +1,9 @@
+import chess
 import pytest
 from sqlalchemy import create_engine, select
 
 from backend.database import crear_fabrica_sesiones, crear_tablas
+from backend.modelos.partida import Partida
 from backend.modelos.tablas_orm import JugadaORM
 from backend.repositorios.repositorio_partida import RepositorioPartidasPostgres
 from backend.servicios.partida import servicio_partida
@@ -140,6 +142,30 @@ def test_mover_guarda_la_jugada_en_el_repositorio(monkeypatch: pytest.MonkeyPatc
     assert partida_releida.jugadas_san == resultado["jugadas"]
 
 
+def test_repositorio_postgres_conserva_el_fen_inicial_custom() -> None:
+    # Bug real: `_fila_a_partida` reconstruía el tablero siempre desde
+    # `chess.Board()` (posición inicial estándar) e ignoraba por completo
+    # `partida.fen_inicial` — cualquier partida armada desde un tablero
+    # físico escaneado (HU1/HU9, `POST /partida` con `fen_inicial`) perdía su
+    # posición de arranque real apenas se releía de un repositorio Postgres
+    # real (con `RepositorioPartidasEnMemoria`, que devuelve el mismo objeto
+    # por referencia, no se notaba).
+    engine = create_engine("sqlite:///:memory:")
+    crear_tablas(engine)
+    repositorio = RepositorioPartidasPostgres(crear_fabrica_sesiones(engine))
+
+    fen_inicial_custom = "rnb1kbnr/pppppppp/8/8/3q4/8/PPNPPPPP/RNBQKBNR w - - 0 1"
+    tablero = chess.Board(fen_inicial_custom)
+    tablero.push_san("Nxd4")
+    partida = Partida(tablero=tablero, fen_inicial=fen_inicial_custom, nivel=5)
+    repositorio.guardar(partida)
+
+    partida_releida = repositorio.obtener(partida.id)
+
+    assert partida_releida.fen_inicial == fen_inicial_custom
+    assert partida_releida.jugadas_san == ["Nxd4"]
+
+
 def test_mover_registra_una_fila_de_jugada_por_cada_movimiento_aplicado(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -261,6 +287,46 @@ def test_analisis_completo_devuelve_un_item_por_jugada_con_evaluaciones_invertid
     assert "evaluacion_cp" in primera
     assert "mejor_jugada_motor" in primera
     assert len(primera["variantes_candidatas"]) > 0
+
+
+def test_analisis_completo_ignora_el_nivel_de_la_partida_y_evalua_a_fuerza_maxima() -> None:
+    # Bug real de QA: `analisis_completo` usaba `partida.nivel` (la fuerza
+    # débil configurada para que Stockfish juegue EN VIVO contra un
+    # principiante) también para el análisis retrospectivo — a nivel bajo,
+    # Stockfish no ve una dama regalada y devuelve evaluaciones sin sentido
+    # (ej. "0 cp" en una posición con una dama de desventaja). Esta trampa de
+    # apertura (1.e4 e5 2.Qh5 Nc6 3.Qxf7+ Kxf7) deja a blancas dama por peón
+    # abajo tras "Kxf7" — una posición objetivamente mala que un nivel bajo
+    # mal configurado evaluaría como equilibrada.
+    jugadas_san = ["e4", "e5", "Qh5", "Nc6", "Qxf7+", "Kxf7"]
+
+    def construir_partida_con_dama_perdida(nivel: int):
+        partida = crear_partida(nivel=nivel)
+        for jugada in jugadas_san:
+            partida.tablero.push_san(jugada)
+        servicio_partida._repositorio.guardar(partida)
+        return partida
+
+    partida_nivel_bajo = construir_partida_con_dama_perdida(nivel=1)
+    partida_nivel_alto = construir_partida_con_dama_perdida(nivel=20)
+
+    resultado_bajo = analisis_completo(partida_nivel_bajo.id, tiempo_limite=0.1)
+    resultado_alto = analisis_completo(partida_nivel_alto.id, tiempo_limite=0.1)
+
+    jugada_bajo = resultado_bajo["jugadas"][-1]
+    jugada_alto = resultado_alto["jugadas"][-1]
+    assert jugada_bajo["jugada_san"] == jugada_alto["jugada_san"] == "Kxf7"
+
+    eval_bajo = jugada_bajo["evaluacion_cp"]
+    eval_alto = jugada_alto["evaluacion_cp"]
+    assert eval_bajo is not None and eval_alto is not None
+
+    # Mismo signo (negras arriba de material tras capturar la dama) y del
+    # mismo orden de magnitud — no "0 cp" sin sentido en la partida de nivel
+    # bajo, que es justo lo que reportó QA.
+    assert (eval_bajo > 0) == (eval_alto > 0)
+    assert abs(eval_bajo) > 400
+    assert abs(eval_bajo - eval_alto) < 200
 
 
 def test_analisis_completo_en_partida_inexistente_lanza_keyerror() -> None:

@@ -1,5 +1,6 @@
 from .servicio_auth import (
     actualizar_nivel_estimado,
+    actualizar_perfil,
     hash_password,
     verify_password,
     create_access_token,
@@ -7,6 +8,7 @@ from .servicio_auth import (
     decode_token,
     get_user_by_email,
     get_user_by_id,
+    get_users_by_ids,
     create_user,
     authenticate_user,
     create_tokens,
@@ -18,6 +20,7 @@ from .servicio_auth import (
 
 __all__ = [
     "actualizar_nivel_estimado",
+    "actualizar_perfil",
     "hash_password",
     "verify_password",
     "create_access_token",
@@ -25,6 +28,7 @@ __all__ = [
     "decode_token",
     "get_user_by_email",
     "get_user_by_id",
+    "get_users_by_ids",
     "create_user",
     "authenticate_user",
     "create_tokens",

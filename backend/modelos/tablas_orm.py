@@ -57,6 +57,17 @@ class UsuarioORM(Base):
     # en cada diagnóstico nuevo, no se guarda historial (ver PLAN_IMPLEMENTACION_COMPLETO.md).
     nivel_estimado: Mapped[int | None] = mapped_column(nullable=True)
     rango_estimado: Mapped[str | None] = mapped_column(nullable=True)  # 'Principiante' | 'Intermedio' | 'Avanzado'
+    # Perfil editable por el propio usuario (PATCH /auth/me) — genérico para
+    # cualquier rol, no específico del diagnóstico de nivel del jugador de
+    # arriba. `edad` y `descripcion` son de uso libre: para un facilitador
+    # suele cubrir experiencia/trayectoria, para un jugador una bio corta.
+    edad: Mapped[int | None] = mapped_column(nullable=True)
+    descripcion: Mapped[str | None] = mapped_column(nullable=True)
+    # Tono con el que Turing le habla a los estudiantes de este facilitador
+    # ('infantil' | 'estandar' | 'adultos') — ver docstring de
+    # `ActualizarPerfilRequest.preset_ensenanza`: todavía es solo una
+    # preferencia guardada, no hay vínculo formal facilitador-estudiante.
+    preset_ensenanza: Mapped[str | None] = mapped_column(nullable=True)
 
     partidas: Mapped[list["PartidaORM"]] = relationship(back_populates="usuario", cascade="all, delete-orphan")
 
@@ -89,9 +100,20 @@ class PartidaORM(Base):
     resultado: Mapped[str | None] = mapped_column(nullable=True)  # None mientras está 'en_curso'
     tipo: Mapped[str] = mapped_column(nullable=False)  # 'fisica' | 'digital'
     fen: Mapped[str] = mapped_column(nullable=False)
+    # Posición desde la que arrancó la partida (ver docstring de `Partida.fen_inicial`
+    # en `modelos/partida.py`) — nullable porque las filas de antes de esta columna
+    # no la tienen; `_fila_a_partida` cae a la posición inicial estándar en ese caso.
+    fen_inicial: Mapped[str | None] = mapped_column(nullable=True)
     nivel: Mapped[int] = mapped_column(nullable=False)
     tipo_oponente: Mapped[str] = mapped_column(nullable=False, default="motor")
     jugadas_uci: Mapped[str] = mapped_column(nullable=False, default="")
+    # Funciones educativas opcionales por partida (ver `modelos/partida.py`) —
+    # el facilitador las prende vía `PATCH /partida/{id}/permisos`.
+    permite_simulacion_3d: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
+    permite_camara: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
+    # Partida que el facilitador transmite en vivo a la clase (ver `modelos/partida.py`,
+    # `Partida.es_demostracion`) — solo una fila en `True` a la vez en todo el sistema.
+    es_demostracion: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
 
     jugadas: Mapped[list["JugadaORM"]] = relationship(back_populates="partida", cascade="all, delete-orphan")
     usuario: Mapped["UsuarioORM"] = relationship(back_populates="partidas")

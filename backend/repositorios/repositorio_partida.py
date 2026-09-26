@@ -120,16 +120,27 @@ def _partida_a_fila(partida: Partida) -> PartidaORM:
         resultado=partida.resultado,
         tipo=partida.tipo,
         fen=partida.fen,
+        fen_inicial=partida.fen_inicial,
         nivel=partida.nivel,
         tipo_oponente=partida.tipo_oponente,
         jugadas_uci=" ".join(jugada.uci() for jugada in partida.tablero.move_stack),
+        permite_simulacion_3d=partida.permite_simulacion_3d,
+        permite_camara=partida.permite_camara,
+        es_demostracion=partida.es_demostracion,
     )
 
 
 def _fila_a_partida(fila: PartidaORM) -> Partida:
     """Reconstruye el dataclass de dominio desde la fila — recrea el `chess.Board`
-    jugada por jugada (no solo el FEN final) para que `jugadas_san` siga funcionando."""
-    tablero = chess.Board()
+    jugada por jugada, arrancando desde `fen_inicial` (no siempre la posición
+    estándar: puede ser un tablero físico escaneado, HU1/HU9) y no solo desde
+    el FEN final, para que `jugadas_san` siga funcionando.
+
+    `fila.fen_inicial` puede ser `None` en filas guardadas antes de que
+    existiera esta columna — para esas, la posición estándar sigue siendo la
+    correcta (nunca se guardó otra distinta)."""
+    fen_inicial = fila.fen_inicial or chess.STARTING_FEN
+    tablero = chess.Board(fen_inicial)
     for jugada_uci in fila.jugadas_uci.split():
         tablero.push_uci(jugada_uci)
     return Partida(
@@ -139,7 +150,11 @@ def _fila_a_partida(fila: PartidaORM) -> Partida:
         id=fila.id,
         tipo=fila.tipo,
         creada_en=fila.fecha.isoformat() if hasattr(fila.fecha, "isoformat") else str(fila.fecha),
+        fen_inicial=fen_inicial,
         usuario_id=fila.usuario_id,
+        permite_simulacion_3d=fila.permite_simulacion_3d,
+        permite_camara=fila.permite_camara,
+        es_demostracion=fila.es_demostracion,
     )
 
 
@@ -161,7 +176,10 @@ class RepositorioPartidasPostgres(RepositorioPartidas):
             if fila_existente is None:
                 sesion.add(fila_nueva)
             else:
-                for columna in ("usuario_id", "resultado", "fen", "nivel", "tipo_oponente", "jugadas_uci"):
+                for columna in (
+                    "usuario_id", "resultado", "fen", "fen_inicial", "nivel", "tipo_oponente",
+                    "jugadas_uci", "permite_simulacion_3d", "permite_camara", "es_demostracion",
+                ):
                     setattr(fila_existente, columna, getattr(fila_nueva, columna))
             sesion.commit()
 

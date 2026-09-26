@@ -10,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 from backend.database import crear_fabrica_sesiones, crear_tablas
 from backend.main import app
 from backend.rutas.ruta_auth import get_db
+from backend.servicios.partida.servicio_partida import crear_partida
 from backend.servicios.vision.piezas import RUTA_CHECKPOINT
 
 # `POST /partida` y `GET /partida/{id}` exigen `Authorization: Bearer <token>`
@@ -41,6 +42,21 @@ def _headers_usuario_nuevo() -> dict[str, str]:
     email = f"{uuid.uuid4().hex}@test.com"
     respuesta = cliente.post(
         "/auth/registro", json={"email": email, "nombre": "Jugador de prueba", "password": "secreto1"}
+    )
+    token = respuesta.json()["tokens"]["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _headers_facilitador_nuevo() -> dict[str, str]:
+    """Registra un facilitador con email único y devuelve su header Authorization.
+
+    Usa un email `@test.com` para no necesitar `clave_facilitador` (ver
+    `servicio_auth.create_user`), igual que en `test_ruta_auth.py`.
+    """
+    email = f"{uuid.uuid4().hex}@test.com"
+    respuesta = cliente.post(
+        "/auth/registro",
+        json={"email": email, "nombre": "Facilitador de prueba", "password": "secreto1", "rol": "facilitador"},
     )
     token = respuesta.json()["tokens"]["access_token"]
     return {"Authorization": f"Bearer {token}"}
@@ -133,6 +149,112 @@ def test_obtener_partida_propia_devuelve_200() -> None:
     assert respuesta.json()["id"] == partida_id
 
 
+def test_facilitador_puede_obtener_partida_de_un_jugador() -> None:
+    # La Sala de Control del facilitador necesita poder abrir la partida de
+    # cualquier jugador (ej. desde "Registro de Partidas") para supervisarla
+    # y tocar sus permisos — a diferencia de un jugador viendo la partida de
+    # otro jugador (`test_obtener_partida_de_otro_usuario_devuelve_403`).
+    partida_id = cliente.post("/partida", json={"nivel": 5}, headers=_headers_usuario_nuevo()).json()["id"]
+
+    respuesta = cliente.get(f"/partida/{partida_id}", headers=_headers_facilitador_nuevo())
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["id"] == partida_id
+
+
+def test_facilitador_puede_togglear_permisos_de_partida() -> None:
+    partida_id = cliente.post("/partida", json={"nivel": 5}, headers=_headers_usuario_nuevo()).json()["id"]
+
+    respuesta = cliente.patch(
+        f"/partida/{partida_id}/permisos",
+        json={"permite_simulacion_3d": True},
+        headers=_headers_facilitador_nuevo(),
+    )
+
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert cuerpo["permite_simulacion_3d"] is True
+    assert cuerpo["permite_camara"] is False  # no vino en el request, no se pisa
+
+
+def test_actualizar_permisos_de_partida_sin_rol_facilitador_devuelve_403() -> None:
+    headers_jugador = _headers_usuario_nuevo()
+    partida_id = cliente.post("/partida", json={"nivel": 5}, headers=headers_jugador).json()["id"]
+
+    respuesta = cliente.patch(
+        f"/partida/{partida_id}/permisos", json={"permite_camara": True}, headers=headers_jugador
+    )
+
+    assert respuesta.status_code == 403
+
+
+def test_facilitador_activa_demostracion_en_su_propia_partida() -> None:
+    # El facilitador también puede ser dueño de una partida (la que juega de
+    # ejemplo delante de la clase) — sobre esa sí puede prender `es_demostracion`.
+    headers_facilitador = _headers_facilitador_nuevo()
+    partida_id = cliente.post("/partida", json={"nivel": 20}, headers=headers_facilitador).json()["id"]
+
+    respuesta = cliente.patch(
+        f"/partida/{partida_id}/permisos",
+        json={"es_demostracion": True},
+        headers=headers_facilitador,
+    )
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["es_demostracion"] is True
+
+
+def test_activar_demostracion_en_partida_ajena_devuelve_400() -> None:
+    # Transmitir en vivo solo tiene sentido sobre la propia partida del
+    # facilitador — la de un estudiante no tiene a quién mostrarle nada como
+    # "su" demostración (distinto de `permite_simulacion_3d`/`permite_camara`,
+    # que sí aplican sobre la partida de cualquier jugador supervisado).
+    partida_id = cliente.post("/partida", json={"nivel": 5}, headers=_headers_usuario_nuevo()).json()["id"]
+
+    respuesta = cliente.patch(
+        f"/partida/{partida_id}/permisos",
+        json={"es_demostracion": True},
+        headers=_headers_facilitador_nuevo(),
+    )
+
+    assert respuesta.status_code == 400
+
+
+def test_activar_demostracion_en_otra_partida_apaga_la_anterior() -> None:
+    # Solo puede haber una transmisión en vivo activa a la vez en todo el
+    # sistema — activar la segunda apaga automáticamente la primera.
+    headers_facilitador = _headers_facilitador_nuevo()
+    primera_id = cliente.post("/partida", json={"nivel": 20}, headers=headers_facilitador).json()["id"]
+    segunda_id = cliente.post("/partida", json={"nivel": 20}, headers=headers_facilitador).json()["id"]
+
+    cliente.patch(
+        f"/partida/{primera_id}/permisos", json={"es_demostracion": True}, headers=headers_facilitador
+    )
+    cliente.patch(
+        f"/partida/{segunda_id}/permisos", json={"es_demostracion": True}, headers=headers_facilitador
+    )
+
+    primera = cliente.get(f"/partida/{primera_id}", headers=headers_facilitador).json()
+    segunda = cliente.get(f"/partida/{segunda_id}", headers=headers_facilitador).json()
+    assert primera["es_demostracion"] is False
+    assert segunda["es_demostracion"] is True
+
+
+def test_cualquier_jugador_puede_leer_la_partida_en_demostracion() -> None:
+    # De solo lectura: un jugador que no es dueño ni facilitador puede abrir
+    # la partida marcada `es_demostracion` para seguirla en vivo.
+    headers_facilitador = _headers_facilitador_nuevo()
+    partida_id = cliente.post("/partida", json={"nivel": 20}, headers=headers_facilitador).json()["id"]
+    cliente.patch(
+        f"/partida/{partida_id}/permisos", json={"es_demostracion": True}, headers=headers_facilitador
+    )
+
+    respuesta = cliente.get(f"/partida/{partida_id}", headers=_headers_usuario_nuevo())
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["es_demostracion"] is True
+
+
 def test_crear_partida_con_fen_inicial_arranca_ahi() -> None:
     # Simula el botón "Usar esta posición" tras POST /vision/reconocer.
     fen_escaneado = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
@@ -211,6 +333,34 @@ def test_estado_partida_incluye_las_jugadas_completas() -> None:
     respuesta = cliente.get(f"/partida/{partida_id}", headers=headers)
     assert respuesta.status_code == 200
     assert respuesta.json()["jugadas"][0] == "e4"
+
+
+def test_estado_partida_incluye_el_nombre_del_dueno() -> None:
+    # Sala de Control necesita mostrar de qué estudiante es la partida que el
+    # facilitador está supervisando — `_headers_usuario_nuevo` registra con el
+    # nombre fijo "Jugador de prueba", así que se puede afirmar el valor exacto.
+    headers = _headers_usuario_nuevo()
+    partida_id = cliente.post("/partida", json={"nivel": 5}, headers=headers).json()["id"]
+
+    respuesta = cliente.get(f"/partida/{partida_id}", headers=headers)
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert cuerpo["usuario_id"] is not None
+    assert cuerpo["usuario_nombre"] == "Jugador de prueba"
+
+
+def test_estado_partida_sin_usuario_asociado_devuelve_nombre_null() -> None:
+    # Partidas creadas antes de que la autenticación fuera obligatoria (o
+    # armadas directo por el servicio, sin pasar por HTTP) no tienen dueño —
+    # no debería explotar al armar la respuesta, solo devolver null.
+    partida = crear_partida(nivel=5)
+    headers = _headers_usuario_nuevo()
+
+    respuesta = cliente.get(f"/partida/{partida.id}", headers=headers)
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert cuerpo["usuario_id"] is None
+    assert cuerpo["usuario_nombre"] is None
 
 
 @pytest.mark.skipif(not CAMARA_DISPONIBLE, reason="No hay cámara conectada en esta máquina")

@@ -145,6 +145,61 @@ def test_guardar_nivel_estimado_con_rango_invalido_da_422(cliente) -> None:
     assert respuesta.status_code == 422
 
 
+def test_patch_me_actualiza_campos_del_perfil(cliente) -> None:
+    token = cliente.post("/auth/registro", json=JUGADOR).json()["tokens"]["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    respuesta = cliente.patch(
+        "/auth/me",
+        json={"descripcion": "Instructor con 5 años de experiencia, nivel FIDE 1800", "edad": 34},
+        headers=headers,
+    )
+
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert cuerpo["descripcion"] == "Instructor con 5 años de experiencia, nivel FIDE 1800"
+    assert cuerpo["edad"] == 34
+
+    # y se refleja al volver a pedir el usuario
+    respuesta_me = cliente.get("/auth/me", headers=headers)
+    assert respuesta_me.json()["descripcion"] == "Instructor con 5 años de experiencia, nivel FIDE 1800"
+    assert respuesta_me.json()["edad"] == 34
+
+
+def test_patch_me_guarda_preset_ensenanza(cliente) -> None:
+    token = cliente.post("/auth/registro", json=JUGADOR).json()["tokens"]["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    respuesta = cliente.patch("/auth/me", json={"preset_ensenanza": "infantil"}, headers=headers)
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["preset_ensenanza"] == "infantil"
+
+
+def test_patch_me_con_preset_ensenanza_invalido_da_422(cliente) -> None:
+    token = cliente.post("/auth/registro", json=JUGADOR).json()["tokens"]["access_token"]
+    respuesta = cliente.patch(
+        "/auth/me",
+        json={"preset_ensenanza": "universitario"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert respuesta.status_code == 422
+
+
+def test_patch_me_con_edicion_parcial_no_borra_el_resto(cliente) -> None:
+    token = cliente.post("/auth/registro", json=JUGADOR).json()["tokens"]["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    cliente.patch("/auth/me", json={"descripcion": "Bio original"}, headers=headers)
+
+    respuesta = cliente.patch("/auth/me", json={"edad": 22}, headers=headers)
+
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert cuerpo["edad"] == 22
+    assert cuerpo["descripcion"] == "Bio original"
+    assert cuerpo["nombre"] == JUGADOR["nombre"]
+
+
 def test_crear_tablas_agrega_columna_rol_a_base_vieja() -> None:
     # Una base creada antes de que existiera `usuario.rol` tiene que seguir sirviendo.
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
