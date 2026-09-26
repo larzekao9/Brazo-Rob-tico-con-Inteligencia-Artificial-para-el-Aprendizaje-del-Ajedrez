@@ -185,3 +185,69 @@ terminado):**
 - Pick-and-place guiado por visión para el brazo físico (HU9 propiamente dicho) — es
   un problema distinto al reconocimiento de tablero por foto de HU1, que ya está
   resuelto; HU9 sigue pendiente en su totalidad del lado de hardware real.
+
+---
+
+## 2026-09-26 — Esqueleto de `EjecutorReal` + calibración por interpolación afín
+
+**Contexto:** antes de la prueba de conexión física en la universidad (Dobot CR5AS),
+se armó todo el código que no depende de medir nada en el sitio, siguiendo el mismo
+patrón Strategy/Factory que ya usa `estrategia_jugada.py` — así que el día de la
+prueba alcanza con cargar números medidos, no con seguir programando ahí mismo.
+
+**`backend/servicios/brazo/` (carpeta nueva):**
+- `ejecutor_movimiento.py`: interfaz `EjecutorMovimiento` (`ejecutar_movimiento(origen,
+  destino, captura)`), `EjecutorSimulado` (envuelve el PyBullet de `escena.py`, import
+  diferido para no romper para quien no tenga `pybullet`) y `EjecutorReal` (TCP/IP a
+  mano con el módulo estándar `socket`, sin sumar el SDK oficial como dependencia
+  nueva).
+- `fabrica_ejecutores.py`: `crear_ejecutor_movimiento("simulado" | "real", **kwargs)`.
+- `calibracion_tablero.py`: `PuntoCalibracion` (casilla + x/y/z medidos en el robot
+  real, en mm) y `calcular_posiciones_casillas(puntos)`, que resuelve una
+  transformación afín 2D a partir de 3 puntos de referencia (ej. "a1", "h1", "a8") y
+  devuelve las 64 casillas por interpolación, asumiendo tablero plano y casillas
+  regulares. Ninguna coordenada está hardcodeada ni estimada — todo sale de los
+  `PuntoCalibracion` que se midan el día de la prueba.
+
+**`EjecutorReal.ejecutar_movimiento` — completado solo para `captura=False`.** Con
+`self.posiciones_casillas` cargado, arma y envía 8 comandos por el dashboard: `MovJ`
+a altura segura sobre origen, `MovL` bajando a la pieza, `DO(pin,1)` para cerrar el
+efector, `MovL` subiendo, `MovJ` sobre destino, `MovL` bajando, `DO(pin,0)` para
+soltar, `MovL` subiendo. Si `self.posiciones_casillas` es `None` tira `RuntimeError`
+explícito (falta calibrar). Si `captura=True` tira `NotImplementedError` a propósito
+— retirar la pieza capturada del tablero físico queda para la próxima vuelta, una vez
+validado que el brazo se mueve bien en el caso simple.
+
+**Dos parámetros quedan como placeholder, a confirmar en persona:**
+- `altura_segura_mm=50.0` — valor de partida, no verificado contra la altura real de
+  las piezas del set físico.
+- `pin_efector_do=1` — todavía no se sabe si el efector cableado es gripper, ventosa
+  u otro mecanismo, ni qué índice de `DO` lo controla.
+
+**Tests:** `test_calibracion_tablero.py` verifica la reconstrucción con una grilla
+sintética a mano (a1/h1/a8 separados 700mm, casillas de 100mm) contra una casilla
+intermedia conocida (e5), sin hardware. `test_ejecutor_movimiento.py` cubre
+`_enviar_comando` con socket mockeado, el `RuntimeError` sin calibración, el
+`NotImplementedError` con `captura=True`, y la secuencia completa de 8 comandos sin
+captura (también con socket mockeado) — nada de esto toca red real.
+
+### Checklist para la prueba del lunes en la universidad
+
+1. Confirmar que DobotStudio Pro tiene activado el modo TCP/IP (una sola vez, si no
+   se hizo ya).
+2. Confirmar que la máquina que corre el backend está en la misma subred que el
+   Dobot.
+3. En DobotStudio, jogear el brazo manualmente a las 3 casillas de referencia (ej.
+   a1, h1, a8) y anotar su X/Y/Z reportados — esos son los `PuntoCalibracion` reales.
+4. Jogear también a una altura de contacto real sobre una pieza (el `z` de
+   calibración) y a la altura segura deseada, para fijar `altura_segura_mm` con un
+   valor verificado en vez del placeholder de 50.0.
+5. Confirmar con quien armó/cableó el brazo qué mecanismo de sujeción tiene (gripper,
+   ventosa, etc.) y qué índice de `DO` lo controla — reemplaza el `pin_efector_do=1`
+   puesto como placeholder.
+6. Instanciar `EjecutorReal(host=..., posiciones_casillas=calcular_posiciones_casillas([...]),
+   altura_segura_mm=..., pin_efector_do=...)`, llamar `conectar()`, y probar UN
+   movimiento simple sin captura antes de nada más.
+7. Nota explícita: la lógica de captura (retirar la pieza de `destino` del tablero
+   físico) todavía no está implementada — es el siguiente paso una vez validado el
+   movimiento básico.

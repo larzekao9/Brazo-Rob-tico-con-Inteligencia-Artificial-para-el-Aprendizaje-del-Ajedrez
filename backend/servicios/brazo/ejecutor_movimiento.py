@@ -101,11 +101,14 @@ class EjecutorReal(EjecutorMovimiento):
     copiar, no un paquete de PyPI, y esto evita sumar una dependencia nueva
     sin pinear).
 
-    Todavía no mueve el brazo real: falta la cinemática inversa (casilla del
-    tablero físico -> coordenadas XYZ del Dobot) y la calibración del
-    tablero físico contra el espacio de trabajo del robot — ver
-    `ejecutar_movimiento` y `docs/plan_sprints.md`, sección HU9,
-    "Todavía sin empezar (el núcleo real de HU9)".
+    Movimientos sin captura ya arman y envían la secuencia real de comandos
+    (`MovJ`/`MovL`/`DO`) una vez cargada la calibración del tablero (ver
+    `calcular_posiciones_casillas` en `calibracion_tablero.py`). Todavía no
+    resuelve la lógica de captura (retirar del tablero físico la pieza en
+    `destino` antes de mover la propia) — ver `ejecutar_movimiento` — ni trae
+    cinemática inversa propia: usa directamente las coordenadas XYZ
+    calibradas para cada casilla, que el propio Dobot resuelve internamente
+    al recibir `MovJ`/`MovL`.
     """
 
     def __init__(
@@ -113,10 +116,41 @@ class EjecutorReal(EjecutorMovimiento):
         host: str,
         puerto_dashboard: int = 29999,
         timeout_segundos: float = 5.0,
+        posiciones_casillas: dict[str, tuple[float, float, float]] | None = None,
+        altura_segura_mm: float = 50.0,
+        pin_efector_do: int = 1,
     ):
+        """Guarda la configuración de conexión y de calibración del tablero.
+
+        Args:
+            host: IP del Dobot en la red local.
+            puerto_dashboard: puerto de comandos de control (29999 por
+                defecto).
+            timeout_segundos: timeout del socket TCP.
+            posiciones_casillas: resultado de `calcular_posiciones_casillas`
+                (`calibracion_tablero.py`), con las coordenadas XYZ reales en
+                mm de cada casilla del tablero físico, medidas en el sitio.
+                `None` hasta que se cargue esa calibración —
+                `ejecutar_movimiento` falla explícitamente mientras tanto, no
+                inventa coordenadas.
+            altura_segura_mm: cuánto sube en Z, en mm, sobre una casilla
+                antes de trasladarse lateralmente, para no arrastrar piezas
+                al pasar por encima de otras. El default de 50.0 es un valor
+                de partida razonable, **no verificado contra las piezas
+                reales** — hay que ajustarlo con la altura real medida en el
+                sitio el día de la prueba.
+            pin_efector_do: índice del `DO(index, status)` del dashboard del
+                Dobot que activa/desactiva el efector final. El default de 1
+                es un **placeholder** — hay que confirmarlo contra cómo esté
+                cableado el efector real (gripper, ventosa, u otro mecanismo;
+                todavía no se sabe cuál es).
+        """
         self.host = host
         self.puerto_dashboard = puerto_dashboard
         self.timeout_segundos = timeout_segundos
+        self.posiciones_casillas = posiciones_casillas
+        self.altura_segura_mm = altura_segura_mm
+        self.pin_efector_do = pin_efector_do
         self._socket: socket.socket | None = None
 
     def conectar(self) -> None:
@@ -157,21 +191,49 @@ class EjecutorReal(EjecutorMovimiento):
         return self._socket.recv(1024).decode("ascii", errors="replace")
 
     def ejecutar_movimiento(self, origen: str, destino: str, captura: bool) -> None:
-        """Sin implementar todavía: falta la cinemática inversa real.
+        """Ejecuta un movimiento simple (sin captura) en el brazo físico real.
+
+        Secuencia enviada por el puerto dashboard: sube a altura segura sobre
+        `origen` (`MovJ`), baja en línea recta hasta la pieza (`MovL`), activa
+        el efector (`DO`), vuelve a subir a altura segura (`MovL`), se
+        traslada en `MovJ` sobre `destino`, baja (`MovL`), desactiva el
+        efector (`DO`) y sube a altura segura otra vez (`MovL`) — 8 comandos
+        en total. `rx`, `ry`, `rz` van fijos en 0 (orientación fija de la
+        herramienta, no se varía).
+
+        La lógica de captura (retirar del tablero físico la pieza que ocupa
+        `destino` antes de mover la propia) todavía no está implementada — es
+        el siguiente paso una vez validado este movimiento simple.
 
         Raises:
-            NotImplementedError: siempre. Traducir `origen`/`destino` (casillas
-                del tablero físico) a coordenadas XYZ del Dobot requiere
-                calibrar el tablero físico contra el espacio de trabajo del
-                robot, trabajo pendiente documentado en `docs/plan_sprints.md`
-                bajo HU9 y todavía no hecho. No se inventa una tabla de
-                calibración de relleno acá: sería peor que dejarlo explícito,
-                porque parecería funcionar mientras en realidad movería el
-                brazo a un lugar arbitrario.
+            RuntimeError: si todavía no se cargó `self.posiciones_casillas`
+                (falta correr `calcular_posiciones_casillas` con puntos
+                medidos reales primero).
+            NotImplementedError: si `captura` es `True` — retirar piezas
+                capturadas del tablero físico es el siguiente paso, no
+                implementado todavía.
         """
-        raise NotImplementedError(
-            "EjecutorReal.ejecutar_movimiento no está implementado todavía: falta la "
-            "cinemática inversa real (casilla del tablero físico -> coordenadas XYZ del "
-            "Dobot CR5AS) y la calibración del tablero físico contra el espacio de "
-            "trabajo del robot (ver docs/plan_sprints.md, sección HU9)."
-        )
+        if self.posiciones_casillas is None:
+            raise RuntimeError(
+                "No se cargó la calibración del tablero todavía — llamá "
+                "calcular_posiciones_casillas() con puntos medidos primero."
+            )
+        if captura:
+            raise NotImplementedError(
+                "Retirar piezas capturadas del tablero físico es el siguiente paso, "
+                "no implementado todavía."
+            )
+
+        x_origen, y_origen, z_origen = self.posiciones_casillas[origen]
+        x_destino, y_destino, z_destino = self.posiciones_casillas[destino]
+        z_segura_origen = z_origen + self.altura_segura_mm
+        z_segura_destino = z_destino + self.altura_segura_mm
+
+        self._enviar_comando(f"MovJ({x_origen},{y_origen},{z_segura_origen},0,0,0)")
+        self._enviar_comando(f"MovL({x_origen},{y_origen},{z_origen},0,0,0)")
+        self._enviar_comando(f"DO({self.pin_efector_do},1)")
+        self._enviar_comando(f"MovL({x_origen},{y_origen},{z_segura_origen},0,0,0)")
+        self._enviar_comando(f"MovJ({x_destino},{y_destino},{z_segura_destino},0,0,0)")
+        self._enviar_comando(f"MovL({x_destino},{y_destino},{z_destino},0,0,0)")
+        self._enviar_comando(f"DO({self.pin_efector_do},0)")
+        self._enviar_comando(f"MovL({x_destino},{y_destino},{z_segura_destino},0,0,0)")
