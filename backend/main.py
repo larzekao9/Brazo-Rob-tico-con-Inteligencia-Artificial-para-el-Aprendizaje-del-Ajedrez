@@ -19,6 +19,7 @@ from backend.rutas.ruta_usuario import router as usuario_router
 from backend.rutas.ruta_vision import router as vision_router
 from backend.rutas.ruta_auth import router as auth_router
 from backend.rutas.ruta_aprendizaje import router as aprendizaje_router
+from backend.rutas.ruta_simulacion import router as simulacion_router
 
 FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
@@ -38,6 +39,7 @@ app.include_router(usuario_router)
 app.include_router(vision_router)
 app.include_router(auth_router)
 app.include_router(aprendizaje_router)
+app.include_router(simulacion_router)
 
 
 @app.get("/health")
