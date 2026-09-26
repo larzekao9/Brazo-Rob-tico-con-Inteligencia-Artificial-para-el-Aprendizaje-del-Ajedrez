@@ -6,6 +6,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
+.envdoc.txt
 
 
 # Configuración local de Claude Code (personal, no compartida)
