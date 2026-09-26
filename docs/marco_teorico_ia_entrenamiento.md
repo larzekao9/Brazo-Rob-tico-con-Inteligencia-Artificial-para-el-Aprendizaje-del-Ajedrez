@@ -460,6 +460,28 @@ El mapa de calor resultante ilumina las casillas críticas del tablero que motiv
 - Casillas de escape del rey rival.
   Esto permite al estudiante comprender **por qué** la inteligencia artificial consideró prioritario cierto sector del tablero antes de ejecutar el movimiento.
 
+### 9.3 Explicabilidad Contrastiva: Candidatas de Turing
+
+El mapa de saliencia (Sección 9.1) explica *dónde* mira la red para una única jugada ya decidida, pero no responde una pregunta pedagógicamente igual de relevante: *¿qué otras alternativas consideró la red y por qué las descartó?* Para cubrir ese vacío, el sistema incorpora un segundo mecanismo de explicabilidad, complementario y no sustitutivo del anterior, implementado en `backend/servicios/aprendizaje/inferencia.py::explicar_top_candidatas` y expuesto en el panel "Candidatas de Turing" de la interfaz de _Razonamiento Neuronal_.
+
+A diferencia del mapa de saliencia (que opera sobre gradientes de una sola jugada), esta técnica es **contrastiva por diseño**: toma las $N=3$ jugadas legales con mayor puntaje bruto de la red $z_{a}$, calcula su probabilidad relativa mediante _softmax_ restringido al conjunto de jugadas legales $\mathcal{L}(s)$ de la posición $s$,
+
+$$P(a \mid s) = \frac{e^{z_a}}{\sum_{a' \in \mathcal{L}(s)} e^{z_{a'}}}, \quad \forall a \in \text{top-3}(\mathcal{L}(s))$$
+
+y expone las tres en paralelo junto con la marca de cuál de ellas es la que efectivamente jugaría el modelo (`elegida=True`).
+
+**Consistencia decisión-explicación.** Un riesgo conocido de los módulos de explicabilidad post-hoc es que la explicación mostrada al usuario diverja de la lógica que realmente ejecuta el sistema en producción (Rudin, 2019). Para evitarlo, `explicar_top_candidatas` no reimplementa la regla de decisión: llama a la misma función auxiliar `_evaluar_candidata_tactica` que usa `predecir_jugada_maestra` para la partida real, garantizando que la jugada marcada como `elegida` en el panel sea, por construcción, idéntica a la que el modelo ejecutaría si estuviera jugando esa posición.
+
+**Chequeos tácticos autónomos por candidata.** Sobre cada una de las tres candidatas se aplican, en memoria y sin invocar a Stockfish (en cumplimiento de la Regla 1 de independencia del modelo — ver §1 de las reglas técnicas del proyecto), tres verificaciones deterministas basadas en las reglas de `python-chess`:
+
+1. **`da_jaque_mate`**: la candidata termina la partida de inmediato.
+2. **`rival_tiene_mate_en_1`**: tras jugarla, el rival dispone de al menos una respuesta que da mate en su siguiente turno — una candidata con esta bandera en `True` es descartada por la regla de decisión salvo que las tres candidatas la compartan.
+3. **`pieza_colgada`**: la pieza recién movida queda en una casilla atacada sin defensa propia o por una pieza rival de menor valor material; en ese caso se resta una penalidad $\text{pen} = (\text{monto}_{cp} / 100) \times 2.0$ al score de red antes de comparar candidatas, donde $\text{monto}_{cp}$ es la diferencia de valor entre la pieza perdida y la capturada (0 si no hay captura).
+
+**Comparación con el oráculo Stockfish, candidata por candidata.** Para cada una de las tres jugadas se calcula además `evaluacion_stockfish_cp` (evaluación de Stockfish tras jugarla, en centipawns desde la perspectiva de quien mueve) y `diferencia_cp` (contra la evaluación de la posición antes de mover, con signo invertido para expresarla siempre desde la perspectiva del jugador). Es importante remarcar que, igual que en la Sección 1 de las reglas del proyecto, esta comparación es puramente informativa: Stockfish nunca participa en el cálculo de `elegida`, solo se ejecuta *después* de que la red ya decidió, como una segunda opinión que el estudiante puede usar para calibrar cuánto confiar en la sugerencia de la red en esa posición concreta.
+
+En conjunto, el panel responde tres preguntas pedagógicas que el mapa de saliencia por sí solo no cubre: *(a)* ¿qué tan segura estaba la red de su elección frente a las alternativas cercanas (probabilidades relativas)?, *(b)* ¿descartó la red alguna jugada por una razón táctica concreta y verificable?, y *(c)* ¿qué tan de acuerdo está un motor de fuerza bruta con cada una de las alternativas que la red consideró viables?
+
 ---
 
 ## 10. Protocolo de Promoción de Checkpoints y Control de Calidad (RF15 / RF16)
@@ -514,6 +536,7 @@ Esta latencia ultra baja (< 20 ms) resulta determinante para la fase de integrac
 - McIlroy-Young, R., Sen, S., Kleinberg, J., & Anderson, A. (2020). Aligning superhuman AI with human behavior: Chess as a model system. En _Proceedings of the 26th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining_ (pp. 1677-1687). https://doi.org/10.1145/3394486.3403219
 - Müller, R., Kornblith, S., & Hinton, G. E. (2019). When does label smoothing help? En _Advances in Neural Information Processing Systems (NeurIPS)_, 32.
 - Romstad, T., Costalba, M., Kiiski, J., & Linscott, G. (2024). _Stockfish: A strong open-source chess engine_. https://stockfishchess.org/
+- Rudin, C. (2019). Stop explaining black box machine learning models for high stakes decisions and use interpretable models instead. _Nature Machine Intelligence_, 1(5), 206-215. https://doi.org/10.1038/s42256-019-0048-x
 - Russell, S., & Norvig, P. (2020). _Artificial Intelligence: A Modern Approach_ (4ta ed.). Pearson.
 - Silver, D., Hubert, T., Schrittwieser, J., Antonoglou, I., Lai, M., Guez, A., Lanctot, M., Sifre, L., Dhar, S., Lillicrap, T., Graepel, T., & Hassabis, D. (2017). Mastering chess and shogi by self-play with a general reinforcement learning algorithm. _arXiv preprint arXiv:1712.01815_. https://doi.org/10.48550/arXiv.1712.01815
 - Sutton, R. S., & Barto, A. G. (2018). _Reinforcement Learning: An Introduction_ (2da ed.). MIT Press.
