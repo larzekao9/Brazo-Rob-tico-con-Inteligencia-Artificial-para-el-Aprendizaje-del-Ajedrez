@@ -107,6 +107,13 @@ def verificar_token_google(token: str) -> dict:
                 raise ValueError(datos.get("error_description", "Token de Google inválido"))
             if not datos.get("email"):
                 raise ValueError("El token de Google no contiene un correo electrónico")
+            # `aud` es la audiencia del token: el client_id de la app para la que Google lo
+            # emitió. Sin este chequeo, un token válido de Google pero emitido para OTRA
+            # aplicación (no la nuestra) se aceptaría igual — cualquiera con una cuenta de
+            # Google y un token de cualquier app ajena podría loguearse acá.
+            client_id_esperado = os.environ.get("GOOGLE_CLIENT_ID")
+            if client_id_esperado and datos.get("aud") != client_id_esperado:
+                raise ValueError("El token de Google no fue emitido para esta aplicación")
             return datos
     except urllib.error.HTTPError as e:
         raise ValueError(f"Error al validar token de Google: HTTP {e.code}") from e
