@@ -136,10 +136,15 @@ class BloqueSE(nn.Module):
             nn.Linear(canales // reduccion, canales, bias=False),
             nn.Sigmoid(),
         )
+        # Últimos pesos de canal calculados (1 por canal, en [0,1]) — se guardan acá
+        # para que `inferencia.py::calcular_atencion` los lea después del forward,
+        # es la señal real de a qué patrones le presta más peso esta capa (HU6 ampliada).
+        self.ultima_atencion: torch.Tensor | None = None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         b, c, _, _ = x.size()
         pesos = self.fc(x).view(b, c, 1, 1)
+        self.ultima_atencion = pesos.detach().view(b, c)[0]
         return x * pesos
 
 

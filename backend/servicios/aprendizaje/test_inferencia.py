@@ -12,9 +12,11 @@ torch = pytest.importorskip("torch")
 
 from backend.servicios.aprendizaje.inferencia import (
     cargar_modelo,
+    explicar_top_candidatas,
     predecir_jugada,
     predecir_jugada_maestra,
     predecir_top_jugadas,
+    calcular_atencion,
     calcular_saliencia,
     estado_modelo,
 )  # noqa: E402
@@ -105,6 +107,70 @@ def test_predecir_jugada_maestra_sin_jugadas_legales_falla(checkpoint_de_prueba)
         predecir_jugada_maestra(fen_ahogado, checkpoint_de_prueba)
 
 
+def test_explicar_top_candidatas_devuelve_cantidad_correcta(checkpoint_de_prueba):
+    tablero = chess.Board()
+    candidatas = explicar_top_candidatas(tablero.fen(), checkpoint_de_prueba, top_candidatas=3)
+    assert len(candidatas) == 3
+
+
+def test_explicar_top_candidatas_respeta_top_candidatas_menor_a_jugadas_legales(checkpoint_de_prueba):
+    tablero = chess.Board()
+    candidatas = explicar_top_candidatas(tablero.fen(), checkpoint_de_prueba, top_candidatas=1)
+    assert len(candidatas) == 1
+    assert candidatas[0]["elegida"] is True
+
+
+def test_explicar_top_candidatas_exactamente_una_elegida(checkpoint_de_prueba):
+    tablero = chess.Board()
+    candidatas = explicar_top_candidatas(tablero.fen(), checkpoint_de_prueba, top_candidatas=3)
+    elegidas = [c for c in candidatas if c["elegida"]]
+    assert len(elegidas) == 1
+
+
+def test_explicar_top_candidatas_coincide_con_predecir_jugada_maestra(checkpoint_de_prueba):
+    """La candidata marcada `elegida=True` debe ser la misma jugada que
+    `predecir_jugada_maestra` elige para la misma posición — backend y frontend
+    nunca deberían mostrar jugadas distintas."""
+    tablero = chess.Board()
+    jugada_maestra = predecir_jugada_maestra(tablero.fen(), checkpoint_de_prueba)
+    candidatas = explicar_top_candidatas(tablero.fen(), checkpoint_de_prueba, top_candidatas=3)
+    elegida = next(c for c in candidatas if c["elegida"])
+    assert elegida["jugada"] == jugada_maestra
+
+
+def test_explicar_top_candidatas_probabilidades_validas(checkpoint_de_prueba):
+    tablero = chess.Board()
+    candidatas = explicar_top_candidatas(tablero.fen(), checkpoint_de_prueba, top_candidatas=3)
+    for candidata in candidatas:
+        assert 0.0 <= candidata["probabilidad"] <= 1.0
+    probs = [c["probabilidad"] for c in candidatas]
+    assert probs == sorted(probs, reverse=True)
+
+
+def test_explicar_top_candidatas_jugadas_son_legales_y_claves_completas(checkpoint_de_prueba):
+    tablero = chess.Board()
+    jugadas_legales = [tablero.san(m) for m in tablero.legal_moves]
+    candidatas = explicar_top_candidatas(tablero.fen(), checkpoint_de_prueba, top_candidatas=3)
+
+    claves_esperadas = {
+        "jugada", "probabilidad", "da_jaque_mate",
+        "rival_tiene_mate_en_1", "pieza_colgada", "elegida",
+    }
+    for candidata in candidatas:
+        assert candidata["jugada"] in jugadas_legales
+        assert claves_esperadas <= set(candidata.keys())
+        assert isinstance(candidata["da_jaque_mate"], bool)
+        assert isinstance(candidata["rival_tiene_mate_en_1"], bool)
+        assert isinstance(candidata["pieza_colgada"], bool)
+        assert isinstance(candidata["elegida"], bool)
+
+
+def test_explicar_top_candidatas_sin_jugadas_legales_falla(checkpoint_de_prueba):
+    fen_ahogado = "7k/5Q2/6K1/8/8/8/8/8 b - - 0 1"
+    with pytest.raises(ValueError):
+        explicar_top_candidatas(fen_ahogado, checkpoint_de_prueba)
+
+
 
 def test_predecir_top_jugadas_devuelve_top_n_y_probabilidades_suman_uno(checkpoint_de_prueba):
     tablero = chess.Board()
@@ -134,6 +200,28 @@ def test_calcular_saliencia_shape_64_valores_en_0_1(checkpoint_de_prueba):
     assert len(saliencia) == 64
     assert all(isinstance(v, float) for v in saliencia)
     assert all(0.0 <= v <= 1.0 for v in saliencia)
+
+
+def test_calcular_atencion_devuelve_un_valor_por_bloque_se(checkpoint_se_resnet_de_prueba):
+    tablero = chess.Board()
+    atencion = calcular_atencion(tablero.fen(), ruta_checkpoint=checkpoint_se_resnet_de_prueba)
+
+    assert len(atencion) == 2  # checkpoint_se_resnet_de_prueba tiene cantidad_bloques=2
+    assert all(isinstance(v, float) for v in atencion)
+    assert all(0.0 <= v <= 1.0 for v in atencion)
+
+
+def test_calcular_atencion_lista_vacia_si_arquitectura_no_tiene_se(checkpoint_de_prueba):
+    tablero = chess.Board()
+    atencion = calcular_atencion(tablero.fen(), ruta_checkpoint=checkpoint_de_prueba)
+
+    assert atencion == []
+
+
+def test_calcular_atencion_sin_jugadas_legales_falla(checkpoint_se_resnet_de_prueba):
+    fen_ahogado = "7k/5Q2/6K1/8/8/8/8/8 b - - 0 1"
+    with pytest.raises(ValueError):
+        calcular_atencion(fen_ahogado, checkpoint_se_resnet_de_prueba)
 
 
 def test_estado_modelo_parsea_nombre_archivo_correctamente(tmp_path):
@@ -169,4 +257,10 @@ def test_funciones_propagan_filenotfound_si_no_hay_checkpoint():
     with pytest.raises(FileNotFoundError):
         calcular_saliencia("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", ruta_checkpoint="/no/existe.pt")
     with pytest.raises(FileNotFoundError):
+        calcular_atencion("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", ruta_checkpoint="/no/existe.pt")
+    with pytest.raises(FileNotFoundError):
         estado_modelo("/no/existe.pt")
+    with pytest.raises(FileNotFoundError):
+        explicar_top_candidatas(
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", ruta_checkpoint="/no/existe.pt"
+        )

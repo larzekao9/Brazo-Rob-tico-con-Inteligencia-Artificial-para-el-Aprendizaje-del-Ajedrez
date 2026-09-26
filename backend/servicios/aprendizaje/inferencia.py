@@ -127,6 +127,81 @@ VALORES_PIEZAS = {
 }
 
 
+def _evaluar_candidata_tactica(tablero: chess.Board, jugada: chess.Move) -> dict:
+    """Aplica a UNA jugada candidata los 3 chequeos tácticos autónomos que usa
+    `predecir_jugada_maestra` para podar jugadas suicidas, en memoria (< 3 ms) y sin
+    consultar a Stockfish (cumple la Regla 1 del proyecto: el modelo decide solo).
+
+    Extraído como función propia para que tanto `predecir_jugada_maestra` (la jugada
+    real de la partida) como `explicar_top_candidatas` (el detalle para el panel de
+    Razonamiento Neuronal) apliquen exactamente la misma lógica sobre cada candidata —
+    así nunca pueden divergir en qué jugada consideran mejor.
+
+    Args:
+        tablero: posición ANTES de `jugada` (el jugador a mover es quien la juega).
+            Se modifica con push/pop internamente pero queda intacto al retornar.
+        jugada: jugada candidata a evaluar; debe ser legal en `tablero`.
+
+    Returns:
+        dict con:
+        - `da_jaque_mate` (bool): la jugada mata inmediato.
+        - `rival_tiene_mate_en_1` (bool): tras la jugada, el rival tiene mate en 1.
+        - `pieza_colgada` (bool): la pieza que se movió queda atacada sin defensores
+          propios, o por un atacante de menor valor.
+        - `penalidad_pieza_colgada` (float): monto a restar del score de la red si
+          `pieza_colgada` es True (0.0 si no aplica) — se expone para que
+          `predecir_jugada_maestra` no tenga que reconstruir la fórmula por separado.
+    """
+    tablero.push(jugada)
+    try:
+        if tablero.is_checkmate():
+            return {
+                "da_jaque_mate": True,
+                "rival_tiene_mate_en_1": False,
+                "pieza_colgada": False,
+                "penalidad_pieza_colgada": 0.0,
+            }
+
+        rival_tiene_mate = False
+        for m_rival in tablero.legal_moves:
+            tablero.push(m_rival)
+            if tablero.is_checkmate():
+                rival_tiene_mate = True
+                tablero.pop()
+                break
+            tablero.pop()
+
+        pieza_movida = tablero.piece_at(jugada.to_square)
+        color_rival = tablero.turn
+        atacantes_rivales = tablero.attackers(color_rival, jugada.to_square)
+        defensores_propios = tablero.attackers(not color_rival, jugada.to_square)
+
+        pieza_colgada = False
+        penalidad_pieza_colgada = 0.0
+        if pieza_movida and atacantes_rivales:
+            val_pieza = VALORES_PIEZAS.get(pieza_movida.piece_type, 100)
+            valores_atacantes = [
+                VALORES_PIEZAS.get(tablero.piece_at(sq).piece_type, 100)
+                for sq in atacantes_rivales
+                if tablero.piece_at(sq)
+            ]
+            if valores_atacantes:
+                min_atacante = min(valores_atacantes)
+                if min_atacante < val_pieza or not defensores_propios:
+                    pieza_colgada = True
+                    monto = (val_pieza - min_atacante) if defensores_propios else val_pieza
+                    penalidad_pieza_colgada = (monto / 100.0) * 2.0
+
+        return {
+            "da_jaque_mate": False,
+            "rival_tiene_mate_en_1": rival_tiene_mate,
+            "pieza_colgada": pieza_colgada,
+            "penalidad_pieza_colgada": penalidad_pieza_colgada,
+        }
+    finally:
+        tablero.pop()
+
+
 def predecir_jugada_maestra(
     fen: str,
     ruta_checkpoint: str | Path = RUTA_CHECKPOINT_POR_DEFECTO,
@@ -171,53 +246,144 @@ def predecir_jugada_maestra(
 
     for jugada in candidatas:
         score = puntajes[jugada_a_etiqueta(tablero, jugada)].item()
-        tablero.push(jugada)
+        tactica = _evaluar_candidata_tactica(tablero, jugada)
 
         # 1. ¿Damos jaque mate?
-        if tablero.is_checkmate():
-            tablero.pop()
+        if tactica["da_jaque_mate"]:
             return tablero.san(jugada)
 
         # 2. ¿El rival tiene mate en 1 tras esta jugada?
-        rival_tiene_mate = False
-        for m_rival in tablero.legal_moves:
-            tablero.push(m_rival)
-            if tablero.is_checkmate():
-                rival_tiene_mate = True
-                tablero.pop()
-                break
-            tablero.pop()
-
-        if rival_tiene_mate:
-            tablero.pop()
+        if tactica["rival_tiene_mate_en_1"]:
             continue
 
         # 3. ¿Colgamos la pieza que acabamos de mover?
-        pieza_movida = tablero.piece_at(jugada.to_square)
-        color_rival = tablero.turn
-        atacantes_rivales = tablero.attackers(color_rival, jugada.to_square)
-        defensores_propios = tablero.attackers(not color_rival, jugada.to_square)
-
-        if pieza_movida and atacantes_rivales:
-            val_pieza = VALORES_PIEZAS.get(pieza_movida.piece_type, 100)
-            valores_atacantes = [
-                VALORES_PIEZAS.get(tablero.piece_at(sq).piece_type, 100)
-                for sq in atacantes_rivales
-                if tablero.piece_at(sq)
-            ]
-            if valores_atacantes:
-                min_atacante = min(valores_atacantes)
-                if min_atacante < val_pieza or not defensores_propios:
-                    penalidad = (val_pieza - min_atacante) if defensores_propios else val_pieza
-                    score -= (penalidad / 100.0) * 2.0
-
-        tablero.pop()
+        score -= tactica["penalidad_pieza_colgada"]
 
         if score > mejor_score:
             mejor_score = score
             mejor_jugada = jugada
 
     return tablero.san(mejor_jugada)
+
+
+def explicar_top_candidatas(
+    fen: str,
+    ruta_checkpoint: str | Path = RUTA_CHECKPOINT_POR_DEFECTO,
+    top_candidatas: int = 3,
+) -> list[dict]:
+    """Detalle completo de las top-N candidatas reales que considera la red neuronal,
+    para el panel de Razonamiento Neuronal (HU6 ampliada) — no solo la jugada elegida.
+
+    Aplica sobre cada candidata los mismos 3 chequeos tácticos autónomos que
+    `predecir_jugada_maestra` (vía `_evaluar_candidata_tactica`) y replica exactamente
+    su misma lógica de decisión (mate inmediato gana de inmediato en orden de
+    iteración; si no, se descartan las que dejan mate en 1 al rival; entre las
+    restantes gana el mejor score de red menos penalidad por pieza colgada, con el
+    primer candidato de la red como fallback si todas quedan descartadas) para marcar
+    `elegida=True` en la MISMA jugada que `predecir_jugada_maestra` devolvería para
+    este mismo `fen` — así el backend y el frontend nunca muestran cosas distintas.
+
+    A diferencia de `predecir_jugada_maestra`, esta función NO decide la jugada real
+    de ninguna partida (esa sigue siendo la única responsabilidad de
+    `predecir_jugada_maestra` vía `EstrategiaModelo`) — solo expone información para
+    explicar/comparar, pensada para exponerse por HTTP.
+
+    Returns:
+        Lista de dicts, uno por candidata, ordenada de mejor a peor puntaje de red:
+        `{"jugada": str (SAN), "probabilidad": float, "da_jaque_mate": bool,
+        "rival_tiene_mate_en_1": bool, "pieza_colgada": bool, "elegida": bool}`.
+
+    Raises:
+        ValueError: si la posición no tiene jugadas legales (mate o ahogado).
+        FileNotFoundError: si no existe el checkpoint.
+    """
+    tablero = chess.Board(fen)
+    jugadas_legales = list(tablero.legal_moves)
+    if not jugadas_legales:
+        raise ValueError(f"La posición '{fen}' no tiene jugadas legales")
+
+    modelo = cargar_modelo(ruta_checkpoint)
+    entrada = tensor_a_entrada_red(board_to_tensor(tablero)).unsqueeze(0)
+    with torch.no_grad():
+        puntajes = modelo(entrada)[0]
+
+    indices_legales = [jugada_a_etiqueta(tablero, j) for j in jugadas_legales]
+    puntajes_legales = puntajes[indices_legales]
+    probs_legales = F.softmax(puntajes_legales, dim=0)
+
+    # Mismo orden que `predecir_jugada_maestra` (sort estable descendente por score
+    # crudo de la red sobre la lista de jugadas legales en el mismo orden de origen).
+    orden = sorted(
+        range(len(jugadas_legales)),
+        key=lambda i: puntajes_legales[i].item(),
+        reverse=True,
+    )
+    top_k = min(top_candidatas, len(jugadas_legales))
+    indices_top = orden[:top_k]
+
+    candidatas_jugadas = [jugadas_legales[i] for i in indices_top]
+    candidatas_probs = [probs_legales[i].item() for i in indices_top]
+    candidatas_scores = [puntajes_legales[i].item() for i in indices_top]
+
+    # Caso trivial: una sola jugada legal — `predecir_jugada_maestra` la devuelve
+    # directamente sin pasar por el filtro táctico, así que acá también es elegida
+    # sin ambigüedad (igual se calcula el detalle táctico, solo para informar).
+    if len(jugadas_legales) == 1:
+        jugada = candidatas_jugadas[0]
+        tactica = _evaluar_candidata_tactica(tablero, jugada)
+        return [
+            {
+                "jugada": tablero.san(jugada),
+                "probabilidad": candidatas_probs[0],
+                "da_jaque_mate": tactica["da_jaque_mate"],
+                "rival_tiene_mate_en_1": tactica["rival_tiene_mate_en_1"],
+                "pieza_colgada": tactica["pieza_colgada"],
+                "elegida": True,
+            }
+        ]
+
+    detalles_tacticos: list[dict] = []
+    indice_mate_inmediato: int | None = None
+    mejor_indice = 0
+    mejor_score = -float("inf")
+
+    for pos, jugada in enumerate(candidatas_jugadas):
+        tactica = _evaluar_candidata_tactica(tablero, jugada)
+        detalles_tacticos.append(tactica)
+
+        if indice_mate_inmediato is not None:
+            # Ya se decidió por mate inmediato en una candidata anterior (mismo orden
+            # de iteración que `predecir_jugada_maestra`, que retorna ahí mismo) —
+            # seguimos solo para completar el detalle táctico de las restantes.
+            continue
+
+        if tactica["da_jaque_mate"]:
+            indice_mate_inmediato = pos
+            continue
+
+        if tactica["rival_tiene_mate_en_1"]:
+            continue
+
+        score = candidatas_scores[pos] - tactica["penalidad_pieza_colgada"]
+        if score > mejor_score:
+            mejor_score = score
+            mejor_indice = pos
+
+    indice_elegida = (
+        indice_mate_inmediato if indice_mate_inmediato is not None else mejor_indice
+    )
+
+    return [
+        {
+            "jugada": tablero.san(jugada),
+            "probabilidad": candidatas_probs[pos],
+            "da_jaque_mate": detalles_tacticos[pos]["da_jaque_mate"],
+            "rival_tiene_mate_en_1": detalles_tacticos[pos]["rival_tiene_mate_en_1"],
+            "pieza_colgada": detalles_tacticos[pos]["pieza_colgada"],
+            "elegida": pos == indice_elegida,
+        }
+        for pos, jugada in enumerate(candidatas_jugadas)
+    ]
 
 
 def predecir_top_jugadas(
@@ -313,6 +479,52 @@ def calcular_saliencia(
 
     _ = time.perf_counter() - inicio
     return saliencia_norm.tolist()
+
+
+def calcular_atencion(
+    fen: str, ruta_checkpoint: str | Path = RUTA_CHECKPOINT_POR_DEFECTO
+) -> list[float]:
+    """Intensidad real de atención por canales (bloques Squeeze-and-Excitation, HU6 ampliada).
+
+    Cada bloque residual SE calcula un peso sigmoide [0,1] por canal, indicando qué
+    patrones internos prioriza esa capa para la posición actual (Hu et al., 2018,
+    ver docs/marco_teorico_ia_entrenamiento.md sección 3.3). Acá se promedia ese
+    vector por bloque, de la capa más superficial a la más profunda.
+
+    Solo aplica a checkpoints SE-ResNet (v4/v5) — el resto de arquitecturas
+    (v1/v2/v3) no tienen este mecanismo, así que devuelven lista vacía en vez de
+    inventar un dato que no existe.
+
+    Returns:
+        Lista de floats en [0,1], uno por bloque residual SE (vacía si el
+        checkpoint cargado no usa atención por canales).
+
+    Raises:
+        ValueError: si la posición no tiene jugadas legales.
+        FileNotFoundError: si no existe el checkpoint.
+    """
+    tablero = chess.Board(fen)
+    jugadas_legales = list(tablero.legal_moves)
+    if not jugadas_legales:
+        raise ValueError(f"La posición '{fen}' no tiene jugadas legales")
+
+    modelo = cargar_modelo(ruta_checkpoint)
+    torre = getattr(modelo, "torre_residual", None)
+    if torre is None:
+        return []
+
+    entrada = tensor_a_entrada_red(board_to_tensor(tablero)).unsqueeze(0)
+    with torch.no_grad():
+        modelo(entrada)
+
+    atencion_por_bloque = []
+    for bloque in torre:
+        se = getattr(bloque, "se", None)
+        if se is None or se.ultima_atencion is None:
+            return []
+        atencion_por_bloque.append(se.ultima_atencion.mean().item())
+
+    return atencion_por_bloque
 
 
 def estado_modelo(ruta_checkpoint: str | Path = RUTA_CHECKPOINT_POR_DEFECTO) -> dict:
