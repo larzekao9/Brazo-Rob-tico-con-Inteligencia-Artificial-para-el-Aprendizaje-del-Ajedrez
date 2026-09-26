@@ -39,6 +39,140 @@ CASILLAS_CENTRO_AMPLIADO = {
     chess.C6, chess.D6, chess.E6, chess.F6,
 }
 
+RANGO_PRINCIPIANTE = "Principiante"
+RANGO_INTERMEDIO = "Intermedio"
+RANGO_AVANZADO = "Avanzado"
+RANGOS_VALIDOS = (RANGO_PRINCIPIANTE, RANGO_INTERMEDIO, RANGO_AVANZADO)
+RANGO_POR_DEFECTO = RANGO_INTERMEDIO
+
+# RF20: variantes de texto por rango del jugador, para cada "caso" que puede
+# detectar `explicar_jugada`. Un mismo `principio_ajedrecistico` (ej.
+# "jaque_mate" o "desarrollo_piezas") puede cubrir más de un caso acá (dar
+# mate vs. recibirlo; desarrollar una pieza vs. mover un peón de flanco en la
+# apertura) porque el texto pedagógico correcto es distinto en cada situación
+# aunque el principio general sea el mismo — el mapeo caso -> principio queda
+# en cada punto de retorno de `explicar_jugada`, no acá. El nivel
+# "Intermedio" es el texto que ya existía antes de RF20 (baseline sin tocar).
+VARIANTES_POR_NIVEL: dict[str, dict[str, str]] = {
+    "jaque_mate_propio": {
+        RANGO_PRINCIPIANTE: "¡Ganaste! Con {jugada_san} le diste jaque mate al rey rival y la partida terminó. ¡Muy bien jugado!",
+        RANGO_INTERMEDIO: "¡Jaque mate! Remate táctico decisivo con {jugada_san} que finaliza la partida con victoria.",
+        RANGO_AVANZADO: "Mate forzado ejecutado con {jugada_san}: secuencia decisiva que sentencia la partida sin margen de defensa para el rival.",
+    },
+    "jaque_mate_rival": {
+        RANGO_PRINCIPIANTE: "¡Uy! Con {jugada_san} tu rey quedó atrapado y el rival te dio jaque mate. No te preocupes, la próxima vez fijate bien si tu rey queda seguro antes de mover.",
+        RANGO_INTERMEDIO: "Grave descuido: la jugada {jugada_san} deja a tu rey desprotegido ante un jaque mate forzado del rival.",
+        RANGO_AVANZADO: "Blunder crítico: {jugada_san} permite mate forzado inmediato — pérdida total de la partida.",
+    },
+    "enroque": {
+        RANGO_PRINCIPIANTE: "¡Muy bien! Enrocaste: tu rey queda más protegido, lejos del centro, y tu torre entra a jugar.",
+        RANGO_INTERMEDIO: "¡Excelente decisión de seguridad! El enroque protege al rey y activa la torre hacia el centro.",
+        RANGO_AVANZADO: "Enroque oportuno: mejora la seguridad del rey y conecta la torre para sumarla al juego.",
+    },
+    "pieza_indefensa": {
+        RANGO_PRINCIPIANTE: "¡Cuidado! Tu {nombre_pieza} en {casilla_destino_nombre} quedó sola y el rival te la puede comer gratis. La próxima vez, antes de mover, fijate qué piezas tuyas quedan sin nadie que las proteja.",
+        RANGO_INTERMEDIO: "Dejaste tu {nombre_pieza} en {casilla_destino_nombre} bajo ataque rival sin defensores suficientes. Era preferible retirarla o defenderla.",
+        RANGO_AVANZADO: "Pieza colgada: {nombre_pieza} en {casilla_destino_nombre} sin defensa suficiente ante el ataque rival — pérdida estimada: {perdida_peones:.1f} peones. Evaluá atacantes y defensores antes de fijar la pieza en esa casilla.",
+    },
+    "oportunidad_tactica": {
+        RANGO_PRINCIPIANTE: "¡Casi! Había una jugada mejor: con {mejor_jugada_san} le podías comer {nombre_cap} al rival gratis. Ojo la próxima vez con esas capturas.",
+        RANGO_INTERMEDIO: "Se pasó por alto una oportunidad táctica: con {mejor_jugada_san} podías capturar {nombre_cap} rival con gran ventaja.",
+        RANGO_AVANZADO: "Oportunidad táctica desaprovechada: {mejor_jugada_san} capturaba {nombre_cap} rival — pérdida estimada: {perdida_peones:.1f} peones respecto a la jugada elegida.",
+    },
+    "control_del_centro": {
+        RANGO_PRINCIPIANTE: "¡Bien! Llevaste tu peón al centro del tablero (casilla {casilla_destino_nombre}). Dominar el centro te da más espacio para mover tus piezas.",
+        RANGO_INTERMEDIO: "Muy buena ocupación central: avanzar el peón a {casilla_destino_nombre} domina casillas estratégicas vitales.",
+        RANGO_AVANZADO: "Ocupación central correcta: el peón en {casilla_destino_nombre} controla casillas clave y facilita el desarrollo con tempo.",
+    },
+    "desarrollo_piezas_buena": {
+        RANGO_PRINCIPIANTE: "¡Bien hecho! Sacaste tu {nombre_pieza} a jugar en {casilla_destino_nombre}. Al principio de la partida conviene mover tus piezas para que estén listas para atacar y defender.",
+        RANGO_INTERMEDIO: "Buen desarrollo: poner en juego tu {nombre_pieza} hacia {casilla_destino_nombre} mejora la armonía de tu posición.",
+        RANGO_AVANZADO: "Desarrollo correcto: {nombre_pieza} activa hacia {casilla_destino_nombre}, sumando a la coordinación de piezas menores en la apertura.",
+    },
+    "desarrollo_piezas_flanco": {
+        RANGO_PRINCIPIANTE: "En la apertura conviene primero sacar a jugar tus caballos y alfiles. Mover peones de los costados ahora puede hacer que te quedes atrás.",
+        RANGO_INTERMEDIO: "Mover peones de flanco en la apertura suele retrasar el desarrollo prioritario de tus caballos y alfiles.",
+        RANGO_AVANZADO: "Peón de flanco en apertura: retrasa el desarrollo prioritario de piezas menores — pérdida estimada: {perdida_peones:.1f} peones de tiempo/posición.",
+    },
+    "iniciativa_tactica": {
+        RANGO_PRINCIPIANTE: "¡Buen jaque! Con {jugada_san} ponés al rey rival en aprietos y lo obligás a responder a tu jugada.",
+        RANGO_INTERMEDIO: "Jaque incisivo con {jugada_san} que obliga al rival a defenderse y ceder la iniciativa.",
+        RANGO_AVANZADO: "Jaque con iniciativa: {jugada_san} fuerza la respuesta rival y cede el tempo, a favor de tu plan.",
+    },
+    "maestria_tactica": {
+        RANGO_PRINCIPIANTE: "¡Wow, jugada increíble! Encontraste algo que no era nada fácil de ver. ¡Así se juega!",
+        RANGO_INTERMEDIO: "¡Jugada brillante! Una decisión táctica de alto calibre que desarticula la posición rival.",
+        RANGO_AVANZADO: "Jugada brillante: recurso táctico de alto valor (posible sacrificio) que desarticula la posición rival, por encima de la línea principal esperada.",
+    },
+    "posicion_solida_alta": {
+        RANGO_PRINCIPIANTE: "¡Buena jugada! Mantuviste tu posición fuerte y ordenada.",
+        RANGO_INTERMEDIO: "Jugada sólida y precisa que mantiene una posición sana y activa para las {color_str}.",
+        RANGO_AVANZADO: "Jugada precisa: conserva la evaluación y la actividad de piezas para las {color_str}, dentro de la línea principal.",
+    },
+    "posicion_solida_buena": {
+        RANGO_PRINCIPIANTE: "Jugada correcta, mantiene todo en orden.",
+        RANGO_INTERMEDIO: "Movimiento aceptable que conserva la estabilidad de tu posición.",
+        RANGO_AVANZADO: "Movimiento sólido: pérdida marginal de {perdida_peones:.1f} peones respecto a la línea principal, sin comprometer la estructura.",
+    },
+    "imprecision_posicional": {
+        RANGO_PRINCIPIANTE: "Pequeño desliz: perdiste un poquito de ventaja, nada grave.{sug}",
+        RANGO_INTERMEDIO: "Imprecisión leve: cede una pequeña porción de ventaja.{sug}",
+        RANGO_AVANZADO: "Imprecisión posicional: pérdida estimada de {perdida_peones:.1f} peones.{sug}",
+    },
+    "error_tactico": {
+        RANGO_PRINCIPIANTE: "Ese movimiento no fue el mejor: le diste ventaja al rival.{sug}",
+        RANGO_INTERMEDIO: "Error táctico: deteriora tu posición y otorga iniciativa al contrincante.{sug}",
+        RANGO_AVANZADO: "Error táctico: pérdida estimada de {perdida_peones:.1f} peones, cede iniciativa al rival.{sug}",
+    },
+    "colgada_grave": {
+        RANGO_PRINCIPIANTE: "¡Cuidado! Esa jugada le regaló una ventaja grande al rival. Le pasa a todos mientras aprenden — la próxima vez fijate bien antes de mover.{sug}",
+        RANGO_INTERMEDIO: "Colgada grave (blunder): concede una ventaja decisiva al adversario.{sug}",
+        RANGO_AVANZADO: "Blunder (colgada grave): pérdida estimada de {perdida_peones:.1f} peones, ventaja decisiva concedida al rival.{sug}",
+    },
+    "general": {
+        RANGO_PRINCIPIANTE: "Se jugó {jugada_san}.",
+        RANGO_INTERMEDIO: "Se realizó la jugada {jugada_san}.",
+        RANGO_AVANZADO: "Jugada registrada: {jugada_san}.",
+    },
+}
+
+SUGERENCIAS_POR_NIVEL: dict[str, dict[str, str]] = {
+    "imprecision_posicional": {
+        RANGO_PRINCIPIANTE: " La próxima vez podés probar con {mejor_jugada_san}.",
+        RANGO_INTERMEDIO: " La alternativa preferida era {mejor_jugada_san}.",
+        RANGO_AVANZADO: " Alternativa principal: {mejor_jugada_san}.",
+    },
+    "error_tactico": {
+        RANGO_PRINCIPIANTE: " Fijate la próxima vez en {mejor_jugada_san}, era mejor opción.",
+        RANGO_INTERMEDIO: " La opción recomendada era {mejor_jugada_san}.",
+        RANGO_AVANZADO: " Jugada recomendada por el motor: {mejor_jugada_san}.",
+    },
+    "colgada_grave": {
+        RANGO_PRINCIPIANTE: " Para la próxima, animate a probar {mejor_jugada_san}.",
+        RANGO_INTERMEDIO: " Lo más aconsejable era {mejor_jugada_san}.",
+        RANGO_AVANZADO: " Línea principal sugerida: {mejor_jugada_san}.",
+    },
+}
+
+
+def _texto(caso: str, rango: str, **kwargs: Any) -> str:
+    """Arma el texto pedagógico de un `caso` de `explicar_jugada` para el `rango` dado.
+
+    Si `rango` no es uno de los valores válidos, usa `RANGO_POR_DEFECTO` ("Intermedio").
+    """
+    variantes = VARIANTES_POR_NIVEL[caso]
+    plantilla = variantes.get(rango, variantes[RANGO_POR_DEFECTO])
+    return plantilla.format(**kwargs)
+
+
+def _sugerencia(caso: str, rango: str, mejor_jugada_san: str | None) -> str:
+    """Arma la coletilla "la alternativa era X" adaptada al rango, o "" si no hay alternativa."""
+    if not mejor_jugada_san:
+        return ""
+    variantes = SUGERENCIAS_POR_NIVEL[caso]
+    plantilla = variantes.get(rango, variantes[RANGO_POR_DEFECTO])
+    return plantilla.format(mejor_jugada_san=mejor_jugada_san)
+
 
 def centipawns_a_probabilidad_victoria(cp: int | None, mate_en: int | None = None) -> float:
     """Convierte centipawns a porcentaje de victoria (0.0% a 100.0%) mediante la curva logística ajustada de Lichess.
@@ -99,17 +233,24 @@ def explicar_jugada(
     mejor_jugada_san: str | None,
     clasificacion: str,
     perdida_cp: int,
+    rango: str = RANGO_POR_DEFECTO,
 ) -> tuple[str, str]:
     """Genera la explicación pedagógica en lenguaje natural y detecta el principio ajedrecístico involucrado.
+
+    RF20: `rango` adapta el texto al nivel del jugador ("Principiante",
+    "Intermedio" o "Avanzado" — mismos valores que `UsuarioORM.rango_estimado`).
+    Un valor no reconocido cae en "Intermedio".
 
     Returns:
         (principio_ajedrecistico, explicacion_pedagogica)
     """
+    perdida_peones = perdida_cp / 100
+
     tablero_antes = chess.Board(fen_antes)
     try:
         movimiento = tablero_antes.parse_san(jugada_san)
     except ValueError:
-        return "general", f"Se realizó la jugada {jugada_san}."
+        return "general", _texto("general", rango, jugada_san=jugada_san)
 
     tablero_despues = chess.Board(fen_despues)
     turno = tablero_antes.turn  # True = Blancas, False = Negras
@@ -121,26 +262,31 @@ def explicar_jugada(
 
     # 1. Caso de Jaque Mate
     if tablero_despues.is_checkmate():
-        return "jaque_mate", f"¡Jaque mate! Remate táctico decisivo con {jugada_san} que finaliza la partida con victoria."
+        return "jaque_mate", _texto("jaque_mate_propio", rango, jugada_san=jugada_san)
 
     # 2. Si permitió mate rival
     for m in tablero_despues.legal_moves:
         tablero_despues.push(m)
         if tablero_despues.is_checkmate():
             tablero_despues.pop()
-            return "jaque_mate", f"Grave descuido: la jugada {jugada_san} deja a tu rey desprotegido ante un jaque mate forzado del rival."
+            return "jaque_mate", _texto("jaque_mate_rival", rango, jugada_san=jugada_san)
         tablero_despues.pop()
 
     # 3. Enroque
     if tablero_antes.is_castling(movimiento):
-        return "seguridad_del_rey", "¡Excelente decisión de seguridad! El enroque protege al rey y activa la torre hacia el centro."
+        return "seguridad_del_rey", _texto("enroque", rango)
 
     # 4. Pieza propia colgada (descuido táctico)
     defensores = tablero_despues.attackers(turno, movimiento.to_square)
     atacantes = tablero_despues.attackers(not turno, movimiento.to_square)
     if atacantes and (not defensores or min([VALORES_PIEZAS.get(tablero_despues.piece_at(sq).piece_type, 100) for sq in atacantes if tablero_despues.piece_at(sq)] or [100]) < VALORES_PIEZAS.get(pieza_tipo, 100)):
         if clasificacion in ("error", "blunder"):
-            return "pieza_indefensa", f"Dejaste tu {nombre_pieza} en {casilla_destino_nombre} bajo ataque rival sin defensores suficientes. Era preferible retirarla o defenderla."
+            return "pieza_indefensa", _texto(
+                "pieza_indefensa", rango,
+                nombre_pieza=nombre_pieza,
+                casilla_destino_nombre=casilla_destino_nombre,
+                perdida_peones=perdida_peones,
+            )
 
     # 5. Oportunidad táctica desaprovechada
     if clasificacion in ("error", "blunder", "imprecision") and mejor_jugada_san:
@@ -149,7 +295,12 @@ def explicar_jugada(
             if tablero_antes.is_capture(mov_mejor):
                 pieza_capturable = tablero_antes.piece_at(mov_mejor.to_square)
                 nombre_cap = NOMBRES_PIEZAS.get(pieza_capturable.piece_type, "pieza") if pieza_capturable else "material"
-                return "oportunidad_tactica", f"Se pasó por alto una oportunidad táctica: con {mejor_jugada_san} podías capturar {nombre_cap} rival con gran ventaja."
+                return "oportunidad_tactica", _texto(
+                    "oportunidad_tactica", rango,
+                    mejor_jugada_san=mejor_jugada_san,
+                    nombre_cap=nombre_cap,
+                    perdida_peones=perdida_peones,
+                )
         except ValueError:
             pass
 
@@ -158,37 +309,49 @@ def explicar_jugada(
     if numero_jugada <= 8:
         # Control del centro
         if movimiento.to_square in CASILLAS_CENTRALES and pieza_tipo == chess.PAWN:
-            return "control_del_centro", f"Muy buena ocupación central: avanzar el peón a {casilla_destino_nombre} domina casillas estratégicas vitales."
+            return "control_del_centro", _texto(
+                "control_del_centro", rango, casilla_destino_nombre=casilla_destino_nombre,
+            )
         # Desarrollo de piezas menores
         if pieza_tipo in (chess.KNIGHT, chess.BISHOP):
             if clasificacion in ("mejor", "excelente", "buena"):
-                return "desarrollo_piezas", f"Buen desarrollo: poner en juego tu {nombre_pieza} hacia {casilla_destino_nombre} mejora la armonía de tu posición."
+                return "desarrollo_piezas", _texto(
+                    "desarrollo_piezas_buena", rango,
+                    nombre_pieza=nombre_pieza,
+                    casilla_destino_nombre=casilla_destino_nombre,
+                )
         # Mover peones laterales en apertura descuidando desarrollo
         if pieza_tipo == chess.PAWN and movimiento.to_square not in CASILLAS_CENTRO_AMPLIADO:
             if clasificacion in ("imprecision", "error"):
-                return "desarrollo_piezas", f"Mover peones de flanco en la apertura suele retrasar el desarrollo prioritario de tus caballos y alfiles."
+                return "desarrollo_piezas", _texto(
+                    "desarrollo_piezas_flanco", rango, perdida_peones=perdida_peones,
+                )
 
     # 7. Jaques
     if tablero_despues.is_check():
         if clasificacion in ("mejor", "excelente", "buena", "brillante"):
-            return "iniciativa_tactica", f"Jaque incisivo con {jugada_san} que obliga al rival a defenderse y ceder la iniciativa."
+            return "iniciativa_tactica", _texto("iniciativa_tactica", rango, jugada_san=jugada_san)
 
     # 8. Respuestas según clasificación
     if clasificacion == "brillante":
-        return "maestria_tactica", f"¡Jugada brillante! Una decisión táctica de alto calibre que desarticula la posición rival."
+        return "maestria_tactica", _texto("maestria_tactica", rango)
     if clasificacion in ("mejor", "excelente"):
-        return "posicion_solida", f"Jugada sólida y precisa que mantiene una posición sana y activa para las {color_str}."
+        return "posicion_solida", _texto("posicion_solida_alta", rango, color_str=color_str)
     if clasificacion == "buena":
-        return "posicion_solida", f"Movimiento aceptable que conserva la estabilidad de tu posición."
+        return "posicion_solida", _texto("posicion_solida_buena", rango, perdida_peones=perdida_peones)
     if clasificacion == "imprecision":
-        sug = f" La alternativa preferida era {mejor_jugada_san}." if mejor_jugada_san else ""
-        return "imprecision_posicional", f"Imprecisión leve: cede una pequeña porción de ventaja.{sug}"
+        sug = _sugerencia("imprecision_posicional", rango, mejor_jugada_san)
+        return "imprecision_posicional", _texto(
+            "imprecision_posicional", rango, perdida_peones=perdida_peones, sug=sug,
+        )
     if clasificacion == "error":
-        sug = f" La opción recomendada era {mejor_jugada_san}." if mejor_jugada_san else ""
-        return "error_tactico", f"Error táctico: deteriora tu posición y otorga iniciativa al contrincante.{sug}"
-    
-    sug = f" Lo más aconsejable era {mejor_jugada_san}." if mejor_jugada_san else ""
-    return "colgada_grave", f"Colgada grave (blunder): concede una ventaja decisiva al adversario.{sug}"
+        sug = _sugerencia("error_tactico", rango, mejor_jugada_san)
+        return "error_tactico", _texto(
+            "error_tactico", rango, perdida_peones=perdida_peones, sug=sug,
+        )
+
+    sug = _sugerencia("colgada_grave", rango, mejor_jugada_san)
+    return "colgada_grave", _texto("colgada_grave", rango, perdida_peones=perdida_peones, sug=sug)
 
 
 def analizar_jugada_en_tiempo_real(
@@ -200,10 +363,12 @@ def analizar_jugada_en_tiempo_real(
     mejor_jugada_san: str | None,
     mate_en_antes: int | None = None,
     mate_en_despues: int | None = None,
+    rango: str = RANGO_POR_DEFECTO,
 ) -> dict[str, Any]:
     """Evalúa una jugada en vivo justo después de realizarse (para HU6 y visualización).
 
     Devuelve calidad, Win%, principio pedagógico y consejo inmediato en tiempo real.
+    `rango` adapta el texto al nivel del jugador (RF20) — ver `explicar_jugada`.
     """
     # Pérdida en centipawns en perspectiva de quien jugó
     perdida_cp = max(0, evaluacion_antes_cp - evaluacion_despues_cp)
@@ -223,6 +388,7 @@ def analizar_jugada_en_tiempo_real(
         mejor_jugada_san=mejor_jugada_san,
         clasificacion=clasificacion,
         perdida_cp=perdida_cp,
+        rango=rango,
     )
 
     probabilidad_victoria = centipawns_a_probabilidad_victoria(evaluacion_despues_cp, mate_en_despues)
@@ -237,8 +403,85 @@ def analizar_jugada_en_tiempo_real(
     }
 
 
-def generar_resumen_partida(analisis_jugadas: list[dict[str, Any]]) -> dict[str, Any]:
-    """Genera las estadísticas globales post-partida, curva de efectividad y consejo del tutor (HU5)."""
+CONSEJOS_POR_NIVEL: dict[str, dict[str, str]] = {
+    "blunders": {
+        RANGO_PRINCIPIANTE: (
+            "Se te escaparon algunas piezas gratis durante la partida — ¡no pasa nada, "
+            "le pasa a todos al empezar! Antes de mover, date un segundo para mirar si "
+            "dejás alguna pieza tuya sin nadie que la proteja."
+        ),
+        RANGO_INTERMEDIO: (
+            "Tu principal área de mejora es la visión táctica y prevención de colgadas: "
+            "antes de soltar cada pieza, revisa si queda expuesta a ataques rivales directos."
+        ),
+        RANGO_AVANZADO: (
+            "Debilidad principal: cálculo táctico insuficiente en posiciones críticas "
+            "(2 o más blunders, pérdida >= 300 cp cada uno). Trabajá patrones tácticos y "
+            "una doble verificación de piezas colgadas antes de confirmar la jugada."
+        ),
+    },
+    "errores_imprecisiones": {
+        RANGO_PRINCIPIANTE: (
+            "Jugaste con ganas de atacar, ¡eso está muy bien! Solo recordá revisar bien "
+            "el tablero antes de mover, para no regalar ventajas pequeñas."
+        ),
+        RANGO_INTERMEDIO: (
+            "Mantuviste una buena actitud de ataque, pero algunas imprecisiones posicionales "
+            "cedieron la iniciativa. Procura asegurar la coordinación de piezas menores antes de abrir líneas."
+        ),
+        RANGO_AVANZADO: (
+            "Acumulaste errores e imprecisiones posicionales (4 o más jugadas con pérdida "
+            "entre 50 y 299 cp). Trabajá la coordinación de piezas menores y la evaluación "
+            "de rupturas antes de abrir líneas."
+        ),
+    },
+    "alta_precision": {
+        RANGO_PRINCIPIANTE: (
+            "¡Jugaste buenísimo! Casi todas tus jugadas fueron muy acertadas. "
+            "Seguí practicando así, vas muy bien."
+        ),
+        RANGO_INTERMEDIO: (
+            "¡Gran demostración técnica! Jugaste con alta precisión y solidez propia de un jugador experimentado. "
+            "Continúa practicando la conversión rápida de ventajas en el final."
+        ),
+        RANGO_AVANZADO: (
+            "Precisión global de {precision_global:.1f}% — nivel técnico sólido. Próximo objetivo: "
+            "optimizar la conversión de finales ganados y reducir la pérdida de cp en fases de transición."
+        ),
+    },
+    "balanceada": {
+        RANGO_PRINCIPIANTE: (
+            "Buena partida en general. Para la próxima, intentá ocupar el centro del tablero "
+            "con tus peones y poner a salvo a tu rey enrocando pronto."
+        ),
+        RANGO_INTERMEDIO: (
+            "Partida balanceada. Recuerda priorizar el control del centro con peones y la seguridad de tu rey "
+            "mediante un enroque oportuno en la fase de apertura."
+        ),
+        RANGO_AVANZADO: (
+            "Precisión global de {precision_global:.1f}%, dentro de un rango estándar. Reforzá el control "
+            "del centro y la profilaxis de seguridad del rey (enroque temprano) para reducir la varianza posicional."
+        ),
+    },
+}
+
+
+def _consejo(caso: str, rango: str, **kwargs: Any) -> str:
+    """Arma el consejo pedagógico global de `generar_resumen_partida` para el `rango` dado."""
+    variantes = CONSEJOS_POR_NIVEL[caso]
+    plantilla = variantes.get(rango, variantes[RANGO_POR_DEFECTO])
+    return plantilla.format(**kwargs)
+
+
+def generar_resumen_partida(
+    analisis_jugadas: list[dict[str, Any]],
+    rango: str = RANGO_POR_DEFECTO,
+) -> dict[str, Any]:
+    """Genera las estadísticas globales post-partida, curva de efectividad y consejo del tutor (HU5).
+
+    RF20: `rango` adapta el consejo pedagógico al nivel del jugador ("Principiante",
+    "Intermedio" o "Avanzado"). Un valor no reconocido cae en "Intermedio".
+    """
     conteo: dict[str, int] = {
         "brillante": 0,
         "mejor": 0,
@@ -284,25 +527,13 @@ def generar_resumen_partida(analisis_jugadas: list[dict[str, Any]]) -> dict[str,
 
     # Diagnóstico pedagógico global
     if conteo["blunder"] >= 2:
-        consejo = (
-            "Tu principal área de mejora es la visión táctica y prevención de colgadas: "
-            "antes de soltar cada pieza, revisa si queda expuesta a ataques rivales directos."
-        )
+        consejo = _consejo("blunders", rango)
     elif conteo["error"] + conteo["imprecision"] >= 4:
-        consejo = (
-            "Mantuviste una buena actitud de ataque, pero algunas imprecisiones posicionales "
-            "cedieron la iniciativa. Procura asegurar la coordinación de piezas menores antes de abrir líneas."
-        )
+        consejo = _consejo("errores_imprecisiones", rango)
     elif precision_global >= 80.0:
-        consejo = (
-            "¡Gran demostración técnica! Jugaste con alta precisión y solidez propia de un jugador experimentado. "
-            "Continúa practicando la conversión rápida de ventajas en el final."
-        )
+        consejo = _consejo("alta_precision", rango, precision_global=precision_global)
     else:
-        consejo = (
-            "Partida balanceada. Recuerda priorizar el control del centro con peones y la seguridad de tu rey "
-            "mediante un enroque oportuno en la fase de apertura."
-        )
+        consejo = _consejo("balanceada", rango, precision_global=precision_global)
 
     return {
         "precision_global": precision_global,

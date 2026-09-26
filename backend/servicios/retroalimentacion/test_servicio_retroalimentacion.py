@@ -107,6 +107,70 @@ def test_analizar_jugada_en_tiempo_real():
     assert "principio_ajedrecistico" in resultado
 
 
+def test_explicar_jugada_pieza_indefensa_varia_segun_rango():
+    fen_antes = "rnbqkbnr/ppp2ppp/8/3pp3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3"
+    tablero = chess.Board(fen_antes)
+    movimiento = tablero.parse_san("Nxe5")
+    tablero.push(movimiento)
+    fen_despues = tablero.fen()
+
+    kwargs = dict(
+        fen_antes=fen_antes,
+        jugada_san="Nxe5",
+        fen_despues=fen_despues,
+        mejor_jugada_san="Nxe5",
+        clasificacion="error",
+        perdida_cp=120,
+    )
+
+    _, exp_principiante = explicar_jugada(**kwargs, rango="Principiante")
+    _, exp_intermedio = explicar_jugada(**kwargs, rango="Intermedio")
+    _, exp_avanzado = explicar_jugada(**kwargs, rango="Avanzado")
+
+    assert exp_principiante != exp_intermedio != exp_avanzado
+    assert "gratis" in exp_principiante.lower()
+    assert "1.2 peones" in exp_avanzado
+
+
+def test_explicar_jugada_rango_por_defecto_es_intermedio():
+    fen_antes = chess.STARTING_FEN
+    fen_despues = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"
+
+    _, exp_sin_rango = explicar_jugada(
+        fen_antes=fen_antes,
+        jugada_san="e4",
+        fen_despues=fen_despues,
+        mejor_jugada_san="e4",
+        clasificacion="mejor",
+        perdida_cp=0,
+    )
+    _, exp_intermedio_explicito = explicar_jugada(
+        fen_antes=fen_antes,
+        jugada_san="e4",
+        fen_despues=fen_despues,
+        mejor_jugada_san="e4",
+        clasificacion="mejor",
+        perdida_cp=0,
+        rango="Intermedio",
+    )
+
+    assert exp_sin_rango == exp_intermedio_explicito
+
+
+def test_generar_resumen_partida_consejo_varia_segun_rango():
+    analisis_mock = [
+        {"numero_ply": 1, "calidad": "blunder", "probabilidad_victoria": 10.0, "jugada_san": "a3"},
+        {"numero_ply": 2, "calidad": "blunder", "probabilidad_victoria": 5.0, "jugada_san": "b3"},
+    ]
+
+    resumen_principiante = generar_resumen_partida(analisis_mock, rango="Principiante")
+    resumen_intermedio = generar_resumen_partida(analisis_mock, rango="Intermedio")
+    resumen_avanzado = generar_resumen_partida(analisis_mock, rango="Avanzado")
+
+    assert resumen_principiante["consejo_tutor"] != resumen_intermedio["consejo_tutor"]
+    assert resumen_avanzado["consejo_tutor"] != resumen_intermedio["consejo_tutor"]
+
+
 def test_generar_resumen_partida():
     analisis_mock = [
         {"numero_ply": 1, "calidad": "mejor", "probabilidad_victoria": 53.0, "jugada_san": "e4"},
