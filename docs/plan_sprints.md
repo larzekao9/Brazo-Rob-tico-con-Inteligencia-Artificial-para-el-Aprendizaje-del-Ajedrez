@@ -178,6 +178,16 @@ Pantalla para elegir oponente y parámetros antes de jugar:
 - [x] **Sugerencia de mejor jugada:** muestra la jugada óptima calculada
 - [x] **Mate forzado:** si hay mate en N, muestra "MATE en N" en vez de la barra normal
 - [x] **Integración con EstrategiaModelo:** el modelo v5 propio (SE-ResNet-8) decide jugadas maestras de forma autónoma con poda táctica.
+- [x] **Ampliación (Hebert, esta semana):** el modelo propio ahora se autoidentifica en toda la
+      interfaz como **"Turing"** (antes "Caissa" — se cambió porque el avatar 3D es masculino).
+      Panel nuevo "Candidatas de Turing" en Razonamiento Neuronal: detalle real de las 3
+      candidatas de la red (no solo la elegida), con los 3 chequeos tácticos autónomos que ya
+      usa `predecir_jugada_maestra` (jaque mate, mate del rival evitado, pieza colgada) y la
+      evaluación de Stockfish de cada candidata puntual (no solo su propia mejor jugada) —
+      backend: `explicar_top_candidatas` en `inferencia.py`, sin tocar el comportamiento de la
+      jugada real en partidas (verificado con test que compara ambas funciones). Vista alternativa
+      del "cerebro" como red de nodos conectados (`CerebroRed.jsx`), seleccionable con un toggle
+      junto a la nube de partículas original — mismos datos reales, ambas conviven.
 
 **Salida:** Jugador ve feedback visual EN TIEMPO REAL, diferenciador vs ChessKid/Chess.com.
 
@@ -303,19 +313,52 @@ progreso, administración de sesiones, e integración completa para la defensa.
 | HU8  | Panel de Progreso                          | 3      | Luis Ángel  |
 | HU11 | Administración de Sesiones y Participantes | 3      | Luis Ángel  |
 
-### Sobre el simulador ya iniciado
+### Sobre el simulador — avance real (adelantado, HU9 parcial)
 
-Ya existe una versión temprana en `backend/servicios/simulacion/escena.py` (escena de PyBullet con
-tablero 3D estático y `resaltar_jugada(desde, hasta)`, sin cinemática inversa ni animación de
-brazo — deliberadamente simple). Esto se adelantó mientras Visión estaba en pausa; queda como
-base para HU9, pero la cinemática real y la conexión con el ESP32 son trabajo de este sprint,
-no algo ya cerrado.
+Ya no es solo la versión temprana con casillas vacías. `backend/servicios/simulacion/escena.py`
+ahora arma la posición inicial completa con las 32 piezas reales (modelos 3D generados con IA,
+estilo Staunton, optimizados de cientos de miles de caras a ~2500 cada una y de decenas de MB a
+unos pocos cientos de KB — assets en `backend/servicios/simulacion/assets/piezas/{claro,oscuro}/`),
+ubicadas vía `python-chess` (sin hardcodear casillas), con escala y orientación calibradas
+(`ESCALA_PIEZA`, corrección de eje Y-arriba→Z-arriba verificada contra los `.obj` crudos, no
+asumida). `sincronizar_piezas` permite reflejar cualquier posición arbitraria, no solo la inicial.
 
-- [ ] HU9: cinemática inversa sobre el URDF del kit (o uno de referencia mientras se
-      consigue el definitivo) + comunicación con el ESP32 real cuando esté disponible.
-- [ ] HU7, HU8, HU11: interfaz y lógica de cada una.
+**Puente 2D↔3D ya funcionando:** `backend/servicios/simulacion/ver_partida_en_vivo.py` abre una
+ventana nativa de PyBullet que sondea `GET /partida/{id}` cada 1s y actualiza las piezas en vivo
+mientras se juega en la web — sin tocar nada manualmente. Se puede lanzar a mano
+(`ver_simulacion_3d.bat <partida_id> <token>` en la raíz del repo) o con un clic desde Sala de
+Control (botón "Abrir simulación 3D", `POST /simulacion/abrir-ventana-3d`, el backend lanza el
+proceso). Entorno conda `ajedrez` (con PyBullet real) ya armado y probado en la máquina de Hebert
+— `environment.yml`/`requirements.txt` tenían pines de versión inexistentes
+(`pybullet=3.25` en conda-forge sí existe — verificado con `conda search`, era `python-chess`
+el nombre de paquete viejo/incorrecto, ya corregido a `chess==1.11.2`, la distribución PyPI real).
+
+**Cambio de alcance real, no de ESP32 genérico:** la universidad (FICCT) ya trajo el kit real —
+no es un ESP32+PCA9685 armado a medida, es un **DOBOT CR5AS** (robot colaborativo de 6 ejes,
+5kg de carga, 900mm de radio, con visión artificial disponible para pick-and-place — ficha técnica
+de DIDACTECH SRL revisada). Tiene protocolo TCP/IP oficial documentado (puertos 29999
+comandos/30004 feedback, SDK Python oficial `Dobot-Arm/TCP-IP-Python-V4`) — mucho más viable que
+armar un controlador propio desde cero. Software de configuración inicial: DobotStudio Pro
+(activar modo TCP/IP una sola vez, no es lo que habla nuestro backend en tiempo real).
+Conexión real programada para probar en la universidad — pendiente confirmar en persona.
+
+**Todavía sin empezar (el núcleo real de HU9):**
+- [ ] `EjecutorReal` (interfaz `ejecutar_movimiento(origen, destino, captura)`, mismo patrón
+      Strategy que `EjecutorSimulado`) que hable con el Dobot real por TCP/IP — no escrito
+      todavía, ni siquiera un esqueleto; recién se investigó el protocolo, no se implementó.
+- [ ] Cinemática inversa real (coordenadas de casilla del tablero físico → posición XYZ del
+      brazo) — depende de calibrar el tablero físico real contra el espacio de trabajo del Dobot,
+      todavía no hecho.
+- [ ] **Visión para guiar el brazo real (distinto de HU1):** HU1 ya reconoce el tablero desde una
+      foto para actualizar el estado digital de la partida — eso está resuelto desde Sprint 1. Lo
+      que falta es un problema distinto: que el Dobot ubique con precisión una pieza física
+      específica para agarrarla (pick-and-place guiado por cámara), que es lo que dilucida el PDF
+      de DIDACTECH (visión 2D/3D + calibración cámara-robot + herramienta final) — nada de esto
+      arrancó, es trabajo nuevo de HU9, no una extensión de HU1.
 - [ ] Integración de punta a punta con al menos 10 posiciones de prueba documentadas.
 - [ ] Colchón de 2-3 días antes de la defensa para bugs de integración.
+
+- [ ] HU7, HU8, HU11: interfaz y lógica de cada una — sin empezar (Luis Ángel).
 
 ---
 
