@@ -35,6 +35,9 @@ services:
       # Los checkpoints entrenados en Colab (ver training/checkpoints/README.md): viven en el
       # host, no en la imagen, así una versión nueva del modelo se cambia sin reconstruir nada.
       - ../training/checkpoints:/app/training/checkpoints:ro
+      # Videos que suben los facilitadores (Configuración de Enseñanza) — volumen con nombre,
+      # no bind mount: sin esto, se pierden cada vez que se reconstruye el contenedor.
+      - ajedrez_media_videos:/app/backend/media/videos_piezas
     depends_on:
       # `depends_on` sin `condition` solo espera a que el CONTENEDOR arranque, no a que Postgres ya
       # acepte conexiones — y hace falta que ya las acepte: `servicio_partida.py` crea el
@@ -47,3 +50,4 @@ services:
 
 volumes:
   ajedrez_db_data:
+  ajedrez_media_videos:
