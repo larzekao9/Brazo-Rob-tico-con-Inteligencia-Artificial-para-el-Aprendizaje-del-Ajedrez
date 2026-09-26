@@ -20,6 +20,8 @@ from backend.rutas.ruta_vision import router as vision_router
 from backend.rutas.ruta_auth import router as auth_router
 from backend.rutas.ruta_aprendizaje import router as aprendizaje_router
 from backend.rutas.ruta_simulacion import router as simulacion_router
+from backend.rutas.ruta_facilitador import router as facilitador_router
+from backend.servicios.facilitador.servicio_videos import MEDIA_VIDEOS_DIR, URL_BASE_VIDEOS_PIEZAS
 
 FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
@@ -40,6 +42,10 @@ app.include_router(vision_router)
 app.include_router(auth_router)
 app.include_router(aprendizaje_router)
 app.include_router(simulacion_router)
+app.include_router(facilitador_router)
+
+MEDIA_VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
+app.mount(URL_BASE_VIDEOS_PIEZAS, StaticFiles(directory=MEDIA_VIDEOS_DIR), name="videos_piezas")
 
 
 @app.get("/health")

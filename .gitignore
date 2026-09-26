@@ -31,6 +31,11 @@ app_movil/build/
 # admin para instalarlo) — cada quien lo baja con su propio script, no se commitea
 tools/
 
+# Contenido subido por facilitadores (videos educativos por pieza) — no es
+# código, no se commitea
+backend/media/videos_piezas/*
+!backend/media/videos_piezas/.gitkeep
+
 # Sistema
 .DS_Store
 
