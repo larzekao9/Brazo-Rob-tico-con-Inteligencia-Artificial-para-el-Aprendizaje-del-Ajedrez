@@ -188,6 +188,14 @@ Pantalla para elegir oponente y parámetros antes de jugar:
       jugada real en partidas (verificado con test que compara ambas funciones). Vista alternativa
       del "cerebro" como red de nodos conectados (`CerebroRed.jsx`), seleccionable con un toggle
       junto a la nube de partículas original — mismos datos reales, ambas conviven.
+- [x] **Segunda ampliación (Hebert, misma semana):** Razonamiento Neuronal pasó de mostrar
+      "todas las partidas del sistema mezcladas, de cualquiera" a un selector de dos pasos
+      **elegir estudiante → elegir su partida** (`GET /auth/usuarios` filtrado a rol jugador,
+      después `GET /auth/usuarios/{id}/historial-partidas`), con un rótulo fijo "Analizando
+      partida de: {nombre}" siempre visible mientras se mira una. Si el estudiante elegido sigue
+      jugando (partida no terminada), la pantalla ahora sondea cada 3s y refresca sola el cerebro
+      y las candidatas con la jugada nueva — antes era una foto fija de un solo momento. Pantalla
+      ahora exclusiva de facilitador (antes la veía cualquier rol sin distinción).
 
 **Salida:** Jugador ve feedback visual EN TIEMPO REAL, diferenciador vs ChessKid/Chess.com.
 
@@ -201,6 +209,30 @@ Pantalla para elegir oponente y parámetros antes de jugar:
 - [x] Panel de detalle de cada jugada con FEN antes/después y sugerencia de alternativa óptima
 
 **Salida:** Jugador entiende qué salió mal y cómo mejorar de manera amena y educativa.
+
+**Ampliación (Hebert, esta semana) — cierra el hueco real de RF20.** Revisando el documento
+oficial del Taller de Grado se confirmó que el criterio de aprobación de HU5 en ese documento es
+literalmente *"Modo Educativo"* con RF20 — *"transmitir principios básicos del ajedrez adaptados
+al nivel de cada participante"* — y que, pese a que esta sección ya decía "Completado", el código
+real (`explicar_jugada`/`generar_resumen_partida`) generaba el mismo texto sin importar el nivel
+del jugador. Se avisó a Luis Ángel antes de tocar su HU y se avanzó igual dado que es un hueco
+central para la defensa (falta de "alguien que le enseñe" es la situación problemática del propio
+documento). Implementado:
+
+- [x] `explicar_jugada`/`generar_resumen_partida` ahora reciben `rango` (`Principiante`/
+      `Intermedio`/`Avanzado`, mismos valores que `UsuarioORM.rango_estimado`) y devuelven texto
+      distinto por cada una de las categorías de principio ajedrecístico — Intermedio es el texto
+      que ya existía (sin regresión), Principiante simplifica sin jerga y con tono que anima,
+      Avanzado agrega el dato numérico (pérdida en peones) y vocabulario técnico preciso.
+- [x] `GET /partida/{id}/analisis-completo` adapta la respuesta al `rango_estimado` real del
+      usuario autenticado (`Intermedio` si no hay token o el jugador no se diagnosticó todavía —
+      el endpoint sigue funcionando sin login, no se le exigió auth nueva para no romper el uso
+      existente).
+- [x] **Bug real encontrado y corregido de paso:** el análisis retrospectivo usaba el mismo
+      `Skill Level` débil configurado para la partida también para evaluar objetivamente las
+      jugadas ya jugadas — en niveles bajos Stockfish daba evaluaciones sin sentido (le decía al
+      jugador "te perdiste de capturar la dama" justo después de capturarla). Ahora el análisis
+      retrospectivo siempre corre a fuerza máxima, sin importar el nivel de la partida.
 
 ### **HU14 — Estadísticas Personales y Progreso** (3 pts, Luis Ángel)
 
@@ -359,6 +391,67 @@ Conexión real programada para probar en la universidad — pendiente confirmar 
 - [ ] Colchón de 2-3 días antes de la defensa para bugs de integración.
 
 - [ ] HU7, HU8, HU11: interfaz y lógica de cada una — sin empezar (Luis Ángel).
+
+---
+
+## Dashboard por rol y Módulo de Enseñanza (Hebert, adelantado fuera de HU puntuales)
+
+Punto de partida: releer el documento oficial del Taller de Grado (`situación problemática` /
+`situación deseada`, sección 3-4) dejó claro que "falta alguien que enseñe" es literalmente el
+problema central a demostrar en la defensa — esto llevó a cerrar RF20 (arriba, en HU5) y a
+construir toda la plataforma de roles que hacía falta para que tuviera sentido. Nada de esto
+rompe HU1/HU2/HU3/HU9, que siguen intactas.
+
+**División real por rol (antes, `jugador` y `facilitador` veían las mismas pantallas sin
+distinción):**
+
+- [x] **Sala de Control**, **Razonamiento Neuronal**, **Monitoreo** y **Configuración de
+      Enseñanza**: ahora exclusivas de facilitador (antes accesibles a cualquier rol logueado).
+- [x] **Panel de Aprendizaje**: pantalla nueva, exclusiva de jugador — es la que responde RF20 en
+      la interfaz: nivel + ruta de progreso, repaso de la última jugada relevante (adaptado por
+      nivel, con glosario de términos tocable), galería de las 6 piezas con mini-tablero de
+      movimientos legales ilustrativo, resumen del tutor, logros básicos (datos reales, no
+      simulados), sección "Próximamente" (multijugador/ranking — visión de tesis, no de este
+      sprint) y narración por voz real con la Web Speech API del navegador (sin dependencia
+      nueva).
+- [x] **Mi Perfil**: nuevo, cualquier rol — nombre/foto/edad/bio editable (`PATCH /auth/me`).
+- [x] **Permisos por partida**, controlados por el facilitador, apagados por defecto: simulación
+      3D y cámara del tablero físico quedan ocultas al jugador hasta que el facilitador las
+      activa puntualmente para esa partida (`PATCH /partida/{id}/permisos`) — el E-STOP del brazo
+      NO tiene este toggle, queda hardcodeado solo-facilitador por ser control de seguridad.
+- [x] **Modo demostración en vivo**: el facilitador puede jugar una partida propia para mostrarle
+      a la clase cómo jugar y "transmitirla" — cualquier jugador la ve en solo lectura sin que se
+      comparta nada a mano (`GET /partida/demostracion-activa`, banner + pantalla dedicada del
+      lado del jugador).
+- [x] **Monitoreo**: pantalla tipo DVR de cámaras para el facilitador — hasta 4 tableros de
+      estudiantes EN CURSO a la vez (agrupado por jugador, no por partida — una sola tarjeta por
+      estudiante aunque tenga partidas viejas sin terminar), clic en uno lo agranda, paginación si
+      hay más de 4, badge del nivel diagnosticado de cada estudiante.
+- [x] **Configuración de Enseñanza**: panel del facilitador para subir un video corto por pieza
+      (`POST /facilitador/videos/{tipo_pieza}`, sirve por `/media/videos_piezas/...`) y elegir un
+      preset de tono (Infantil/Estándar/Adultos, `preset_ensenanza` en el perfil) — documentado
+      explícitamente en la interfaz que este preset **todavía no se aplica a estudiantes reales**
+      porque no existe una tabla de curso/grupo que vincule facilitador↔estudiantes (queda anotado
+      como hueco real, no resuelto ni escondido).
+- [x] **Interfaces "en vivo" de verdad, no fotos fijas**: cualquier pantalla donde el facilitador
+      mira algo que otra persona puede estar cambiando en ese momento sondea el backend — Sala de
+      Control al ver la partida de un estudiante (2.5s, además el tablero queda de solo lectura,
+      el facilitador no puede intervenir en la partida de nadie), Razonamiento Neuronal al analizar
+      una partida en curso (3s), Monitoreo (5s la lista, 1.5s el tablero agrandado), Demostración
+      en vivo (1.5s).
+- [x] **Bug real encontrado y corregido:** `RepositorioPartidasPostgres` reconstruía el tablero
+      siempre desde la posición inicial estándar, ignorando `fen_inicial` — cualquier partida
+      arrancada desde una posición armada en el tablero físico (HU1) perdía esa posición al
+      releerla de la base. Corregido; filas viejas sin esa columna siguen usando la posición
+      estándar (no se rompe nada retroactivo).
+
+**Todavía sin empezar / explícitamente fuera de alcance de este sprint:** vínculo real
+facilitador↔curso↔estudiantes (bloquea que el preset de enseñanza y el selector de "grupo" de
+Monitoreo/Configuración de Enseñanza hagan algo más que mostrar un placeholder "Próximamente");
+multijugador, matchmaking por nivel y ranking (Módulo 7 del documento oficial, "visión de tesis"
+explícita, no de este sprint); tutor conversacional real (LLM con tools/system-prompt/multi-turn)
+— evaluado y descartado para este sprint por tiempo/alcance, el nivel-adaptativo actual (RF20) se
+resuelve con plantillas escritas a mano, no con un modelo de lenguaje.
 
 ---
 
