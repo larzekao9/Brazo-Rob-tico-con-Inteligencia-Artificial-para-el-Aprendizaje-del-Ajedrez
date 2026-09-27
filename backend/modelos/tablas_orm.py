@@ -114,6 +114,9 @@ class PartidaORM(Base):
     # Partida que el facilitador transmite en vivo a la clase (ver `modelos/partida.py`,
     # `Partida.es_demostracion`) — solo una fila en `True` a la vez en todo el sistema.
     es_demostracion: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
+    # Si la jugada de respuesta de la estrategia activa también se ejecuta en el
+    # brazo (ver `modelos/partida.py`, `Partida.usa_brazo`, HU9).
+    usa_brazo: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
 
     jugadas: Mapped[list["JugadaORM"]] = relationship(back_populates="partida", cascade="all, delete-orphan")
     usuario: Mapped["UsuarioORM"] = relationship(back_populates="partidas")

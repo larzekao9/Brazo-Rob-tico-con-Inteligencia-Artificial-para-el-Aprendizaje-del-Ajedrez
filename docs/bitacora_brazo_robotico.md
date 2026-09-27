@@ -251,3 +251,180 @@ captura (también con socket mockeado) — nada de esto toca red real.
 7. Nota explícita: la lógica de captura (retirar la pieza de `destino` del tablero
    físico) todavía no está implementada — es el siguiente paso una vez validado el
    movimiento básico.
+
+---
+
+## 2026-09-27 — Investigación profunda del protocolo y especificaciones (Dobot CR5AS)
+
+**Contexto:** el PDF que compartió DIDACTECH (`Aplicaciones_DOBOT_CR5AS_Vision_Artificial`)
+es material comercial — 9 páginas listando casos de uso posibles (pick and place,
+bin picking, clasificación, etc.) y una tabla de perfil funcional muy general. No
+tiene contenido técnico de protocolo ni de SDK. Se pidió investigar más a fondo el
+brazo en sí; lo de abajo sale de la documentación oficial de Dobot y de terceros
+(Trossen Robotics, que republica la documentación técnica completa de la serie CR),
+no del PDF comercial.
+
+**Especificaciones confirmadas (contra ficha oficial, no contra el PDF de
+DIDACTECH):**
+- 6 ejes, carga útil 5 kg, alcance máximo declarado 900 mm (RBTX/QVIRO) — Trossen
+  reporta 1096 mm de alcance máximo con 1534 mm de espacio de trabajo recomendado;
+  hay discrepancia entre fuentes comerciales y la doc técnica, a confirmar con la
+  ficha física del equipo de la universidad antes de diseñar el layout del tablero.
+- Repetibilidad ±0,02 mm, peso del brazo ~23–25 kg, velocidad máx. ~2 m/s, rango de
+  temperatura de operación 0–50 °C.
+- Controlador Dobot CC161: 16 entradas digitales + 16 E/S digitales multiplexadas,
+  2 salidas analógicas + 2 entradas analógicas (0–10V o 4–20mA), 1 entrada de
+  encoder incremental ABZ. Soporta EtherCAT, Ethernet, Modbus, TCP/IP, EtherNet/IP
+  y ROS.
+- 22 funciones de seguridad incorporadas (relevante para el checklist de seguridad
+  de la Sección 6 del CLAUDE.md del proyecto — uso en ambiente universitario con
+  estudiantes alrededor).
+
+**Protocolo TCP/IP — más detalle sobre lo ya documentado el 26/09:**
+- Puerto 29999 (dashboard) exige **antes que nada** activar el modo TCP en
+  DobotStudio Pro — si no, cualquier comando responde literalmente
+  `"Control Mode Is Not Tcp"`. Ya lo teníamos anotado; se confirma que es el error
+  más común reportado por otros usuarios del SDK.
+- Secuencia de arranque correcta (según doc oficial): `PowerOn()` → esperar ~10 s →
+  `ClearError()` → `EnableRobot(peso, cx, cy, cz)` (acepta parámetros de carga del
+  efector) → `User(index)` / `Tool(index)` para fijar el sistema de coordenadas →
+  recién ahí `MovJ`/`MovL`. `EjecutorReal.conectar()` hoy no llama `PowerOn()` ni
+  `ClearError()` — pendiente revisar si el robot de la universidad ya queda
+  energizado por otro medio (interruptor físico) o si hace falta agregar esos dos
+  pasos al esqueleto antes de la prueba.
+- Formato de respuesta confirmado: `"ErrorID,{valores},Comando(...);"`. `ErrorID=0`
+  es éxito; `-10000` comando no encontrado; `-20000` cantidad de parámetros
+  incorrecta. `_enviar_comando` en `ejecutor_movimiento.py` debería parsear el
+  `ErrorID` en vez de solo revisar que la conexión no tirara excepción — pendiente.
+- **Hallazgo importante para el checklist:** el robot resuelve la cinemática
+  inversa internamente para `MovJ`/`MovL` (reciben pose cartesiana `X,Y,Z,Rx,Ry,Rz`
+  y el propio controlador calcula los ángulos de junta). Existe además un comando
+  de dashboard `InverseSolution(...)` para resolver IK manualmente si hiciera
+  falta verificar una pose antes de moverse. Esto quiere decir que el ítem
+  "cinemática inversa real para el Dobot — no iniciado" probablemente **no haga
+  falta implementarlo a mano**: alcanza con enviar la pose cartesiana calibrada
+  (que ya resuelve `calibracion_tablero.py`) y dejar que el propio Dobot resuelva
+  la IK. Falta validarlo en la prueba física, pero cambia el alcance pendiente de
+  HU9.
+- Puerto 30004 (feedback en tiempo real): paquetes de 1440 bytes cada 8 ms — no
+  usado todavía por `EjecutorReal`, que hoy solo habla por 29999. Suficiente para
+  el caso simple (comandos síncronos, esperar respuesta), se necesitaría solo si
+  más adelante se quiere telemetría en vivo o detección de colisión en tiempo real
+  desde el backend.
+- Comandos de seguridad relevantes que no estaban contemplados en el esqueleto:
+  `SetCollisionLevel(0-5)` y `SetSafeSkin(status)` (si el equipo de la universidad
+  tiene piel sensible instalada). Candidatos a llamar una vez en `conectar()`,
+  antes de la primera prueba.
+
+**Efector final para piezas de ajedrez — pendiente de confirmar en persona.** La
+serie de gripper adaptable AG de Dobot (diseño tipo linkage) está pensada para
+objetos redondos/esféricos, lo que calza mejor con piezas de ajedrez torneadas
+(especialmente el rey y la reina, de base angosta y cuerpo curvo) que una pinza
+paralela genérica. Sigue sin saberse qué efector está cableado físicamente en el
+brazo de la universidad — este punto del checklist original (punto 5) no cambia.
+
+**Fuentes consultadas:**
+- [DOBOT CR5A — Unchained Robotics](https://unchainedrobotics.de/en/products/robot/cobot/dobot-cr5a)
+- [DOBOT CR5 Specifications — QVIRO](https://qviro.com/product/cr5/specifications)
+- [Specifications — Dobot CR-Series Documentation (Trossen Robotics)](https://docs.trossenrobotics.com/dobot_cr_cobots_docs/specifications.html)
+- [Protocol Definition — Dobot CR-Series Documentation (Trossen Robotics)](https://docs.trossenrobotics.com/dobot_cr_cobots_docs/tcpip_protocol/functions.html)
+- [Which network communication ports are available on the CR series? — Dobot FAQ](https://www.dobot-robots.com/service/faq/459.html)
+- [Dobot-Arm/TCP-IP-Python-V4 — GitHub](https://github.com/Dobot-Arm/TCP-IP-Python-V4)
+- [Wide Applications of DOBOT CR5 Collaborative Robot — Dobot](https://www.dobot-robots.com/insights/news/wide-applications-of-dobot-cr5-collaborative-robot.html)
+
+**Pendiente para la prueba física (se suma al checklist existente):**
+8. Confirmar si `EjecutorReal.conectar()` necesita agregar `PowerOn()` +
+   `ClearError()` antes de `EnableRobot()`, o si el robot ya llega energizado.
+9. Decidir si vale la pena llamar `SetCollisionLevel` y (si aplica) `SetSafeSkin`
+   como parte de `conectar()`, dado el uso en ambiente universitario.
+10. Validar en la prueba real que enviar `MovL` con la pose calibrada (sin resolver
+    IK a mano) mueve el brazo correctamente — si es así, se puede tachar
+    definitivamente "cinemática inversa real" de los pendientes de HU9.
+
+---
+
+## 2026-09-27 — Wiring modelo + visión + brazo, y fix de sincronización de EjecutorSimulado/EjecutorReal
+
+**Contexto:** el modelo propio decidiendo jugadas (HU3/HU4), la visión detectando la
+jugada humana desde una foto (HU1/HU9, `mover_desde_foto`) y el ejecutor de
+movimiento (`EjecutorSimulado`/`EjecutorReal`) ya funcionaban cada uno por separado,
+pero nada los conectaba: `servicio_partida.mover()` nunca llamaba a un
+`EjecutorMovimiento`, así que la jugada de respuesta de la estrategia activa solo se
+aplicaba al `chess.Board` en memoria, nunca al brazo (ni simulado ni real).
+
+**Bug real encontrado antes de cablear nada.** `EjecutorSimulado.__init__` creaba su
+propio `self.tablero = chess.Board()` (posición estándar) y cada
+`ejecutar_movimiento` hacía `self.tablero.push(...)` sobre esa copia interna. Como el
+ejecutor solo debe recibir la jugada de la estrategia (nunca la del humano — esa ya
+se jugó a mano sobre el tablero físico real, por eso `mover_desde_foto` puede
+detectarla con la cámara), esa copia interna quedaba desincronizada de la posición
+real desde la segunda jugada de la estrategia en adelante: le faltaban todas las
+jugadas del humano de por medio. `piece_at` podía devolver una pieza equivocada o
+`None`, y la escena PyBullet terminaba mal.
+
+**Fix aplicado (`backend/servicios/brazo/ejecutor_movimiento.py`).** Se cambió la
+interfaz de `EjecutorMovimiento.ejecutar_movimiento` de
+`(origen: str, destino: str, captura: bool)` a
+`(tablero_antes: chess.Board, jugada: chess.Move)`. Quien llama pasa el tablero real
+inmediatamente antes de la jugada (una copia, nunca mutada) y la jugada ya resuelta
+como objeto `chess.Move`; `origen`/`destino`/`captura` se derivan ahí mismo
+(`chess.square_name`, `tablero_antes.is_capture(jugada)`), y la promoción ya viene
+resuelta en `jugada.promotion` (python-chess la arma al parsear la jugada, ya no hace
+falta forzarla a mano a dama). `EjecutorSimulado` dejó de mantener `self.tablero`
+como estado acumulado: cada llamada usa `tablero_antes.copy()` + `push(jugada)` solo
+para esa jugada, así no hay estado interno que se pueda desincronizar.
+`EjecutorReal.ejecutar_movimiento` sigue igual en su secuencia de comandos, solo
+cambia de dónde saca `origen`/`destino`/`captura`. Se actualizó
+`test_ejecutor_movimiento.py` a la nueva firma y se sumó un test que reproduce el
+escenario real (dos jugadas de la estrategia con jugadas del humano de por medio que
+el ejecutor nunca ve) para confirmar que ya no se desincroniza.
+
+**Wiring del flujo completo.**
+- `Partida.usa_brazo: bool = False` (`backend/modelos/partida.py`) — mismo patrón que
+  `permite_camara`/`permite_simulacion_3d`: togglable por partida vía
+  `PATCH /partida/{id}/permisos` (solo facilitador), columna nueva en `PartidaORM`
+  (`backend/modelos/tablas_orm.py`) y mapeo en `repositorio_partida.py` para que
+  sobreviva con `RepositorioPartidasPostgres`, igual que los otros permisos.
+- `backend/servicios/brazo/servicio_brazo.py` (nuevo): `ejecutar_respuesta_en_brazo(partida,
+  tablero_antes, jugada) -> str | None`. No hace nada si `partida.usa_brazo` es
+  `False`. Si está prendido, obtiene (lazy, cacheado a nivel módulo) un
+  `EjecutorMovimiento` vía `crear_ejecutor_movimiento(modo, **kwargs)`, con `modo`
+  desde `AJEDREZ_MODO_BRAZO` (default `"simulado"`, **nunca** `"real"` por defecto —
+  regla 3 del `CLAUDE.md` del proyecto) y, si `modo="real"`, `host`/
+  `puerto_dashboard` desde `AJEDREZ_BRAZO_HOST`/`AJEDREZ_BRAZO_PUERTO_DASHBOARD`.
+  Cualquier excepción al ejecutar (brazo desconectado, sin calibración, captura no
+  implementada, o incluso el host real sin configurar) se loguea
+  (`logging.exception`, no `print`) y se devuelve como string en vez de propagarse —
+  la partida digital ya está resuelta en ese punto, un fallo físico no debe romper el
+  turno ni la respuesta HTTP.
+- `servicio_partida.mover()`: justo después de resolver `jugada_motor_san` y antes de
+  pisar `tablero_intento`, se guarda `tablero_antes_motor = tablero_intento.copy()` y
+  se obtiene la jugada real con `tablero_intento.parse_san(jugada_motor_san)` (en vez
+  de `push_san` directo, para tener el objeto `chess.Move`), se hace `push` de esa
+  jugada, y recién ahí se llama `ejecutar_respuesta_en_brazo(partida,
+  tablero_antes_motor, jugada_motor_move)`. El resultado se expone como
+  `error_brazo: str | None` en el dict que devuelve `mover()` (y por lo tanto en
+  `ResultadoMovimientoResponse`, `backend/esquemas/partida_esquema.py`).
+  `mover_desde_foto()` no necesitó cambios: delega en `mover()`, así que hereda el
+  wiring gratis (confirmado leyendo el código, no asumido).
+
+**Tests agregados/actualizados:** `test_ejecutor_movimiento.py` (nueva firma + caso de
+desincronización), `test_servicio_brazo.py` (nuevo — `usa_brazo=False` no hace nada,
+`usa_brazo=True` llama al ejecutor con `tablero_antes`/`jugada` correctos, error del
+ejecutor capturado como string, `modo=real` sin `AJEDREZ_BRAZO_HOST` no rompe),
+`test_servicio_partida.py` (wiring: `usa_brazo=True` invoca
+`ejecutar_respuesta_en_brazo` con la jugada de la estrategia — nunca la del humano —
+y `error_brazo` aparece en la respuesta sin abortar la jugada digital). Toda la
+suite de `backend/servicios/brazo/` y `backend/servicios/partida/` pasa en verde.
+
+**Pendiente:** el frontend (Sala de Control) todavía no tiene el toggle de
+`usa_brazo` en la UI de permisos — falta avisarle a `frontend-react` que
+`EstadoPartidaResponse` y `ActualizarPermisosPartidaRequest` tienen un campo nuevo.
+La ejecución de captura en `EjecutorReal` sigue sin implementar (fuera de alcance,
+ya documentado arriba). Se encontró además, de paso, que correr
+`python -m pytest backend/` completo en una sola invocación en el env conda
+`ajedrez` de esta máquina hace segfault por una interacción de torch/OpenMP al
+cargar varios checkpoints `.pt` en el mismo proceso (`backend/servicios/vision/piezas.py`
+tras `backend/servicios/aprendizaje/` y/o `backend/servicios/estrategias/test_fabrica_estrategias.py`)
+— no es un bug de este cableado (cada módulo pasa 100% en aislamiento), se dejó
+flageado como tarea de entorno aparte.

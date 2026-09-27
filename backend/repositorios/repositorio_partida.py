@@ -127,6 +127,7 @@ def _partida_a_fila(partida: Partida) -> PartidaORM:
         permite_simulacion_3d=partida.permite_simulacion_3d,
         permite_camara=partida.permite_camara,
         es_demostracion=partida.es_demostracion,
+        usa_brazo=partida.usa_brazo,
     )
 
 
@@ -155,6 +156,7 @@ def _fila_a_partida(fila: PartidaORM) -> Partida:
         permite_simulacion_3d=fila.permite_simulacion_3d,
         permite_camara=fila.permite_camara,
         es_demostracion=fila.es_demostracion,
+        usa_brazo=fila.usa_brazo,
     )
 
 
@@ -179,6 +181,7 @@ class RepositorioPartidasPostgres(RepositorioPartidas):
                 for columna in (
                     "usuario_id", "resultado", "fen", "fen_inicial", "nivel", "tipo_oponente",
                     "jugadas_uci", "permite_simulacion_3d", "permite_camara", "es_demostracion",
+                    "usa_brazo",
                 ):
                     setattr(fila_existente, columna, getattr(fila_nueva, columna))
             sesion.commit()

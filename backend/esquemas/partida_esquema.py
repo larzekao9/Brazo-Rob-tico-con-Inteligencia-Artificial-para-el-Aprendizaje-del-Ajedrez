@@ -52,6 +52,7 @@ class EstadoPartidaResponse(BaseModel):
     permite_simulacion_3d: bool = False
     permite_camara: bool = False
     es_demostracion: bool = False
+    usa_brazo: bool = False
     usuario_id: int | None = None
     usuario_nombre: str | None = None
 
@@ -70,6 +71,11 @@ class ActualizarPermisosPartidaRequest(BaseModel):
     partida sea del propio facilitador que hace el pedido (400 si no) y apaga
     cualquier otra partida que estuviera en demostración (solo una a la vez).
 
+    `usa_brazo` prende/apaga que la jugada de respuesta de la estrategia
+    activa también se ejecute en el brazo (simulado o real, según
+    `AJEDREZ_MODO_BRAZO`) además de aplicarse al tablero digital — HU9, ver
+    `servicio_brazo.ejecutar_respuesta_en_brazo`.
+
     El E-STOP del brazo no pasa por acá — es un control de seguridad
     hardcodeado solo-facilitador, sin toggle.
     """
@@ -77,6 +83,7 @@ class ActualizarPermisosPartidaRequest(BaseModel):
     permite_simulacion_3d: bool | None = None
     permite_camara: bool | None = None
     es_demostracion: bool | None = None
+    usa_brazo: bool | None = None
 
 
 class ResumenPartidaResponse(BaseModel):
@@ -125,6 +132,12 @@ class ResultadoMovimientoResponse(BaseModel):
 
     `variantes_candidatas` y `retroalimentacion_en_vivo` permiten al frontend y móvil
     (HU6) pintar la barra Win%, el indicador de calidad y el consejo pedagógico en tiempo real.
+
+    `error_brazo` es `None` salvo que `partida.usa_brazo` esté prendido y la
+    ejecución física de la jugada de respuesta haya fallado (brazo
+    desconectado, sin calibración, captura todavía no implementada) — un
+    fallo ahí nunca aborta la jugada digital, que ya quedó resuelta antes de
+    tocar el brazo (ver `servicio_brazo.ejecutar_respuesta_en_brazo`).
     """
 
     fen: str
@@ -134,6 +147,7 @@ class ResultadoMovimientoResponse(BaseModel):
     jugadas: list[str] = Field(default_factory=list)
     variantes_candidatas: list[VarianteCandidata] = Field(default_factory=list)
     retroalimentacion_en_vivo: RetroalimentacionEnVivo | None = None
+    error_brazo: str | None = None
 
 
 class JugadasLegalesResponse(BaseModel):

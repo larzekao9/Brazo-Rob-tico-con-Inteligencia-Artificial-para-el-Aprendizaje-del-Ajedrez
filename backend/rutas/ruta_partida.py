@@ -52,6 +52,7 @@ def _a_estado(partida: Partida, usuario_nombre: str | None = None) -> EstadoPart
         permite_simulacion_3d=partida.permite_simulacion_3d,
         permite_camara=partida.permite_camara,
         es_demostracion=partida.es_demostracion,
+        usa_brazo=partida.usa_brazo,
         usuario_id=partida.usuario_id,
         usuario_nombre=usuario_nombre,
     )
@@ -200,10 +201,12 @@ def actualizar_permisos_partida(
     usuario_id_facilitador: int = Depends(get_current_facilitador),
 ) -> EstadoPartidaResponse:
     """Prende o apaga, para esta partida, la simulación 3D, la cámara del
-    tablero físico y/o la demostración en vivo (`es_demostracion`) — las dos
-    primeras son funciones educativas apagadas para el jugador por defecto;
-    la tercera transmite la partida a toda la clase. Requiere rol
-    facilitador (403 si no lo es).
+    tablero físico, la demostración en vivo (`es_demostracion`) y/o la
+    ejecución de la jugada de respuesta en el brazo (`usa_brazo`) — las
+    primeras dos son funciones educativas apagadas para el jugador por
+    defecto; la tercera transmite la partida a toda la clase; la cuarta
+    activa HU9 (ver `servicio_brazo.ejecutar_respuesta_en_brazo`). Requiere
+    rol facilitador (403 si no lo es).
 
     `es_demostracion=true` además exige que la partida sea del propio
     facilitador que hace el PATCH (400 si no — ver

@@ -61,6 +61,14 @@ class Partida:
     `GET /partida/{id}` sin ser su dueño ni facilitador (ver
     `ruta_partida.py::estado`), y `GET /partida/demostracion-activa` la
     devuelve sin necesidad de conocer su id de antemano."""
+    usa_brazo: bool = False
+    """Si la jugada de respuesta de la estrategia activa se ejecuta también en
+    el brazo (simulado o real, según `AJEDREZ_MODO_BRAZO`), además de
+    aplicarse al tablero digital — mismo patrón que `permite_camara`/
+    `permite_simulacion_3d`, apagado por defecto y togglable por el
+    facilitador vía `PATCH /partida/{id}/permisos` (ver
+    `servicio_brazo.ejecutar_respuesta_en_brazo`, HU9). Nunca ejecuta la
+    jugada del humano, solo la de la estrategia."""
 
     @property
     def fen(self) -> str:

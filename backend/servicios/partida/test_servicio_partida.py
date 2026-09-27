@@ -195,6 +195,68 @@ def test_mover_registra_una_fila_de_jugada_por_cada_movimiento_aplicado(
     assert filas[1].decidido_por == "motor"
 
 
+def test_mover_sin_usa_brazo_no_expone_error_de_brazo() -> None:
+    # usa_brazo=False (default) hace que ejecutar_respuesta_en_brazo sea un
+    # no-op real, sin necesidad de mockear nada ni tocar pybullet/sockets.
+    partida = crear_partida(nivel=5)
+    assert partida.usa_brazo is False
+
+    resultado = mover(partida.id, "e2e4")
+
+    assert resultado["error_brazo"] is None
+
+
+def test_mover_con_usa_brazo_invoca_el_ejecutor_con_la_jugada_de_la_estrategia(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    partida = crear_partida(nivel=5)
+    partida.usa_brazo = True
+    servicio_partida._repositorio.guardar(partida)
+
+    llamadas = []
+
+    def _ejecutar_respuesta_en_brazo_fake(partida_arg, tablero_antes, jugada):
+        llamadas.append((partida_arg.id, tablero_antes.fen(), jugada.uci()))
+        return None
+
+    monkeypatch.setattr(
+        servicio_partida, "ejecutar_respuesta_en_brazo", _ejecutar_respuesta_en_brazo_fake
+    )
+
+    resultado = mover(partida.id, "e2e4")
+
+    assert len(llamadas) == 1
+    partida_id_recibido, fen_antes_recibido, jugada_uci_recibida = llamadas[0]
+    assert partida_id_recibido == partida.id
+    # tablero_antes es la posición justo antes de la jugada de la estrategia
+    # (después de aplicar la del humano), no la posición inicial de la partida.
+    assert "b KQkq" in fen_antes_recibido
+    # la jugada que recibe el ejecutor es la respuesta de la estrategia, no
+    # la jugada del humano ("e2e4") — nunca se le pide al brazo reproducirla.
+    assert jugada_uci_recibida != "e2e4"
+    assert resultado["error_brazo"] is None
+
+
+def test_mover_con_usa_brazo_expone_el_error_del_brazo_sin_romper_la_jugada_digital(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    partida = crear_partida(nivel=5)
+    partida.usa_brazo = True
+    servicio_partida._repositorio.guardar(partida)
+
+    monkeypatch.setattr(
+        servicio_partida,
+        "ejecutar_respuesta_en_brazo",
+        lambda *args, **kwargs: "brazo desconectado",
+    )
+
+    resultado = mover(partida.id, "e2e4")
+
+    assert resultado["error_brazo"] == "brazo desconectado"
+    assert resultado["jugada_motor"] is not None
+    assert not resultado["terminada"]
+
+
 def test_mover_en_partida_ya_terminada_lanza_valueerror() -> None:
     # Fool's mate armado directo en el tablero, sin pasar por Stockfish, para dejar la
     # partida en jaque mate y probar que `mover` no deja seguir jugando después.

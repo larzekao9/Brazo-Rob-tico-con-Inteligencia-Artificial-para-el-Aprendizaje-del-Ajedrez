@@ -15,6 +15,7 @@ import chess
 
 from backend.modelos.partida import Partida
 from backend.repositorios.repositorio_partida import RepositorioPartidas, crear_repositorio_partidas
+from backend.servicios.brazo.servicio_brazo import ejecutar_respuesta_en_brazo
 from backend.servicios.estrategias.fabrica_estrategias import TIPOS_SOPORTADOS, crear_estrategia_jugada
 from backend.servicios.motor.motor_ajedrez import NIVEL_MAX, analizar_posicion
 from backend.servicios.retroalimentacion.servicio_retroalimentacion import (
@@ -209,6 +210,13 @@ def mover(partida_id: str, jugada_uci: str) -> dict:
     (sin `DATABASE_URL`) es un no-op documentado: no hay tabla `jugada` en
     memoria a la que escribir.
 
+    Si la partida sigue en curso, la jugada de la estrategia (nunca la del
+    humano — esa ya se jugó a mano sobre el tablero físico real) también se
+    manda al brazo vía `ejecutar_respuesta_en_brazo` (HU9) — no-op si
+    `partida.usa_brazo` es `False`. Un fallo físico del brazo no aborta esta
+    función ni deja la jugada digital sin aplicar: queda expuesto en
+    `error_brazo` en el resultado.
+
     Raises:
         KeyError: si no existe una partida con ese id.
         ValueError: si la partida ya terminó o la jugada es inválida/ilegal.
@@ -230,17 +238,21 @@ def mover(partida_id: str, jugada_uci: str) -> dict:
     ]
 
     jugada_motor_san = None
+    error_brazo: str | None = None
     if not tablero_intento.is_game_over():
         estrategia = crear_estrategia_jugada(partida.tipo_oponente, nivel=partida.nivel)
         fen_antes_motor = tablero_intento.fen()
         jugada_motor_san = estrategia.decidir_jugada(fen_antes_motor)
-        tablero_intento.push_san(jugada_motor_san)
+        tablero_antes_motor = tablero_intento.copy()
+        jugada_motor_move = tablero_intento.parse_san(jugada_motor_san)
+        tablero_intento.push(jugada_motor_move)
         jugadas_a_registrar.append((
             len(tablero_intento.move_stack),
             fen_antes_motor,
-            tablero_intento.move_stack[-1].uci(),
+            jugada_motor_move.uci(),
             partida.tipo_oponente,
         ))
+        error_brazo = ejecutar_respuesta_en_brazo(partida, tablero_antes_motor, jugada_motor_move)
 
     partida.tablero = tablero_intento
     _repositorio.guardar(partida)
@@ -275,6 +287,7 @@ def mover(partida_id: str, jugada_uci: str) -> dict:
         "jugadas": partida.jugadas_san,
         "variantes_candidatas": variantes_candidatas,
         "retroalimentacion_en_vivo": retroalimentacion_en_vivo,
+        "error_brazo": error_brazo,
     }
 
 

@@ -13,22 +13,26 @@ import chess
 class EjecutorMovimiento(ABC):
     """Interfaz común para ejecutar un movimiento ya resuelto en el tablero.
 
-    `origen`/`destino` son casillas en notación algebraica (ej. "e2"/"e4") —
-    la conversión de SAN a UCI ya se hizo antes de llegar acá, con
-    `move.uci()` de `python-chess`.
+    Recibe `tablero_antes` (la posición real inmediatamente antes de la
+    jugada) y el objeto `chess.Move` ya resuelto — nunca mantiene su propia
+    copia del tablero entre llamadas. Quien implementa deriva acá mismo
+    `origen`/`destino` (`chess.square_name`), `captura`
+    (`tablero_antes.is_capture(jugada)`) y la promoción (ya viene resuelta en
+    `jugada.promotion`, python-chess la arma al parsear la jugada). Este
+    ejecutor solo recibe la jugada de la estrategia activa (motor o modelo),
+    nunca la del humano — esa ya se jugó a mano sobre el tablero físico real.
     """
 
     @abstractmethod
-    def ejecutar_movimiento(self, origen: str, destino: str, captura: bool) -> None:
-        """Ejecuta el movimiento de `origen` a `destino`.
+    def ejecutar_movimiento(self, tablero_antes: chess.Board, jugada: chess.Move) -> None:
+        """Ejecuta `jugada`, tal como estaba la posición antes de jugarla.
 
         Args:
-            origen: casilla de origen en notación algebraica.
-            destino: casilla de destino en notación algebraica.
-            captura: si la jugada captura una pieza rival. Sin efecto en
-                `EjecutorSimulado` (PyBullet recrea la escena completa desde
-                el tablero), pero necesario en `EjecutorReal`, que primero
-                debe retirar del tablero físico la pieza capturada.
+            tablero_antes: posición real inmediatamente antes de `jugada` —
+                nunca el tablero interno del ejecutor (no existe tal cosa),
+                para no desincronizarse si el ejecutor se salta jugadas del
+                humano.
+            jugada: la jugada ya resuelta a aplicar.
         """
 
 
@@ -50,33 +54,28 @@ class EjecutorSimulado(EjecutorMovimiento):
         )
 
         self.client_id, self.casillas, self.piezas = crear_escena(modo_gui=modo_gui)
-        self.tablero = chess.Board()
         self.formas_visuales = cargar_formas_visuales_piezas(self.client_id)
 
-    def ejecutar_movimiento(self, origen: str, destino: str, captura: bool) -> None:
-        """Mueve la pieza de `origen` a `destino` en la escena de PyBullet.
+    def ejecutar_movimiento(self, tablero_antes: chess.Board, jugada: chess.Move) -> None:
+        """Mueve la pieza de `jugada` en la escena de PyBullet.
 
-        Si es un peón llegando a la última fila, promueve a dama por
-        defecto (ver nota en `docs/plan_sprints.md`: "la promoción de peón
-        siempre es a dama"). `captura` no cambia la lógica acá:
-        `sincronizar_piezas` recrea la escena completa desde `self.tablero`,
-        así que una pieza capturada simplemente deja de aparecer.
+        No mantiene tablero propio entre llamadas — `tablero_antes` (copiado
+        acá, nunca mutado) más `jugada` alcanzan para recalcular la escena
+        completa cada vez, así que no hay estado interno que se pueda
+        desincronizar. `sincronizar_piezas` recrea la escena completa desde
+        el tablero resultante, así que una pieza capturada simplemente deja
+        de aparecer sin lógica especial.
         """
         from backend.servicios.simulacion.escena import resaltar_jugada, sincronizar_piezas
 
-        pieza = self.tablero.piece_at(chess.parse_square(origen))
-        es_promocion = (
-            pieza is not None
-            and pieza.piece_type == chess.PAWN
-            and destino[1] in ("1", "8")
-        )
-        uci = origen + destino + ("q" if es_promocion else "")
-        movimiento = chess.Move.from_uci(uci)
+        origen = chess.square_name(jugada.from_square)
+        destino = chess.square_name(jugada.to_square)
+        tablero_despues = tablero_antes.copy()
+        tablero_despues.push(jugada)
 
         resaltar_jugada(self.casillas, origen, destino, self.client_id)
-        self.tablero.push(movimiento)
         self.piezas = sincronizar_piezas(
-            self.client_id, self.piezas, self.tablero, self.formas_visuales
+            self.client_id, self.piezas, tablero_despues, self.formas_visuales
         )
 
     def cerrar(self) -> None:
@@ -190,8 +189,11 @@ class EjecutorReal(EjecutorMovimiento):
         self._socket.sendall(comando.encode("ascii"))
         return self._socket.recv(1024).decode("ascii", errors="replace")
 
-    def ejecutar_movimiento(self, origen: str, destino: str, captura: bool) -> None:
+    def ejecutar_movimiento(self, tablero_antes: chess.Board, jugada: chess.Move) -> None:
         """Ejecuta un movimiento simple (sin captura) en el brazo físico real.
+
+        `origen`, `destino` y `captura` se derivan de `tablero_antes`/`jugada`
+        acá mismo, nunca de un tablero propio guardado entre llamadas.
 
         Secuencia enviada por el puerto dashboard: sube a altura segura sobre
         `origen` (`MovJ`), baja en línea recta hasta la pieza (`MovL`), activa
@@ -209,21 +211,23 @@ class EjecutorReal(EjecutorMovimiento):
             RuntimeError: si todavía no se cargó `self.posiciones_casillas`
                 (falta correr `calcular_posiciones_casillas` con puntos
                 medidos reales primero).
-            NotImplementedError: si `captura` es `True` — retirar piezas
-                capturadas del tablero físico es el siguiente paso, no
-                implementado todavía.
+            NotImplementedError: si `jugada` captura una pieza rival —
+                retirar piezas capturadas del tablero físico es el siguiente
+                paso, no implementado todavía.
         """
         if self.posiciones_casillas is None:
             raise RuntimeError(
                 "No se cargó la calibración del tablero todavía — llamá "
                 "calcular_posiciones_casillas() con puntos medidos primero."
             )
-        if captura:
+        if tablero_antes.is_capture(jugada):
             raise NotImplementedError(
                 "Retirar piezas capturadas del tablero físico es el siguiente paso, "
                 "no implementado todavía."
             )
 
+        origen = chess.square_name(jugada.from_square)
+        destino = chess.square_name(jugada.to_square)
         x_origen, y_origen, z_origen = self.posiciones_casillas[origen]
         x_destino, y_destino, z_destino = self.posiciones_casillas[destino]
         z_segura_origen = z_origen + self.altura_segura_mm
