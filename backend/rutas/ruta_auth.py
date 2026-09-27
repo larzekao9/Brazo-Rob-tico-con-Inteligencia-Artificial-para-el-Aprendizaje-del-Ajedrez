@@ -4,7 +4,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Iterator
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -37,6 +37,7 @@ from backend.servicios.auth import (
     get_user_by_id,
     verificar_token_google,
 )
+from backend.servicios.usuario.servicio_avatar import guardar_avatar
 from backend.servicios.usuario.servicio_estadisticas import obtener_historial_partidas
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -295,6 +296,34 @@ def actualizar_perfil_propio(
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     campos = data.model_dump(exclude_unset=True)
     user = actualizar_perfil(db, user, campos)
+    return _a_respuesta(user)
+
+
+@router.post(
+    "/foto",
+    response_model=UsuarioResponse,
+    summary="Subir la foto de perfil del usuario autenticado",
+)
+async def subir_foto_perfil(
+    archivo: UploadFile = File(...),
+    user_id: int = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> UsuarioResponse:
+    """Sube (o reemplaza) la foto de perfil del usuario autenticado.
+
+    Solo acepta `.jpg`, `.jpeg`, `.png` o `.webp`. La nueva foto reemplaza a
+    la anterior del mismo usuario, si había una. Actualiza `avatar_url` en el
+    perfil y devuelve el usuario completo, igual que `PATCH /auth/me`.
+    """
+    user = get_user_by_id(db, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    contenido = await archivo.read()
+    try:
+        url = guardar_avatar(user_id, archivo.filename or "", contenido)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    user = actualizar_perfil(db, user, {"avatar_url": url})
     return _a_respuesta(user)
 
 

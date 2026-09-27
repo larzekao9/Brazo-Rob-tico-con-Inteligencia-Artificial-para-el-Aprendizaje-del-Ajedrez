@@ -1,5 +1,6 @@
 from backend.servicios.retroalimentacion.servicio_retroalimentacion import (
     analizar_jugada_en_tiempo_real,
+    calcular_rango_desde_precision,
     centipawns_a_probabilidad_victoria,
     clasificar_calidad_jugada,
     explicar_jugada,
@@ -8,6 +9,7 @@ from backend.servicios.retroalimentacion.servicio_retroalimentacion import (
 
 __all__ = [
     "analizar_jugada_en_tiempo_real",
+    "calcular_rango_desde_precision",
     "centipawns_a_probabilidad_victoria",
     "clasificar_calidad_jugada",
     "explicar_jugada",

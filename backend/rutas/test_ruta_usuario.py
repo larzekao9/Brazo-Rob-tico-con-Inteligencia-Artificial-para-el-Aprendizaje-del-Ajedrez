@@ -253,6 +253,73 @@ def test_estadisticas_top_errores_cuenta_blunder_tras_analisis_completo(contexto
     assert 0.0 <= resp_stats.json()["precision_promedio"] <= 100.0
 
 
+def test_analisis_completo_actualiza_rango_del_dueno_segun_precision(contexto, monkeypatch) -> None:
+    """RF20 (calibración automática): analizar una partida ya TERMINADA con una
+    `precision_global` conocida debe pisar `nivel_estimado`/`rango_estimado`
+    del usuario dueño de esa partida, sin que nadie autoseleccione nada a mano.
+
+    Fuerza el mismo "Fool's Mate" guionado que ya usa el test de HU14 de
+    arriba para tener una partida real, terminada y con `usuario_id` real en
+    la base (`analisis_completo_partida` solo dispara la calibración si
+    `partida.terminada` y `partida.usuario_id` están seteados) — pero
+    monkeypatchea `analisis_completo` para que devuelva una `precision_global`
+    conocida (30.0, zona "Principiante"): la aserción sobre el rango resultante
+    no debe depender de la precisión exacta que calcule el Stockfish real para
+    esa partida puntual, que no es un número estable entre versiones/hardware.
+    """
+    from backend.repositorios.repositorio_partida import RepositorioPartidasPostgres
+    from backend.servicios.retroalimentacion import calcular_rango_desde_precision
+    import backend.rutas.ruta_partida as ruta_partida_mod
+    import backend.servicios.partida.servicio_partida as servicio_partida_mod
+
+    cliente, headers, usuario_id, fabrica = contexto
+    monkeypatch.setattr(servicio_partida_mod, "_repositorio", RepositorioPartidasPostgres(fabrica))
+
+    jugadas_negras = iter(["e5", "Qh4#"])
+
+    class _EstrategiaGuionada:
+        def decidir_jugada(self, fen: str) -> str:
+            return next(jugadas_negras)
+
+    monkeypatch.setattr(
+        servicio_partida_mod,
+        "crear_estrategia_jugada",
+        lambda tipo_oponente, nivel=20: _EstrategiaGuionada(),
+    )
+
+    partida_id = cliente.post("/partida", json={"nivel": 10}, headers=headers).json()["id"]
+    cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "f2f3"})
+    resp2 = cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "g2g4"})
+    assert resp2.json()["terminada"] is True
+
+    resumen_falso = {
+        "precision_global": 30.0,
+        "conteo_calidad": {"blunder": 1},
+        "curva_efectividad": [],
+        "consejo_tutor": "consejo de prueba",
+        "total_jugadas": 2,
+    }
+    monkeypatch.setattr(
+        ruta_partida_mod,
+        "analisis_completo",
+        lambda partida_id, rango="Intermedio": {
+            "partida_id": partida_id,
+            "jugadas": [],
+            "resumen": resumen_falso,
+        },
+    )
+
+    resp_analisis = cliente.get(f"/partida/{partida_id}/analisis-completo", headers=headers)
+    assert resp_analisis.status_code == 200
+    assert resp_analisis.json()["resumen"]["precision_global"] == 30.0
+
+    resp_me = cliente.get("/auth/me", headers=headers)
+    assert resp_me.status_code == 200
+    nivel_esperado, rango_esperado = calcular_rango_desde_precision(30.0)
+    assert resp_me.json()["rango_estimado"] == rango_esperado == "Principiante"
+    assert resp_me.json()["nivel_estimado"] == nivel_esperado
+
+
 def test_historial_partidas_respeta_limit_y_offset(contexto) -> None:
     cliente, headers, usuario_id, fabrica = contexto
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)

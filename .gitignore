@@ -37,6 +37,10 @@ tools/
 backend/media/videos_piezas/*
 !backend/media/videos_piezas/.gitkeep
 
+# Fotos de perfil subidas por los usuarios — no es código, no se commitea
+backend/media/avatares/*
+!backend/media/avatares/.gitkeep
+
 # Sistema
 .DS_Store
 

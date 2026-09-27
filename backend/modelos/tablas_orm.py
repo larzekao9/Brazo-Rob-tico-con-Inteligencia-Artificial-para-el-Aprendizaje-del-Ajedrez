@@ -151,3 +151,22 @@ class JugadaORM(Base):
     mate_en_mejor: Mapped[int | None] = mapped_column(nullable=True)
 
     partida: Mapped[PartidaORM] = relationship(back_populates="jugadas")
+
+
+class MensajeTutorORM(Base):
+    """Historial de turnos de la conversación con el tutor "Turing"
+    (`backend/servicios/tutor/servicio_tutor.py`). Tabla nueva — no hace falta
+    tocar `_COLUMNAS_AGREGADAS` en `backend/database.py`, `Base.metadata.create_all`
+    ya la crea sola.
+
+    La memoria de la conversación vive acá, nunca en la API de Groq: cada
+    request al tutor reconstruye la lista `messages` completa (system prompt +
+    historial de esta tabla + mensaje nuevo) desde cero."""
+
+    __tablename__ = "mensaje_tutor"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuario.id"), nullable=False, index=True)
+    rol: Mapped[str] = mapped_column(nullable=False)  # 'user' | 'assistant'
+    contenido: Mapped[str] = mapped_column(nullable=False)
+    creado_en: Mapped[datetime] = mapped_column(server_default=func.now())

@@ -7,10 +7,12 @@ from sqlalchemy.pool import StaticPool
 from backend.database import crear_fabrica_sesiones, crear_tablas
 from backend.main import app
 from backend.rutas.ruta_auth import get_db
+from backend.servicios.usuario import servicio_avatar
 
 
 @pytest.fixture
-def cliente():
+def cliente(tmp_path, monkeypatch):
+    monkeypatch.setattr(servicio_avatar, "MEDIA_AVATARES_DIR", tmp_path)
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     crear_tablas(engine)
     fabrica = crear_fabrica_sesiones(engine)
@@ -261,4 +263,36 @@ def test_google_login_facilitador_con_clave_valida_entra(cliente) -> None:
     assert res.status_code == 200
     datos = res.json()
     assert datos["usuario"]["rol"] == "facilitador"
+
+
+def test_subir_foto_perfil_actualiza_avatar_url(cliente) -> None:
+    token = cliente.post("/auth/registro", json=JUGADOR).json()["tokens"]["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    respuesta = cliente.post(
+        "/auth/foto",
+        files={"archivo": ("perfil.png", b"contenido-fake-de-imagen", "image/png")},
+        headers=headers,
+    )
+
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert cuerpo["avatar_url"].startswith("/media/avatares/")
+    assert cuerpo["avatar_url"].endswith(".png")
+
+    respuesta_me = cliente.get("/auth/me", headers=headers)
+    assert respuesta_me.json()["avatar_url"] == cuerpo["avatar_url"]
+
+
+def test_subir_foto_perfil_con_extension_no_soportada_da_400(cliente) -> None:
+    token = cliente.post("/auth/registro", json=JUGADOR).json()["tokens"]["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    respuesta = cliente.post(
+        "/auth/foto",
+        files={"archivo": ("perfil.gif", b"contenido-fake-de-imagen", "image/gif")},
+        headers=headers,
+    )
+
+    assert respuesta.status_code == 400
 

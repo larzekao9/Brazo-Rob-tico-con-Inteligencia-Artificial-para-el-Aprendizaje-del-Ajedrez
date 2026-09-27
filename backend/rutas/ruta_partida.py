@@ -21,7 +21,7 @@ from backend.rutas.ruta_auth import (
     get_current_user_opcional,
     get_db,
 )
-from backend.servicios.auth import get_user_by_id, get_users_by_ids
+from backend.servicios.auth import actualizar_nivel_estimado, get_user_by_id, get_users_by_ids
 from backend.servicios.partida.servicio_partida import (
     actualizar_permisos,
     analisis_completo,
@@ -33,6 +33,7 @@ from backend.servicios.partida.servicio_partida import (
     obtener_partida,
     obtener_partida_en_demostracion,
 )
+from backend.servicios.retroalimentacion import calcular_rango_desde_precision
 
 router = APIRouter(prefix="/partida", tags=["partida"])
 
@@ -273,11 +274,24 @@ def analisis_completo_partida(
 ) -> AnalisisCompletoResponse:
     """Analiza con Stockfish cada jugada de la partida, para la vista de aprendizaje (HU5/HU6).
 
-    RF20: si la request trae `Authorization: Bearer <token>` válido, adapta el
-    texto de `explicacion` y `consejo_tutor` al `rango_estimado` del usuario
-    autenticado. Sin token, o si el usuario todavía no tiene rango diagnosticado
-    (`rango_estimado` es `None`), usa `"Intermedio"` — no requiere login, para
-    no romper el uso sin sesión de este endpoint.
+    RF20 (texto): si la request trae `Authorization: Bearer <token>` válido,
+    adapta el texto de `explicacion` y `consejo_tutor` al `rango_estimado` del
+    usuario autenticado. Sin token, o si el usuario todavía no tiene rango
+    diagnosticado (`rango_estimado` es `None`), usa `"Intermedio"` — no
+    requiere login, para no romper el uso sin sesión de este endpoint.
+
+    RF20 (calibración automática): si la partida analizada ya está `terminada`
+    y tiene un dueño (`usuario_id`), de paso recalcula el `nivel_estimado` y
+    `rango_estimado` de ESE dueño en base a la `precision_global` de esta
+    partida (`calcular_rango_desde_precision`) y lo persiste con
+    `actualizar_nivel_estimado` — mismo helper que ya usa
+    `PATCH /auth/nivel-estimado`, sin duplicar la lógica de guardado. Es un
+    efecto de lado automático de mirar el análisis de una partida propia ya
+    terminada, no depende de que el jugador se autoevalúe; ver el docstring de
+    `calcular_rango_desde_precision` para la limitación de que solo mira la
+    última partida analizada, no un historial. El dueño de la partida no
+    necesita ser quien pide el análisis (ej. un facilitador revisándola desde
+    la Sala de Control también dispara la calibración del dueño real).
     """
     rango = "Intermedio"
     if usuario_id is not None:
@@ -285,6 +299,17 @@ def analisis_completo_partida(
         if usuario and usuario.rango_estimado:
             rango = usuario.rango_estimado
     try:
-        return AnalisisCompletoResponse(**analisis_completo(partida_id, rango=rango))
+        resultado = analisis_completo(partida_id, rango=rango)
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+
+    partida = obtener_partida(partida_id)
+    if partida.terminada and partida.usuario_id is not None:
+        nivel_calculado, rango_calculado = calcular_rango_desde_precision(
+            resultado["resumen"]["precision_global"]
+        )
+        dueno = get_user_by_id(db, partida.usuario_id)
+        if dueno:
+            actualizar_nivel_estimado(db, dueno, nivel_calculado, rango_calculado)
+
+    return AnalisisCompletoResponse(**resultado)

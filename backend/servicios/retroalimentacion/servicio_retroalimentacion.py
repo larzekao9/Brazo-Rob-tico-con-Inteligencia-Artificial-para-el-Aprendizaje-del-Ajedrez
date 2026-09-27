@@ -542,3 +542,71 @@ def generar_resumen_partida(
         "consejo_tutor": consejo,
         "total_jugadas": total_jugadas_evaluadas,
     }
+
+
+# RF20 (calibración automática): mismas bandas de "nivel" (0-20, escala del
+# "Skill Level" de Stockfish — ver `NIVEL_MIN`/`NIVEL_MAX` en
+# `motor_ajedrez.py`) que ya agrupa el selector de dificultad de Stockfish en
+# la Sala de Control del frontend, para que el número que termina en
+# `nivel_estimado` sea comparable con el nivel de motor que se le puede
+# ofrecer como rival al jugador.
+BANDA_NIVEL_POR_RANGO: dict[str, tuple[int, int]] = {
+    RANGO_PRINCIPIANTE: (0, 6),
+    RANGO_INTERMEDIO: (7, 13),
+    RANGO_AVANZADO: (14, 20),
+}
+
+UMBRAL_PRECISION_AVANZADO = 80.0
+UMBRAL_PRECISION_INTERMEDIO = 55.0
+
+
+def calcular_rango_desde_precision(precision_global: float) -> tuple[int, str]:
+    """Estima `(nivel_estimado, rango_estimado)` a partir de la `precision_global`
+    (0-100) de UNA partida ya analizada — calibración automática del nivel del
+    jugador (RF20), pensada para reemplazar a la autoselección manual como
+    fuente principal.
+
+    Por qué el sistema calculándolo solo es preferible a que el jugador se
+    autoevalúe: la autoselección (el botón "punto de partida" en Mi Perfil) es
+    una opinión del jugador sobre sí mismo, y como toda autoevaluación viene
+    sesgada — un principiante optimista se pone "Avanzado", o al revés. La
+    `precision_global` que ya calcula `generar_resumen_partida` sale de
+    comparar cada jugada real contra Stockfish, así que es una medición
+    objetiva del desempeño efectivo en esa partida. Por eso, cuando hay una
+    partida terminada para analizar, esta fuente automática pisa lo que el
+    jugador haya autoseleccionado — la autoselección manual sigue existiendo
+    (vía `PATCH /auth/nivel-estimado`) solo para el arranque, cuando todavía
+    no hay ninguna partida jugada de la cual medir nada.
+
+    Limitación importante, a propósito no vendida como más de lo que es: esto
+    NO es un sistema de calibración histórica (no promedia partidas pasadas,
+    no pondera por cantidad de jugadas ni por nivel del rival enfrentado, no
+    tiene decaimiento temporal). Cada vez que se analiza una partida
+    terminada, el rango vigente queda directamente pisado por la precisión de
+    ESA partida — la última que se analizó, nada más. Alcanza para que el
+    rango se mueva solo en base a desempeño real durante la demo, pero un
+    sistema de calibración histórica de verdad queda fuera de este alcance.
+
+    El `nivel` numérico (0-20) interpola linealmente dentro de la banda de su
+    rango (`BANDA_NIVEL_POR_RANGO`) según qué tan cerca está `precision_global`
+    de cada extremo del umbral — no es una medición fina, solo le da algún
+    significado relativo al número dentro de su rango.
+    """
+    precision = max(0.0, min(100.0, precision_global))
+
+    if precision >= UMBRAL_PRECISION_AVANZADO:
+        rango = RANGO_AVANZADO
+        piso_precision, techo_precision = UMBRAL_PRECISION_AVANZADO, 100.0
+    elif precision >= UMBRAL_PRECISION_INTERMEDIO:
+        rango = RANGO_INTERMEDIO
+        piso_precision, techo_precision = UMBRAL_PRECISION_INTERMEDIO, UMBRAL_PRECISION_AVANZADO
+    else:
+        rango = RANGO_PRINCIPIANTE
+        piso_precision, techo_precision = 0.0, UMBRAL_PRECISION_INTERMEDIO
+
+    nivel_min, nivel_max = BANDA_NIVEL_POR_RANGO[rango]
+    proporcion = (precision - piso_precision) / (techo_precision - piso_precision) if techo_precision > piso_precision else 1.0
+    nivel = round(nivel_min + proporcion * (nivel_max - nivel_min))
+    nivel = max(nivel_min, min(nivel_max, nivel))
+
+    return nivel, rango
