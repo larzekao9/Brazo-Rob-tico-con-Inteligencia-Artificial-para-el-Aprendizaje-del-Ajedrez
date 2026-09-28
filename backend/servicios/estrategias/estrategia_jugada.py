@@ -40,10 +40,16 @@ class EstrategiaModelo(EstrategiaJugada):
     (ver `pytest.importorskip("torch")` en `test_modelo_jugadas.py`) — un
     import a nivel de módulo rompería el oponente `"motor"` para quien no
     tenga torch instalado.
+
+    `nivel` (0-20, el del perfil del jugador) calibra qué tan fuerte juega el
+    modelo: `None` o >= 18 es el modo maestro determinista; por debajo, el modelo
+    muestrea entre sus mejores candidatas (ver `predecir_jugada_maestra`). En
+    ningún caso interviene Stockfish.
     """
 
-    def __init__(self, ruta_checkpoint: str | Path | None = None):
+    def __init__(self, ruta_checkpoint: str | Path | None = None, nivel: int | None = None):
         self.ruta_checkpoint = ruta_checkpoint
+        self.nivel = nivel
 
     def decidir_jugada(self, fen: str) -> str:
         from backend.servicios.aprendizaje.inferencia import (
@@ -52,4 +58,4 @@ class EstrategiaModelo(EstrategiaJugada):
         )
 
         ruta = self.ruta_checkpoint if self.ruta_checkpoint is not None else RUTA_CHECKPOINT_POR_DEFECTO
-        return predecir_jugada_maestra(fen, ruta)
+        return predecir_jugada_maestra(fen, ruta, nivel=self.nivel)

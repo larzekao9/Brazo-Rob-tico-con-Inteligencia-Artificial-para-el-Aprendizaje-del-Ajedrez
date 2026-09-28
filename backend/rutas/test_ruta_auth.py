@@ -102,6 +102,19 @@ def test_me_sin_token_da_401(cliente) -> None:
     assert cliente.get("/auth/me").status_code == 401
 
 
+def test_me_creado_en_lleva_offset_utc_explicito(cliente) -> None:
+    # Bug real: sin offset ("2026-09-28T04:56:28", ni "+00:00" ni "Z"), el
+    # frontend interpreta la hora UTC como si fuera hora local del navegador
+    # (`new Date(iso)`) — un usuario en Bolivia (UTC-4) veía la hora
+    # adelantada 4 horas. `fecha_a_iso` (backend/database.py) es el fix.
+    token = cliente.post("/auth/registro", json=JUGADOR).json()["tokens"]["access_token"]
+
+    respuesta = cliente.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+
+    creado_en = respuesta.json()["creado_en"]
+    assert creado_en.endswith("+00:00") or creado_en.endswith("Z")
+
+
 def test_guardar_nivel_estimado_actualiza_el_usuario(cliente) -> None:
     token = cliente.post("/auth/registro", json=JUGADOR).json()["tokens"]["access_token"]
 
@@ -135,6 +148,26 @@ def test_guardar_nivel_estimado_pisa_el_resultado_anterior(cliente) -> None:
 def test_guardar_nivel_estimado_sin_token_da_401(cliente) -> None:
     respuesta = cliente.patch("/auth/nivel-estimado", json={"nivel": 5, "rango": "Principiante"})
     assert respuesta.status_code == 401
+
+
+def test_guardar_nivel_estimado_como_facilitador_da_403_y_no_cambia_nada(cliente) -> None:
+    # Bug real encontrado en la base: un facilitador no tiene nivel de juego
+    # propio — `registrar_calibracion` ya lo protegía en el camino
+    # automático (`dueno_no_jugador`), esto protege el manual.
+    facilitador = {
+        "email": "facilitador-nivel@test.com", "nombre": "Profe", "password": "secreto1", "rol": "facilitador",
+    }
+    token = cliente.post("/auth/registro", json=facilitador).json()["tokens"]["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    respuesta = cliente.patch(
+        "/auth/nivel-estimado", json={"nivel": 5, "rango": "Principiante"}, headers=headers
+    )
+
+    assert respuesta.status_code == 403
+    respuesta_me = cliente.get("/auth/me", headers=headers)
+    assert respuesta_me.json()["nivel_estimado"] is None
+    assert respuesta_me.json()["rango_estimado"] is None
 
 
 def test_guardar_nivel_estimado_con_rango_invalido_da_422(cliente) -> None:

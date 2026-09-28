@@ -223,13 +223,19 @@ def test_activar_demostracion_en_partida_ajena_devuelve_400() -> None:
 def test_activar_demostracion_en_otra_partida_apaga_la_anterior() -> None:
     # Solo puede haber una transmisión en vivo activa a la vez en todo el
     # sistema — activar la segunda apaga automáticamente la primera.
+    #
+    # La primera se marca en demostración ANTES de crear la segunda a
+    # propósito: `cerrar_partidas_pendientes` (ciclo de vida de partidas)
+    # cierra las demás partidas `en_curso` del mismo usuario al crear una
+    # nueva, salvo las que están en demostración — si no, la primera ya no
+    # existiría para cuando este test intenta leerla más abajo.
     headers_facilitador = _headers_facilitador_nuevo()
     primera_id = cliente.post("/partida", json={"nivel": 20}, headers=headers_facilitador).json()["id"]
-    segunda_id = cliente.post("/partida", json={"nivel": 20}, headers=headers_facilitador).json()["id"]
-
     cliente.patch(
         f"/partida/{primera_id}/permisos", json={"es_demostracion": True}, headers=headers_facilitador
     )
+    segunda_id = cliente.post("/partida", json={"nivel": 20}, headers=headers_facilitador).json()["id"]
+
     cliente.patch(
         f"/partida/{segunda_id}/permisos", json={"es_demostracion": True}, headers=headers_facilitador
     )

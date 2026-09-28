@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from backend.esquemas.calibracion_esquema import CalibracionResponse
 from backend.esquemas.jugada_esquema import VarianteCandidata
 from backend.servicios.motor.motor_ajedrez import NIVEL_MAX, NIVEL_MIN
 
@@ -37,6 +38,13 @@ class EstadoPartidaResponse(BaseModel):
     en vivo a la clase — mientras está en `True`, este mismo endpoint
     (`GET /partida/{id}`) se puede leer sin ser su dueño ni facilitador (ver
     `ruta_partida.py::estado`).
+
+    `estado`/`iniciada_en`/`actualizada_en`/`jugadas_jugador` son el ciclo de
+    vida de la partida (Sala de Control sin botón "iniciar" — ver
+    `backend/servicios/partida/ciclo_vida.py`): `estado` es
+    `"en_curso"`/`"terminada"`/`"abandonada"`; `iniciada_en` es `None` si el
+    jugador todavía no hizo ninguna jugada; `jugadas_jugador` cuenta solo las
+    del humano.
     """
 
     id: str
@@ -55,6 +63,10 @@ class EstadoPartidaResponse(BaseModel):
     usa_brazo: bool = False
     usuario_id: int | None = None
     usuario_nombre: str | None = None
+    estado: str | None = None
+    iniciada_en: str | None = None
+    actualizada_en: str | None = None
+    jugadas_jugador: int = 0
 
 
 class ActualizarPermisosPartidaRequest(BaseModel):
@@ -108,6 +120,8 @@ class ResumenPartidaResponse(BaseModel):
     es_demostracion: bool = False
     usuario_id: int | None = None
     usuario_nombre: str | None = None
+    estado: str | None = None
+    jugadas_jugador: int = 0
 
 
 class MoverRequest(BaseModel):
@@ -178,18 +192,32 @@ class JugadaAnalisisResponse(BaseModel):
 
 
 class ResumenRendimiento(BaseModel):
-    """Resumen analítico post-partida, curva de efectividad y consejo del tutor (HU5)."""
+    """Resumen analítico post-partida, curva de efectividad y consejo del tutor (HU5).
+
+    `precision_global`/`total_jugadas` cuentan las jugadas de ambos bandos.
+    `precision_jugador`/`total_jugadas_jugador` cuentan solo las del humano
+    (las que se comparan contra Stockfish para calibrar su nivel);
+    `precision_jugador` es `null` si el humano no tiene jugadas evaluadas.
+    """
 
     precision_global: float
     conteo_calidad: dict[str, int]
     curva_efectividad: list[dict] = Field(default_factory=list)
     consejo_tutor: str
     total_jugadas: int
+    precision_jugador: float | None = None
+    total_jugadas_jugador: int | None = None
 
 
 class AnalisisCompletoResponse(BaseModel):
-    """Cuerpo de salida para GET /partida/{id}/analisis-completo (HU5/HU6)."""
+    """Cuerpo de salida para GET /partida/{id}/analisis-completo (HU5/HU6).
+
+    `calibracion` informa si mirar este análisis calibró el nivel del dueño de
+    la partida (ver `servicio_calibracion.registrar_calibracion`); el nivel
+    solo cambia la primera vez que se analiza cada partida terminada.
+    """
 
     partida_id: str
     jugadas: list[JugadaAnalisisResponse] = Field(default_factory=list)
     resumen: ResumenRendimiento | None = None
+    calibracion: CalibracionResponse | None = None

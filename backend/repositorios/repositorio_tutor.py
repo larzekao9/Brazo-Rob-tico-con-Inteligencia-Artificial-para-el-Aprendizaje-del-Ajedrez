@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from backend.database import fecha_a_iso
 from backend.modelos.tablas_orm import MensajeTutorORM
 
 
@@ -79,7 +80,7 @@ class RepositorioTutorPostgres(RepositorioTutor):
                 {
                     "rol": fila.rol,
                     "contenido": fila.contenido,
-                    "creado_en": fila.creado_en.isoformat()
+                    "creado_en": fecha_a_iso(fila.creado_en)
                     if hasattr(fila.creado_en, "isoformat")
                     else str(fila.creado_en),
                 }

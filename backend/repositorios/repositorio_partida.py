@@ -11,6 +11,7 @@ import chess
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from backend.database import fecha_a_iso
 from backend.modelos.partida import Partida
 from backend.modelos.tablas_orm import JugadaORM, PartidaORM
 
@@ -33,6 +34,20 @@ class RepositorioPartidas(ABC):
     @abstractmethod
     def listar(self) -> list[Partida]:
         """Devuelve todas las partidas guardadas, más reciente primero."""
+
+    @abstractmethod
+    def listar_por_usuario(self, usuario_id: int) -> list[Partida]:
+        """Devuelve las partidas de un usuario, más reciente primero.
+
+        Usado por `ciclo_vida.cerrar_partidas_pendientes` (cerrar las otras
+        partidas del mismo usuario al crear una nueva) y por
+        `servicio_partida.partida_en_curso_de` (HU "retomar")."""
+
+    @abstractmethod
+    def eliminar(self, partida_id: str) -> None:
+        """Borra una partida y sus jugadas asociadas. No-op si no existe —
+        pensado para barridos de limpieza (`ciclo_vida.py`) donde no importa
+        si otra llamada concurrente ya la borró."""
 
     @abstractmethod
     def registrar_jugada(
@@ -89,6 +104,14 @@ class RepositorioPartidasEnMemoria(RepositorioPartidas):
     def listar(self) -> list[Partida]:
         return list(reversed(self._partidas.values()))
 
+    def listar_por_usuario(self, usuario_id: int) -> list[Partida]:
+        return [
+            partida for partida in reversed(self._partidas.values()) if partida.usuario_id == usuario_id
+        ]
+
+    def eliminar(self, partida_id: str) -> None:
+        self._partidas.pop(partida_id, None)
+
     def registrar_jugada(
         self, partida_id: str, numero: int, fen_antes: str, movimiento: str, decidido_por: str
     ) -> None:
@@ -111,6 +134,10 @@ class RepositorioPartidasEnMemoria(RepositorioPartidas):
         `jugada` en memoria a la que actualizarle la evaluación."""
 
 
+def _fecha_iso_a_datetime(valor: str | None) -> datetime | None:
+    return None if valor is None else datetime.fromisoformat(valor)
+
+
 def _partida_a_fila(partida: Partida) -> PartidaORM:
     """Traduce el dataclass de dominio a la fila de la tabla `partida`."""
     return PartidaORM(
@@ -128,6 +155,9 @@ def _partida_a_fila(partida: Partida) -> PartidaORM:
         permite_camara=partida.permite_camara,
         es_demostracion=partida.es_demostracion,
         usa_brazo=partida.usa_brazo,
+        estado=partida.estado,
+        iniciada_en=_fecha_iso_a_datetime(partida.iniciada_en),
+        actualizada_en=_fecha_iso_a_datetime(partida.actualizada_en),
     )
 
 
@@ -150,13 +180,16 @@ def _fila_a_partida(fila: PartidaORM) -> Partida:
         tipo_oponente=fila.tipo_oponente,
         id=fila.id,
         tipo=fila.tipo,
-        creada_en=fila.fecha.isoformat() if hasattr(fila.fecha, "isoformat") else str(fila.fecha),
+        creada_en=fecha_a_iso(fila.fecha),
         fen_inicial=fen_inicial,
         usuario_id=fila.usuario_id,
         permite_simulacion_3d=fila.permite_simulacion_3d,
         permite_camara=fila.permite_camara,
         es_demostracion=fila.es_demostracion,
         usa_brazo=fila.usa_brazo,
+        estado=fila.estado,
+        iniciada_en=fecha_a_iso(fila.iniciada_en),
+        actualizada_en=fecha_a_iso(fila.actualizada_en),
     )
 
 
@@ -181,7 +214,7 @@ class RepositorioPartidasPostgres(RepositorioPartidas):
                 for columna in (
                     "usuario_id", "resultado", "fen", "fen_inicial", "nivel", "tipo_oponente",
                     "jugadas_uci", "permite_simulacion_3d", "permite_camara", "es_demostracion",
-                    "usa_brazo",
+                    "usa_brazo", "estado", "iniciada_en", "actualizada_en",
                 ):
                     setattr(fila_existente, columna, getattr(fila_nueva, columna))
             sesion.commit()
@@ -235,6 +268,23 @@ class RepositorioPartidasPostgres(RepositorioPartidas):
         with self._fabrica_sesiones() as sesion:
             filas = sesion.scalars(select(PartidaORM).order_by(PartidaORM.fecha.desc())).all()
             return [_fila_a_partida(fila) for fila in filas]
+
+    def listar_por_usuario(self, usuario_id: int) -> list[Partida]:
+        with self._fabrica_sesiones() as sesion:
+            filas = sesion.scalars(
+                select(PartidaORM)
+                .where(PartidaORM.usuario_id == usuario_id)
+                .order_by(PartidaORM.fecha.desc())
+            ).all()
+            return [_fila_a_partida(fila) for fila in filas]
+
+    def eliminar(self, partida_id: str) -> None:
+        with self._fabrica_sesiones() as sesion:
+            fila = sesion.get(PartidaORM, partida_id)
+            if fila is None:
+                return
+            sesion.delete(fila)
+            sesion.commit()
 
 
 def crear_repositorio_partidas() -> RepositorioPartidas:

@@ -109,3 +109,40 @@ def test_registrar_jugada_dos_veces_guarda_dos_filas_distintas(
         ).all()
 
     assert [fila.decidido_por for fila in filas] == ["jugador", "motor"]
+
+
+def test_eliminar_borra_la_partida_y_sus_jugadas(repositorio: RepositorioPartidasPostgres) -> None:
+    partida = Partida(nivel=5)
+    repositorio.guardar(partida)
+    repositorio.registrar_jugada(partida.id, 1, partida.fen, "e2e4", "jugador")
+
+    repositorio.eliminar(partida.id)
+
+    with pytest.raises(KeyError):
+        repositorio.obtener(partida.id)
+    with repositorio._fabrica_sesiones() as sesion:
+        filas = sesion.scalars(select(JugadaORM).where(JugadaORM.partida_id == partida.id)).all()
+    assert filas == []
+
+
+def test_eliminar_partida_inexistente_no_lanza_error(repositorio: RepositorioPartidasPostgres) -> None:
+    repositorio.eliminar("no-existe")
+
+
+def test_listar_por_usuario_solo_devuelve_las_del_usuario_mas_reciente_primero(
+    repositorio: RepositorioPartidasPostgres,
+) -> None:
+    primera = Partida(nivel=5, usuario_id=1)
+    repositorio.guardar(primera)
+    de_otro = Partida(nivel=5, usuario_id=2)
+    repositorio.guardar(de_otro)
+    segunda = Partida(nivel=5, usuario_id=1)
+    repositorio.guardar(segunda)
+
+    resultado = repositorio.listar_por_usuario(1)
+
+    assert [partida.id for partida in resultado] == [segunda.id, primera.id]
+
+
+def test_listar_por_usuario_vacio_si_no_tiene_partidas(repositorio: RepositorioPartidasPostgres) -> None:
+    assert repositorio.listar_por_usuario(1) == []

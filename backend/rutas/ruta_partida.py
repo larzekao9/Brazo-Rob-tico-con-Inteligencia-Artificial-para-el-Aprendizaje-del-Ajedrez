@@ -1,9 +1,12 @@
 """Endpoints HTTP para partidas jugables contra la estrategia de jugada activa."""
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from backend.esquemas.calibracion_esquema import CalibracionResponse
 from backend.esquemas.partida_esquema import (
     ActualizarPermisosPartidaRequest,
     AnalisisCompletoResponse,
@@ -21,19 +24,28 @@ from backend.rutas.ruta_auth import (
     get_current_user_opcional,
     get_db,
 )
-from backend.servicios.auth import actualizar_nivel_estimado, get_user_by_id, get_users_by_ids
+from backend.servicios.auth import get_user_by_id, get_users_by_ids
+from backend.servicios.calibracion import (
+    calibracion_descartada,
+    registrar_calibracion,
+    respuesta_no_registrada,
+)
 from backend.servicios.partida.servicio_partida import (
     actualizar_permisos,
     analisis_completo,
     crear_partida,
     jugadas_legales_desde,
+    limpiar_partidas_inactivas,
     listar_partidas,
     mover,
     mover_desde_foto,
     obtener_partida,
     obtener_partida_en_demostracion,
+    partida_en_curso_de,
 )
-from backend.servicios.retroalimentacion import calcular_rango_desde_precision
+from backend.servicios.retroalimentacion.servicio_retroalimentacion import RANGO_POR_DEFECTO
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/partida", tags=["partida"])
 
@@ -56,6 +68,10 @@ def _a_estado(partida: Partida, usuario_nombre: str | None = None) -> EstadoPart
         usa_brazo=partida.usa_brazo,
         usuario_id=partida.usuario_id,
         usuario_nombre=usuario_nombre,
+        estado=partida.estado,
+        iniciada_en=partida.iniciada_en,
+        actualizada_en=partida.actualizada_en,
+        jugadas_jugador=partida.jugadas_jugador,
     )
 
 
@@ -73,6 +89,8 @@ def _a_resumen(partida: Partida, usuario_nombre: str | None = None) -> ResumenPa
         es_demostracion=partida.es_demostracion,
         usuario_id=partida.usuario_id,
         usuario_nombre=usuario_nombre,
+        estado=partida.estado,
+        jugadas_jugador=partida.jugadas_jugador,
     )
 
 
@@ -117,8 +135,13 @@ def listar(db: Session = Depends(get_db)) -> list[ResumenPartidaResponse]:
     Resuelve `usuario_nombre` con una sola consulta para todos los dueños
     distintos de la lista (`get_users_by_ids`), no una por partida — no hay
     paginación todavía en este endpoint, así que evitar el N+1 acá importa.
+
+    Excluye las partidas sin ninguna jugada del jugador (`jugadas_jugador ==
+    0`): son las que la Sala de Control crea sola al abrir la pantalla y
+    nadie llegó a jugar — no aportan nada al registro y antes lo inflaban
+    (ver `ciclo_vida.py`, que además las va limpiando de la base).
     """
-    partidas = listar_partidas()
+    partidas = [partida for partida in listar_partidas() if partida.jugadas_jugador >= 1]
     ids_duenos = {partida.usuario_id for partida in partidas if partida.usuario_id is not None}
     usuarios_por_id = get_users_by_ids(db, ids_duenos)
     return [
@@ -159,6 +182,34 @@ def demostracion_activa(
     es realmente un error como para ser un 404.
     """
     partida = obtener_partida_en_demostracion()
+    if partida is None:
+        return None
+    return _a_estado(partida, usuario_nombre=_resolver_nombre_dueno(db, partida.usuario_id))
+
+
+@router.get("/en-curso", response_model=EstadoPartidaResponse | None)
+def en_curso(
+    usuario_id: int = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> EstadoPartidaResponse | None:
+    """Partida `en_curso` que el usuario autenticado puede retomar, o `null`
+    si no tiene ninguna (HU "retomar" — Sala de Control ofrece "Retomar" en
+    vez de crear una partida nueva cuando esto no da `null`).
+
+    Antes de responder, barre las partidas `en_curso` inactivas de todo el
+    sistema (`limpiar_partidas_inactivas`) — tolera que ese barrido falle sin
+    romper la respuesta de este endpoint, igual que en el arranque del
+    backend (`main.py`).
+
+    Declarada antes que `GET /partida/{partida_id}` a propósito, mismo
+    motivo que `GET /partida/demostracion-activa`: si no, FastAPI trataría
+    `"en-curso"` como si fuera un id de partida.
+    """
+    try:
+        limpiar_partidas_inactivas()
+    except Exception:
+        logger.exception("No se pudo limpiar partidas inactivas antes de GET /partida/en-curso")
+    partida = partida_en_curso_de(usuario_id)
     if partida is None:
         return None
     return _a_estado(partida, usuario_nombre=_resolver_nombre_dueno(db, partida.usuario_id))
@@ -266,6 +317,47 @@ def mover_partida_desde_foto(partida_id: str) -> ResultadoMovimientoResponse:
     return ResultadoMovimientoResponse(**resultado)
 
 
+@router.post("/{partida_id}/calibrar", response_model=CalibracionResponse)
+def calibrar_partida(
+    partida_id: str,
+    usuario_id: int = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> CalibracionResponse:
+    """Calibra el nivel del dueño de la partida con lo que jugó en ella (RF20).
+
+    Pensado para llamarse al terminar una partida, sin depender de que alguien
+    abra el análisis. Requiere `Authorization: Bearer <token>`; 404 si la
+    partida no existe y 403 si es de otro usuario, salvo que quien pide sea
+    facilitador (calibra al dueño real, igual que en `analisis-completo`).
+
+    Si la partida no terminó responde 200 con `registrada=false` y
+    `motivo="no_terminada"`, sin analizar nada. Si ya se sabe que no se puede
+    o no hace falta calibrar (`sin_dueno`, `dueno_no_jugador`, `ya_registrada`)
+    también responde eso sin correr Stockfish. Si no, analiza la partida y
+    delega en `registrar_calibracion`, que es idempotente por partida: llamarlo
+    dos veces no duplica la calibración ni cambia el nivel de nuevo.
+    """
+    try:
+        partida = obtener_partida(partida_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+    if partida.usuario_id is not None and partida.usuario_id != usuario_id:
+        solicitante = get_user_by_id(db, usuario_id)
+        if not solicitante or solicitante.rol != "facilitador":
+            raise HTTPException(status_code=403, detail="La partida pertenece a otro usuario")
+
+    dueno = get_user_by_id(db, partida.usuario_id) if partida.usuario_id is not None else None
+    if not partida.terminada:
+        return CalibracionResponse(**respuesta_no_registrada(db, dueno, "no_terminada"))
+    descartada = calibracion_descartada(db, dueno, partida_id)
+    if descartada is not None:
+        return CalibracionResponse(**descartada)
+
+    resultado = analisis_completo(partida_id, rango=dueno.rango_estimado or RANGO_POR_DEFECTO)
+    return CalibracionResponse(**registrar_calibracion(db, dueno, partida_id, resultado["resumen"]))
+
+
 @router.get("/{partida_id}/analisis-completo", response_model=AnalisisCompletoResponse)
 def analisis_completo_partida(
     partida_id: str,
@@ -281,19 +373,15 @@ def analisis_completo_partida(
     requiere login, para no romper el uso sin sesión de este endpoint.
 
     RF20 (calibración automática): si la partida analizada ya está `terminada`
-    y tiene un dueño (`usuario_id`), de paso recalcula el `nivel_estimado` y
-    `rango_estimado` de ESE dueño en base a la `precision_global` de esta
-    partida (`calcular_rango_desde_precision`) y lo persiste con
-    `actualizar_nivel_estimado` — mismo helper que ya usa
-    `PATCH /auth/nivel-estimado`, sin duplicar la lógica de guardado. Es un
-    efecto de lado automático de mirar el análisis de una partida propia ya
-    terminada, no depende de que el jugador se autoevalúe; ver el docstring de
-    `calcular_rango_desde_precision` para la limitación de que solo mira la
-    última partida analizada, no un historial. El dueño de la partida no
-    necesita ser quien pide el análisis (ej. un facilitador revisándola desde
-    la Sala de Control también dispara la calibración del dueño real).
+    y tiene un dueño jugador, de paso registra su calibración con
+    `registrar_calibracion` — la misma función que usa
+    `POST /partida/{id}/calibrar`. Cada partida calibra una sola vez: abrir
+    de nuevo el análisis no cambia el nivel. El resultado va en `calibracion`
+    (con `registrada=false` y un `motivo` cuando no se registró). El dueño de la
+    partida no necesita ser quien pide el análisis (ej. un facilitador
+    revisándola desde la Sala de Control también calibra al dueño real).
     """
-    rango = "Intermedio"
+    rango = RANGO_POR_DEFECTO
     if usuario_id is not None:
         usuario = get_user_by_id(db, usuario_id)
         if usuario and usuario.rango_estimado:
@@ -304,12 +392,10 @@ def analisis_completo_partida(
         raise HTTPException(status_code=404, detail=str(error)) from error
 
     partida = obtener_partida(partida_id)
-    if partida.terminada and partida.usuario_id is not None:
-        nivel_calculado, rango_calculado = calcular_rango_desde_precision(
-            resultado["resumen"]["precision_global"]
-        )
-        dueno = get_user_by_id(db, partida.usuario_id)
-        if dueno:
-            actualizar_nivel_estimado(db, dueno, nivel_calculado, rango_calculado)
+    dueno = get_user_by_id(db, partida.usuario_id) if partida.usuario_id is not None else None
+    if partida.terminada:
+        calibracion = registrar_calibracion(db, dueno, partida_id, resultado["resumen"])
+    else:
+        calibracion = respuesta_no_registrada(db, dueno, "no_terminada")
 
-    return AnalisisCompletoResponse(**resultado)
+    return AnalisisCompletoResponse(**resultado, calibracion=CalibracionResponse(**calibracion))

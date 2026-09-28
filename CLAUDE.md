@@ -100,6 +100,13 @@ Reglas de proceso — se aplican sin importar qué HU se esté trabajando:
    fuera de esos límites.
 3. **Cerrar el ciclo en cada tarea.** Antes de darla por terminada: correr los tests relevantes,
    actualizar el grafo de conocimiento del repo, y subir los cambios (`commit` + `push`).
+4. **Todo cambio en la base de datos actualiza sus scripts.** Si se toca `backend/modelos/tablas_orm.py`
+   (tabla, columna, índice o restricción): (a) si es una columna nueva en una tabla que ya existe,
+   agregarla también a `_COLUMNAS_AGREGADAS` en `backend/database.py`, para que las bases ya creadas la
+   reciban al arrancar; (b) describir la tabla o columna en `docs/base_de_datos/generar_esquema.py`;
+   (c) regenerar con `python docs/base_de_datos/generar_esquema.py`, lo que actualiza a la vez
+   `base_completa.sql`, `base_supabase_produccion.sql` y `DICCIONARIO_DE_DATOS.md`. Un test
+   (`backend/test_database.py`) falla si alguno de los tres quedó desactualizado.
 
 ---
 

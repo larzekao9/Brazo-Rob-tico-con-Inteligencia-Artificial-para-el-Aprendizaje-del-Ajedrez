@@ -481,6 +481,15 @@ def generar_resumen_partida(
 
     RF20: `rango` adapta el consejo pedagógico al nivel del jugador ("Principiante",
     "Intermedio" o "Avanzado"). Un valor no reconocido cae en "Intermedio".
+
+    `precision_global` y `total_jugadas` cuentan las jugadas de AMBOS bandos
+    (lo que muestra la vista de análisis). Para medir el nivel del jugador eso
+    no sirve: las jugadas del oponente (Stockfish o Turing) inflarían o
+    hundirían la nota según qué tan fuerte fuera. Por eso además devuelve
+    `precision_jugador` y `total_jugadas_jugador`, calculadas solo con las
+    jugadas del humano: en una partida el humano siempre mueve primero
+    (`servicio_partida.mover`), o sea los plies impares (`numero_ply` 1, 3, 5...).
+    `precision_jugador` es `None` si el humano no tiene ninguna jugada evaluada.
     """
     conteo: dict[str, int] = {
         "brillante": 0,
@@ -495,6 +504,8 @@ def generar_resumen_partida(
     curva_efectividad: list[dict[str, Any]] = []
     puntos_ponderados = 0.0
     total_jugadas_evaluadas = 0
+    puntos_jugador = 0.0
+    total_jugadas_jugador = 0
 
     pesos_calidad = {
         "brillante": 100.0,
@@ -520,10 +531,15 @@ def generar_resumen_partida(
             "jugada_san": j.get("jugada_san", ""),
         })
 
-        puntos_ponderados += pesos_calidad.get(calidad, 50.0)
+        peso = pesos_calidad.get(calidad, 50.0)
+        puntos_ponderados += peso
         total_jugadas_evaluadas += 1
+        if ply % 2 == 1:
+            puntos_jugador += peso
+            total_jugadas_jugador += 1
 
     precision_global = round(puntos_ponderados / total_jugadas_evaluadas, 1) if total_jugadas_evaluadas > 0 else 50.0
+    precision_jugador = round(puntos_jugador / total_jugadas_jugador, 1) if total_jugadas_jugador > 0 else None
 
     # Diagnóstico pedagógico global
     if conteo["blunder"] >= 2:
@@ -541,6 +557,8 @@ def generar_resumen_partida(
         "curva_efectividad": curva_efectividad,
         "consejo_tutor": consejo,
         "total_jugadas": total_jugadas_evaluadas,
+        "precision_jugador": precision_jugador,
+        "total_jugadas_jugador": total_jugadas_jugador,
     }
 
 
@@ -561,31 +579,27 @@ UMBRAL_PRECISION_INTERMEDIO = 55.0
 
 
 def calcular_rango_desde_precision(precision_global: float) -> tuple[int, str]:
-    """Estima `(nivel_estimado, rango_estimado)` a partir de la `precision_global`
-    (0-100) de UNA partida ya analizada — calibración automática del nivel del
-    jugador (RF20), pensada para reemplazar a la autoselección manual como
-    fuente principal.
+    """Estima `(nivel_estimado, rango_estimado)` a partir de una precisión (0-100)
+    — calibración automática del nivel del jugador (RF20), pensada para
+    reemplazar a la autoselección manual como fuente principal.
 
     Por qué el sistema calculándolo solo es preferible a que el jugador se
     autoevalúe: la autoselección (el botón "punto de partida" en Mi Perfil) es
     una opinión del jugador sobre sí mismo, y como toda autoevaluación viene
     sesgada — un principiante optimista se pone "Avanzado", o al revés. La
-    `precision_global` que ya calcula `generar_resumen_partida` sale de
-    comparar cada jugada real contra Stockfish, así que es una medición
-    objetiva del desempeño efectivo en esa partida. Por eso, cuando hay una
-    partida terminada para analizar, esta fuente automática pisa lo que el
-    jugador haya autoseleccionado — la autoselección manual sigue existiendo
-    (vía `PATCH /auth/nivel-estimado`) solo para el arranque, cuando todavía
-    no hay ninguna partida jugada de la cual medir nada.
+    precisión de las jugadas del jugador (`precision_jugador` de
+    `generar_resumen_partida`) sale de comparar cada jugada real contra
+    Stockfish, así que es una medición objetiva del desempeño efectivo. El
+    modelo propio (Turing) no interviene en este cálculo: solo Stockfish es
+    la vara de comparación. La autoselección manual sigue existiendo (vía
+    `PATCH /auth/nivel-estimado`) solo para el arranque, cuando todavía no hay
+    ninguna partida jugada de la cual medir nada.
 
-    Limitación importante, a propósito no vendida como más de lo que es: esto
-    NO es un sistema de calibración histórica (no promedia partidas pasadas,
-    no pondera por cantidad de jugadas ni por nivel del rival enfrentado, no
-    tiene decaimiento temporal). Cada vez que se analiza una partida
-    terminada, el rango vigente queda directamente pisado por la precisión de
-    ESA partida — la última que se analizó, nada más. Alcanza para que el
-    rango se mueva solo en base a desempeño real durante la demo, pero un
-    sistema de calibración histórica de verdad queda fuera de este alcance.
+    Esta función es pura y sin estado: mira UNA sola precisión. Quien la
+    suaviza en el tiempo es `servicio_calibracion.registrar_calibracion`, que
+    le pasa el promedio de las últimas partidas calibradas del jugador (con
+    historial) en vez de la de una sola. Sigue sin ponderar por el nivel del
+    rival enfrentado ni por decaimiento temporal.
 
     El `nivel` numérico (0-20) interpola linealmente dentro de la banda de su
     rango (`BANDA_NIVEL_POR_RANGO`) según qué tan cerca está `precision_global`

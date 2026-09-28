@@ -391,6 +391,186 @@ def test_analisis_completo_ignora_el_nivel_de_la_partida_y_evalua_a_fuerza_maxim
     assert abs(eval_bajo - eval_alto) < 200
 
 
+def _partida_con_jugadas(*jugadas_san: str):
+    partida = crear_partida(nivel=5)
+    for jugada in jugadas_san:
+        partida.tablero.push_san(jugada)
+    servicio_partida._repositorio.guardar(partida)
+    return partida
+
+
+def test_analisis_completo_pide_todas_las_posiciones_al_motor_en_una_sola_llamada(monkeypatch) -> None:
+    partida = _partida_con_jugadas("e4", "e5", "Nf3")
+    llamadas = []
+
+    def motor_falso(fens, nivel, tiempo_limite):
+        llamadas.append((list(fens), nivel, tiempo_limite))
+        return [
+            {
+                "jugada": "e4", "evaluacion_cp": 20 + i, "mate_en": None, "profundidad": 10,
+                "nodos": 100, "variacion_principal": ["e4"], "variantes_candidatas": [],
+            }
+            for i, _ in enumerate(fens)
+        ]
+
+    monkeypatch.setattr(servicio_partida, "analizar_posiciones", motor_falso)
+
+    resultado = analisis_completo(partida.id, tiempo_limite=0.2)
+
+    assert len(llamadas) == 1
+    fens, nivel, tiempo_limite = llamadas[0]
+    assert len(fens) == len(partida.jugadas_san) + 1
+    assert fens[0] == partida.fen_inicial and fens[-1] == partida.fen
+    assert (nivel, tiempo_limite) == (20, 0.2)
+    assert [j["jugada_san"] for j in resultado["jugadas"]] == ["e4", "e5", "Nf3"]
+    assert resultado["jugadas"][0]["evaluacion_cp"] == -21
+    assert resultado["resumen"]["total_jugadas"] == 3
+
+
+def test_analisis_completo_propaga_el_error_del_motor(monkeypatch) -> None:
+    partida = _partida_con_jugadas("e4", "e5")
+
+    def motor_roto(fens, nivel, tiempo_limite):
+        raise RuntimeError("Stockfish se cayó")
+
+    monkeypatch.setattr(servicio_partida, "analizar_posiciones", motor_roto)
+
+    with pytest.raises(RuntimeError, match="se cayó"):
+        analisis_completo(partida.id)
+
+
 def test_analisis_completo_en_partida_inexistente_lanza_keyerror() -> None:
     with pytest.raises(KeyError):
         analisis_completo("no-existe")
+
+
+def test_partida_nueva_arranca_en_curso_sin_fechas_de_juego() -> None:
+    partida = crear_partida(nivel=5, usuario_id=900)
+    assert partida.estado == "en_curso"
+    assert partida.iniciada_en is None
+    assert partida.actualizada_en is None
+    assert partida.jugadas_jugador == 0
+
+
+def test_mover_fija_iniciada_en_actualizada_en_y_no_pisa_iniciada_en_de_nuevo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _EstrategiaGuionada:
+        def __init__(self) -> None:
+            self._respuestas = iter(["e5", "Nc6"])
+
+        def decidir_jugada(self, fen: str) -> str:
+            return next(self._respuestas)
+
+    # Una sola instancia reutilizada entre llamadas: si el lambda creara una
+    # instancia nueva por llamada a `crear_estrategia_jugada` (como pasa
+    # dentro de `mover()`), el iterador se reiniciaría en cada jugada.
+    oponente = _EstrategiaGuionada()
+    monkeypatch.setattr(servicio_partida, "crear_estrategia_jugada", lambda *a, **k: oponente)
+
+    partida = crear_partida(nivel=5, usuario_id=901)
+
+    mover(partida.id, "e2e4")
+    partida_tras_primera = obtener_partida(partida.id)
+    assert partida_tras_primera.iniciada_en is not None
+    assert partida_tras_primera.actualizada_en is not None
+    assert partida_tras_primera.jugadas_jugador == 1
+
+    iniciada_en_original = partida_tras_primera.iniciada_en
+    mover(partida.id, "g1f3")
+    partida_tras_segunda = obtener_partida(partida.id)
+    assert partida_tras_segunda.iniciada_en == iniciada_en_original
+    assert partida_tras_segunda.jugadas_jugador == 2
+
+
+def test_mover_marca_estado_terminada_cuando_la_partida_termina(monkeypatch: pytest.MonkeyPatch) -> None:
+    partida = crear_partida(nivel=5, tipo_oponente="motor", usuario_id=902)
+
+    class _EstrategiaMateDelTonto:
+        def __init__(self) -> None:
+            self._respuestas = iter(["e5", "Qh4#"])
+
+        def decidir_jugada(self, fen: str) -> str:
+            return next(self._respuestas)
+
+    # Misma precaución que arriba: una sola instancia para las dos llamadas.
+    oponente = _EstrategiaMateDelTonto()
+    monkeypatch.setattr(servicio_partida, "crear_estrategia_jugada", lambda *a, **k: oponente)
+
+    mover(partida.id, "f2f3")
+    resultado = mover(partida.id, "g2g4")
+
+    assert resultado["terminada"] is True
+    assert obtener_partida(partida.id).estado == "terminada"
+
+
+def test_crear_partida_borra_partida_pendiente_del_mismo_usuario_sin_jugadas() -> None:
+    vieja = crear_partida(nivel=5, usuario_id=910)
+
+    crear_partida(nivel=5, usuario_id=910)
+
+    with pytest.raises(KeyError):
+        obtener_partida(vieja.id)
+
+
+def test_crear_partida_abandona_partida_pendiente_con_jugadas_suficientes() -> None:
+    from backend.servicios.calibracion import MIN_JUGADAS_PARTIDA_VALIDA
+
+    vieja = crear_partida(nivel=5, usuario_id=911)
+    # Ruy López hasta el enroque corto — secuencia real, siempre legal, sin
+    # pasar por el motor (evita depender de qué responda Stockfish).
+    for jugada_san in ["e4", "e5", "Nf3", "Nc6", "Bb5", "a6", "Ba4", "Nf6", "O-O", "Be7"]:
+        vieja.tablero.push_san(jugada_san)
+    servicio_partida._repositorio.guardar(vieja)
+    assert vieja.jugadas_jugador == MIN_JUGADAS_PARTIDA_VALIDA
+
+    crear_partida(nivel=5, usuario_id=911)
+
+    assert obtener_partida(vieja.id).estado == "abandonada"
+
+
+def test_crear_partida_no_toca_partida_en_demostracion_del_mismo_usuario() -> None:
+    from backend.servicios.partida.servicio_partida import actualizar_permisos
+
+    demo = crear_partida(nivel=5, usuario_id=912)
+    actualizar_permisos(demo.id, {"es_demostracion": True}, usuario_id_facilitador=912)
+
+    crear_partida(nivel=5, usuario_id=912)
+
+    partida_demo_tras_crear = obtener_partida(demo.id)
+    assert partida_demo_tras_crear.estado == "en_curso"
+    assert partida_demo_tras_crear.es_demostracion is True
+
+
+def test_crear_partida_no_afecta_partidas_de_otros_usuarios() -> None:
+    ajena = crear_partida(nivel=5, usuario_id=920)
+
+    crear_partida(nivel=5, usuario_id=921)
+
+    assert obtener_partida(ajena.id).estado == "en_curso"
+
+
+def test_partida_en_curso_de_devuelve_none_sin_partidas() -> None:
+    from backend.servicios.partida.servicio_partida import partida_en_curso_de
+
+    assert partida_en_curso_de(930) is None
+
+
+def test_partida_en_curso_de_ignora_partida_recien_creada_sin_jugar() -> None:
+    from backend.servicios.partida.servicio_partida import partida_en_curso_de
+
+    crear_partida(nivel=5, usuario_id=931)
+
+    assert partida_en_curso_de(931) is None
+
+
+def test_partida_en_curso_de_devuelve_la_que_tiene_jugadas() -> None:
+    from backend.servicios.partida.servicio_partida import partida_en_curso_de
+
+    partida = crear_partida(nivel=5, usuario_id=932)
+    mover(partida.id, "e2e4")
+
+    en_curso = partida_en_curso_de(932)
+
+    assert en_curso is not None
+    assert en_curso.id == partida.id

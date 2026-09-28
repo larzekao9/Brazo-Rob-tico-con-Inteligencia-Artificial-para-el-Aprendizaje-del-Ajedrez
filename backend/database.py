@@ -12,6 +12,7 @@ Ejemplo de valor para `DATABASE_URL`:
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from sqlalchemy import Engine, create_engine, inspect, select, text
@@ -29,11 +30,45 @@ class Base(DeclarativeBase):
 
 
 def obtener_engine() -> Engine:
-    """Crea el engine de SQLAlchemy a partir de `DATABASE_URL` (PostgreSQL o SQLite)."""
+    """Crea el engine de SQLAlchemy a partir de `DATABASE_URL` (PostgreSQL o SQLite).
+
+    Para PostgreSQL fuerza la zona horaria de la sesión a UTC
+    (`-c timezone=utc`): las columnas `TIMESTAMP` de este proyecto son "sin
+    zona" (`server_default=func.now()` guarda la hora de pared de la sesión,
+    no UTC explícito), así que sin esto la hora guardada depende de cómo
+    esté configurado el Postgres de cada máquina — hoy "funciona de
+    casualidad" en el servidor que ya está en GMT, pero no en una máquina
+    con otro huso. Con la sesión fija en UTC, esa hora de pared siempre ES
+    UTC, y `fecha_a_iso` de abajo puede asumirlo con seguridad."""
     db_url = os.environ.get("DATABASE_URL") or DATABASE_URL or "sqlite:///./ajedrez.db"
     if db_url.startswith("sqlite"):
         return create_engine(db_url, connect_args={"check_same_thread": False})
-    return create_engine(db_url)
+    return create_engine(db_url, connect_args={"options": "-c timezone=utc"})
+
+
+def fecha_a_iso(valor: datetime | None) -> str | None:
+    """Convierte un `datetime` de una columna `TIMESTAMP` a ISO 8601 con
+    offset UTC explícito (`+00:00`), o `None` si `valor` es `None`.
+
+    Las columnas `TIMESTAMP` de este proyecto no llevan zona horaria
+    (`Mapped[datetime]` sin más), así que SQLAlchemy siempre devuelve un
+    `datetime` "naive" (sin `tzinfo`) — con `obtener_engine` fijando la
+    sesión de Postgres a UTC, ese valor naive ES la hora UTC, así que
+    marcarlo como tal acá es seguro. Sin esto, `valor.isoformat()` a secas
+    produce una cadena sin sufijo de zona (ej. "2026-09-28T04:56:28"), y
+    `new Date(...)` en el navegador la interpreta como hora LOCAL del
+    cliente en vez de UTC — el bug real de "horas adelantadas" que reportó
+    un usuario en Bolivia (UTC-4): la 00:50 UTC se mostraba como si fueran
+    las 04:50 locales.
+
+    Usar siempre esta función (nunca `valor.isoformat()` suelto) para
+    convertir cualquier columna `TIMESTAMP`/`DateTime` de este proyecto a
+    texto para una respuesta HTTP."""
+    if valor is None:
+        return None
+    if valor.tzinfo is None:
+        valor = valor.replace(tzinfo=timezone.utc)
+    return valor.isoformat()
 
 
 def crear_tablas(engine: Engine) -> None:
@@ -44,7 +79,33 @@ def crear_tablas(engine: Engine) -> None:
     """
     Base.metadata.create_all(engine)
     _agregar_columnas_faltantes(engine)
-    sembrar_usuarios_iniciales(engine)
+    _marcar_partidas_con_resultado_como_terminadas(engine)
+    _limpiar_nivel_estimado_de_facilitadores(engine)
+    if sembrado_de_usuarios_de_prueba_habilitado(engine):
+        sembrar_usuarios_iniciales(engine)
+
+
+# Servicios de base de datos gestionada donde nunca se deben crear los usuarios de prueba.
+_HOSTS_DE_PRODUCCION = ("supabase.co", "supabase.com")
+
+
+def sembrado_de_usuarios_de_prueba_habilitado(engine: Engine) -> bool:
+    """Indica si al arrancar se crean los usuarios de prueba (`sembrar_usuarios_iniciales`).
+
+    Esos usuarios tienen contraseñas fijas conocidas (`admin123`, `test123456`), útiles en
+    desarrollo pero inaceptables en producción, sobre todo el facilitador. Por eso:
+
+    - Si existe la variable de entorno `SEMBRAR_USUARIOS_PRUEBA`, manda ella: `true`/`1`/`si`
+      los crea y cualquier otro valor no.
+    - Si no existe, se crean salvo que la base esté en Supabase (`*.supabase.co` o
+      `*.supabase.com`), donde nunca se crean por defecto. En SQLite y PostgreSQL local todo
+      sigue igual que antes.
+    """
+    valor = os.environ.get("SEMBRAR_USUARIOS_PRUEBA", "").strip().lower()
+    if valor:
+        return valor in {"1", "true", "si", "sí", "yes"}
+    host = (engine.url.host or "").lower()
+    return not host.endswith(_HOSTS_DE_PRODUCCION)
 
 
 _COLUMNAS_AGREGADAS: dict[str, dict[str, str]] = {
@@ -63,6 +124,10 @@ _COLUMNAS_AGREGADAS: dict[str, dict[str, str]] = {
         "permite_camara": "BOOLEAN NOT NULL DEFAULT FALSE",
         "fen_inicial": "VARCHAR",
         "es_demostracion": "BOOLEAN NOT NULL DEFAULT FALSE",
+        "usa_brazo": "BOOLEAN NOT NULL DEFAULT FALSE",
+        "estado": "VARCHAR NOT NULL DEFAULT 'en_curso'",
+        "iniciada_en": "TIMESTAMP",
+        "actualizada_en": "TIMESTAMP",
     },
 }
 
@@ -77,6 +142,52 @@ def _agregar_columnas_faltantes(engine: Engine) -> None:
             for columna, definicion in columnas.items():
                 if columna not in existentes:
                     conexion.execute(text(f"ALTER TABLE {tabla} ADD COLUMN {columna} {definicion}"))
+
+
+def _marcar_partidas_con_resultado_como_terminadas(engine: Engine) -> None:
+    """Corrige el `estado` de las partidas que ya tenían `resultado` antes de
+    que existiera la columna `estado` (HU sala de control, ciclo de vida).
+
+    Idempotente: solo toca las que quedaron en `'en_curso'` a pesar de tener
+    un resultado — correrlo de nuevo sobre una base ya corregida no cambia
+    nada. Se ejecuta siempre, junto con `_agregar_columnas_faltantes`, no
+    solo la primera vez que aparece la columna.
+
+    No hace nada si la tabla `partida` todavía no tiene `resultado` o
+    `estado` (bases sintéticas mínimas, como las de test) — en cualquier
+    base real ambas columnas siempre están."""
+    inspector = inspect(engine)
+    if not inspector.has_table("partida"):
+        return
+    columnas_existentes = {columna["name"] for columna in inspector.get_columns("partida")}
+    if not {"resultado", "estado"} <= columnas_existentes:
+        return
+    with engine.begin() as conexion:
+        conexion.execute(
+            text("UPDATE partida SET estado = 'terminada' WHERE resultado IS NOT NULL AND estado = 'en_curso'")
+        )
+
+
+def _limpiar_nivel_estimado_de_facilitadores(engine: Engine) -> None:
+    """Borra `nivel_estimado`/`rango_estimado` de cualquier usuario con
+    `rol = 'facilitador'` que los tenga puestos — un facilitador no tiene
+    nivel de juego propio; esos datos quedaron de antes de que
+    `PATCH /auth/nivel-estimado` (`ruta_auth.guardar_nivel_estimado`)
+    empezara a rechazar la llamada para roles que no son `jugador`.
+
+    Idempotente igual que `_marcar_partidas_con_resultado_como_terminadas`:
+    solo toca las filas que todavía tengan alguno de los dos campos puesto,
+    así que correrlo de nuevo sobre una base ya corregida no cambia nada."""
+    inspector = inspect(engine)
+    if not inspector.has_table("usuario"):
+        return
+    with engine.begin() as conexion:
+        conexion.execute(
+            text(
+                "UPDATE usuario SET nivel_estimado = NULL, rango_estimado = NULL "
+                "WHERE rol = 'facilitador' AND (nivel_estimado IS NOT NULL OR rango_estimado IS NOT NULL)"
+            )
+        )
 
 
 def sembrar_usuarios_iniciales(engine: Engine) -> None:

@@ -12,6 +12,7 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from backend.database import fecha_a_iso
 from backend.modelos.tablas_orm import JugadaORM, PartidaORM
 
 RESULTADO_HUMANO_GANA = "1-0"
@@ -199,15 +200,24 @@ def calcular_estadisticas(db: Session, usuario_id: int) -> dict:
 
 
 def obtener_historial_partidas(db: Session, usuario_id: int, limit: int, offset: int) -> dict:
-    """Página del historial de partidas del usuario, más reciente primero."""
-    total = (
-        db.scalar(select(func.count()).select_from(PartidaORM).where(PartidaORM.usuario_id == usuario_id))
-        or 0
-    )
+    """Página del historial de partidas del usuario, más reciente primero.
+
+    Excluye las partidas sin ninguna jugada del jugador (`jugadas_uci`
+    vacío): el humano siempre mueve primero (`servicio_partida.mover`), así
+    que una partida con al menos una jugada registrada tiene, por
+    definición, al menos una jugada del jugador — no hace falta mirar la
+    tabla `jugada` para este filtro. Son las que la Sala de Control crea
+    sola al abrir la pantalla, sin botón "iniciar", y nadie llegó a jugar
+    (ver `backend/servicios/partida/ciclo_vida.py`); `total` ya cuenta solo
+    las que quedan tras excluirlas.
+    """
+    filtro = (PartidaORM.usuario_id == usuario_id, PartidaORM.jugadas_uci.is_not(None), PartidaORM.jugadas_uci != "")
+
+    total = db.scalar(select(func.count()).select_from(PartidaORM).where(*filtro)) or 0
 
     filas = db.scalars(
         select(PartidaORM)
-        .where(PartidaORM.usuario_id == usuario_id)
+        .where(*filtro)
         .order_by(PartidaORM.fecha.desc())
         .limit(limit)
         .offset(offset)
@@ -216,11 +226,12 @@ def obtener_historial_partidas(db: Session, usuario_id: int, limit: int, offset:
     partidas = [
         {
             "id": fila.id,
-            "fecha": fila.fecha.isoformat() if hasattr(fila.fecha, "isoformat") else str(fila.fecha),
+            "fecha": fecha_a_iso(fila.fecha) if hasattr(fila.fecha, "isoformat") else str(fila.fecha),
             "resultado": fila.resultado,
             "tipo_oponente": fila.tipo_oponente,
             "nivel": fila.nivel,
             "cantidad_jugadas": len(fila.jugadas_uci.split()) if fila.jugadas_uci else 0,
+            "estado": fila.estado,
         }
         for fila in filas
     ]

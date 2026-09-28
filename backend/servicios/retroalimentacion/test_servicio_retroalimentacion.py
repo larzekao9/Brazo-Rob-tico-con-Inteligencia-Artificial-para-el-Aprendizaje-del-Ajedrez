@@ -184,3 +184,27 @@ def test_generar_resumen_partida():
     assert resumen["conteo_calidad"]["imprecision"] == 1
     assert len(resumen["curva_efectividad"]) == 3
     assert len(resumen["consejo_tutor"]) > 10
+
+
+def test_generar_resumen_partida_separa_la_precision_del_jugador_de_la_del_rival():
+    # El humano mueve primero: plies impares. El rival (plies pares) juega perfecto
+    # y no debe inflar la precisión del jugador.
+    analisis_mock = [
+        {"numero_ply": 1, "calidad": "blunder", "probabilidad_victoria": 10.0, "jugada_san": "f3"},
+        {"numero_ply": 2, "calidad": "mejor", "probabilidad_victoria": 60.0, "jugada_san": "e5"},
+        {"numero_ply": 3, "calidad": "error", "probabilidad_victoria": 20.0, "jugada_san": "g4"},
+        {"numero_ply": 4, "calidad": "mejor", "probabilidad_victoria": 90.0, "jugada_san": "Qh4#"},
+    ]
+    resumen = generar_resumen_partida(analisis_mock)
+
+    assert resumen["total_jugadas"] == 4
+    assert resumen["precision_global"] == 55.0
+    assert resumen["total_jugadas_jugador"] == 2
+    assert resumen["precision_jugador"] == 10.0
+
+
+def test_generar_resumen_partida_sin_jugadas_del_jugador_devuelve_precision_nula():
+    resumen = generar_resumen_partida([])
+
+    assert resumen["total_jugadas_jugador"] == 0
+    assert resumen["precision_jugador"] is None

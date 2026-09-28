@@ -11,13 +11,16 @@ secciones 4.1 y 4.3).
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import chess
 
 from backend.modelos.partida import Partida
 from backend.repositorios.repositorio_partida import RepositorioPartidas, crear_repositorio_partidas
 from backend.servicios.brazo.servicio_brazo import ejecutar_respuesta_en_brazo
 from backend.servicios.estrategias.fabrica_estrategias import TIPOS_SOPORTADOS, crear_estrategia_jugada
-from backend.servicios.motor.motor_ajedrez import NIVEL_MAX, analizar_posicion
+from backend.servicios.motor.motor_ajedrez import NIVEL_MAX, analizar_posicion, analizar_posiciones
+import backend.servicios.partida.ciclo_vida as ciclo_vida
 from backend.servicios.retroalimentacion.servicio_retroalimentacion import (
     centipawns_a_probabilidad_victoria,
     clasificar_calidad_jugada,
@@ -49,12 +52,20 @@ def crear_partida(
     a partir del token de `Authorization: Bearer` ya validado, nunca viene del
     cuerpo de la request.
 
+    Antes de crear la partida, cierra las que el mismo usuario haya dejado
+    pendientes (`ciclo_vida.cerrar_partidas_pendientes`) — la Sala de Control
+    crea una partida apenas se abre la pantalla, sin botón "iniciar", así que
+    sin este cierre cada apertura dejaría una partida `en_curso` más. Si
+    `usuario_id` es `None` (partida sin dueño) no hay nada que cerrar.
+
     Raises:
         ValueError: si `tipo_oponente` no es un tipo soportado todavía (ver
             `fabrica_estrategias.TIPOS_SOPORTADOS`), o si `fen_inicial` no es
             un FEN válido — ambos se validan acá, al crear la partida, para
             no dejar que fallen recién en la primera jugada.
     """
+    if usuario_id is not None:
+        ciclo_vida.cerrar_partidas_pendientes(_repositorio, usuario_id)
     if tipo_oponente not in TIPOS_SOPORTADOS:
         raise ValueError(
             f"Tipo de oponente '{tipo_oponente}' no soportado todavía "
@@ -102,6 +113,21 @@ def listar_partidas() -> list[Partida]:
     a disco. Ver sección 4.3 y 7 de PLAN_IMPLEMENTACION_COMPLETO.md.
     """
     return _repositorio.listar()
+
+
+def limpiar_partidas_inactivas() -> None:
+    """Barrido de partidas `en_curso` abandonadas por inactividad (ver
+    `ciclo_vida.limpiar_partidas_inactivas`) — se llama al arrancar el
+    backend (`main.py`, tolerando errores) y en cada `GET /partida/en-curso`.
+    """
+    ciclo_vida.limpiar_partidas_inactivas(_repositorio)
+
+
+def partida_en_curso_de(usuario_id: int) -> Partida | None:
+    """Partida `en_curso` que el usuario puede retomar, o `None` (HU
+    "retomar", ver `GET /partida/en-curso` y `ciclo_vida.partida_en_curso_de`).
+    """
+    return ciclo_vida.partida_en_curso_de(_repositorio, usuario_id)
 
 
 def actualizar_permisos(partida_id: str, campos: dict, usuario_id_facilitador: int | None = None) -> Partida:
@@ -217,6 +243,11 @@ def mover(partida_id: str, jugada_uci: str) -> dict:
     función ni deja la jugada digital sin aplicar: queda expuesto en
     `error_brazo` en el resultado.
 
+    También actualiza el ciclo de vida de la partida (HU sala de control):
+    fija `iniciada_en` en la primera llamada (primera jugada del humano),
+    pisa `actualizada_en` en cada llamada, y pasa `estado` a `"terminada"`
+    si esta jugada termina la partida.
+
     Raises:
         KeyError: si no existe una partida con ese id.
         ValueError: si la partida ya terminó o la jugada es inválida/ilegal.
@@ -254,7 +285,13 @@ def mover(partida_id: str, jugada_uci: str) -> dict:
         ))
         error_brazo = ejecutar_respuesta_en_brazo(partida, tablero_antes_motor, jugada_motor_move)
 
+    ahora = datetime.now(timezone.utc).isoformat()
+    if partida.iniciada_en is None:
+        partida.iniciada_en = ahora
+    partida.actualizada_en = ahora
     partida.tablero = tablero_intento
+    if partida.terminada:
+        partida.estado = "terminada"
     _repositorio.guardar(partida)
     for numero, fen_antes, movimiento, decidido_por in jugadas_a_registrar:
         _repositorio.registrar_jugada(partida.id, numero, fen_antes, movimiento, decidido_por)
@@ -335,19 +372,21 @@ def analisis_completo(partida_id: str, tiempo_limite: float = 0.3, rango: str = 
     """Analiza con Stockfish cada jugada ya jugada de una partida (vista de aprendizaje, HU5/HU6).
 
     Reconstruye, jugada por jugada, todas las posiciones por las que pasó la
-    partida desde `fen_inicial`, y le pide a `analizar_posicion` la evaluación
-    de cada una. `analizar_posicion` siempre evalúa desde el punto de vista de
+    partida desde `fen_inicial`, y le pide a `analizar_posiciones` la evaluación
+    de cada una. El análisis siempre evalúa desde el punto de vista de
     quien tiene el turno en ese FEN — la posición "después" de una jugada le
     toca mover al rival, así que su evaluación queda en la perspectiva del
     rival, y hay que negarla para volver a la perspectiva de quien jugó, y así
     poder compararla contra lo que hubiera valido la mejor jugada (calculada
     en la posición "antes", ya en esa misma perspectiva).
 
-    Abre un proceso de Stockfish por cada posición (N+1 para N jugadas), así
-    que es lento para partidas largas — es una acción explícita del usuario
-    ("analizar esta partida"), no algo que corra automáticamente, y
-    `tiempo_limite` por defecto es más bajo que en el resto del motor para
-    no tardar demasiado.
+    Analiza las N+1 posiciones de una partida de N jugadas con
+    `analizar_posiciones`: abre unos pocos procesos de Stockfish una sola vez
+    y los reparte en paralelo, en vez de abrir uno por posición. Aun así
+    cuesta `tiempo_limite` por posición dividido entre los motores, y es una
+    acción explícita del usuario ("analizar esta partida") o el cierre de una
+    partida terminada; `tiempo_limite` por defecto es más bajo que en el resto
+    del motor para no tardar demasiado. Un error del motor se propaga tal cual.
 
     El análisis retrospectivo siempre corre con `NIVEL_MAX` (fuerza máxima de
     Stockfish), nunca con `partida.nivel`. `partida.nivel` debilita cómo
@@ -385,9 +424,7 @@ def analisis_completo(partida_id: str, tiempo_limite: float = 0.3, rango: str = 
         tablero.push(jugada)
         posiciones_fen.append(tablero.fen())
 
-    analisis_por_posicion = [
-        analizar_posicion(fen, NIVEL_MAX, tiempo_limite) for fen in posiciones_fen
-    ]
+    analisis_por_posicion = analizar_posiciones(posiciones_fen, NIVEL_MAX, tiempo_limite)
 
     resultado = []
     for i, jugada_san in enumerate(partida.jugadas_san):

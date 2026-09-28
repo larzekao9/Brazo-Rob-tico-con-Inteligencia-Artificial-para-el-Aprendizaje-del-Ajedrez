@@ -196,6 +196,12 @@ Pantalla para elegir oponente y parámetros antes de jugar:
       jugando (partida no terminada), la pantalla ahora sondea cada 3s y refresca sola el cerebro
       y las candidatas con la jugada nueva — antes era una foto fija de un solo momento. Pantalla
       ahora exclusiva de facilitador (antes la veía cualquier rol sin distinción).
+- [x] **Tercera ampliación (Hebert): Turing se adapta al nivel del jugador.** `predecir_jugada_maestra`
+      ahora recibe el `nivel` de la partida, que viene del perfil del jugador (Principiante ≈ 5,
+      Intermedio ≈ 11, Avanzado ≈ 18). Con nivel >= 18 se comporta igual que antes; por debajo muestrea
+      con softmax entre sus 3-5 mejores candidatas (`temperatura_y_pool_por_nivel`), sin dejar de jugar
+      el mate en 1 ni de evitar jugadas que permiten mate en 1. Sigue decidiendo solo con su red (sin
+      Stockfish) y sin aprendizaje en vivo; `explicar_top_candidatas` no se tocó.
 
 **Salida:** Jugador ve feedback visual EN TIEMPO REAL, diferenciador vs ChessKid/Chess.com.
 
@@ -270,6 +276,17 @@ de decisión.
 
 **Salida:** El modelo se reentrenó y está más fuerte. Diferenciador clave: motor que aprende
 de usuarios.
+
+**Avance de base para HU4 (Sala de Control, ver `backend/servicios/partida/ciclo_vida.py`):**
+la Sala de Control creaba una partida apenas se abría la pantalla, sin botón "iniciar", y nunca
+cerraba la anterior — de 399 partidas reales, 347 no tenían ni una jugada del jugador. Ahora
+cada partida tiene un `estado` (`en_curso`/`terminada`/`abandonada`), las pendientes se cierran
+solas (al crear una nueva del mismo usuario, y con un barrido periódico por inactividad), y el
+Registro/historial excluyen las que nunca se jugaron. Sobre esa base, el facilitador tiene un
+panel (`GET /entrenamiento/estado`, `POST /entrenamiento/dataset`) para descargar como ZIP
+(PGN + CSV, anónimo) las partidas "válidas" (terminadas, ≥5 jugadas del jugador, dueño jugador)
+y ver cuándo hay "suficientes" nuevas — el reentrenamiento en sí (los pasos de arriba) sigue
+sin construirse; esto solo junta la materia prima.
 
 ---
 
@@ -444,6 +461,15 @@ distinción):**
       arrancada desde una posición armada en el tablero físico (HU1) perdía esa posición al
       releerla de la base. Corregido; filas viejas sin esa columna siguen usando la posición
       estándar (no se rompe nada retroactivo).
+- [x] **Calibración de nivel por partida (RF20 ampliado):** cada partida terminada del jugador
+      calibra su nivel (`POST /partida/{id}/calibrar`, y también al abrir `analisis-completo`). Se
+      comparan contra Stockfish solo las jugadas del propio jugador (`precision_jugador`, no las de
+      ambos bandos) y queda una fila por partida en `calibracion`, única por usuario+partida: re-analizar
+      no duplica ni revierte el nivel. El nivel vigente es el promedio de las últimas 3 calibraciones y
+      una partida con menos de 5 jugadas del jugador no cuenta. `GET /auth/nivel` devuelve nivel,
+      progreso al siguiente nivel, historial y escala (0-20; Turing con techo en 18 "Maestro",
+      Stockfish usa 0-20 completo). El modelo propio no interviene en el cálculo del nivel; la primera
+      partida contra Stockfish como diagnóstico la impone el frontend, no el servidor.
 
 **Todavía sin empezar / explícitamente fuera de alcance de este sprint:** vínculo real
 facilitador↔curso↔estudiantes (bloquea que el preset de enseñanza y el selector de "grupo" de
@@ -452,6 +478,27 @@ multijugador, matchmaking por nivel y ranking (Módulo 7 del documento oficial, 
 explícita, no de este sprint); tutor conversacional real (LLM con tools/system-prompt/multi-turn)
 — evaluado y descartado para este sprint por tiempo/alcance, el nivel-adaptativo actual (RF20) se
 resuelve con plantillas escritas a mano, no con un modelo de lenguaje.
+
+**Pendiente para Sprint 2 (mismo hueco de arriba, encontrado al revisar por qué el jugador nunca
+ve el video de su facilitador):** el jugador sube su video por pieza en Configuración de
+Enseñanza, pero en "Aprendé cada pieza" (Panel de Aprendizaje) el jugador siempre ve un
+placeholder fijo que dice "Próximamente" — ni siquiera intenta pedir el video, no es un bug de
+conexión suelto. Dos motivos, los dos ya reales hoy: (1) `GET /facilitador/videos` exige rol
+facilitador (`get_current_facilitador`), así que un jugador no tiene por dónde pedirlo aunque el
+frontend lo intentara; (2) no hay tabla de curso/grupo (el hueco de arriba), así que tampoco está
+definido de qué facilitador debería ver el video un jugador dado. Resolverlo bien depende de
+cerrar primero el vínculo facilitador↔curso↔estudiantes, no es solo conectar un fetch.
+
+**Pendiente transversal (todo el frontend, no una pantalla puntual): que el sistema sea
+responsive de verdad en cualquier tamaño de pantalla, no solo escritorio.** Hoy es parejo: cada
+pantalla nueva usó los breakpoints de Tailwind (`sm:`/`md:`/`lg:`) por su cuenta, sin una revisión
+conjunta en dispositivos chicos. Medido por cantidad de esos breakpoints por archivo
+(`frontend/src/paginas/*/*.jsx`): pantallas como Panel de Aprendizaje, Registro de Partidas o
+Razonamiento Neuronal tienen bastantes; **Sala de Control — la pantalla principal de juego — tiene
+pocos para lo compleja que es (tablero + 3 columnas)**, y los componentes más nuevos
+(`ModalRetomarPartida.jsx`, `ChatTuring.jsx`, `CerebroNeuronal.jsx`/`CerebroRed.jsx` con el canvas
+3D) no tienen ninguno todavía. Falta una pasada dedicada, pantalla por pantalla, en anchos de
+celular y tablet, no solo confiar en que cada una haya heredado clases responsive de una vecina.
 
 ---
 

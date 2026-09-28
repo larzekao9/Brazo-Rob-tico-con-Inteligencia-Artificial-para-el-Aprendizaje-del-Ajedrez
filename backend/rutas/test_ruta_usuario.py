@@ -18,6 +18,7 @@ from backend.database import crear_fabrica_sesiones, crear_tablas
 from backend.main import app
 from backend.modelos.tablas_orm import JugadaORM, PartidaORM
 from backend.rutas.ruta_auth import get_db
+from backend.servicios.calibracion import MIN_JUGADAS_CALIBRACION
 
 JUGADOR = {"email": "stats@test.com", "nombre": "Jugadora", "password": "secreto1"}
 
@@ -292,12 +293,14 @@ def test_analisis_completo_actualiza_rango_del_dueno_segun_precision(contexto, m
     resp2 = cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "g2g4"})
     assert resp2.json()["terminada"] is True
 
+    # `total_jugadas` alcanza el mínimo para calibrar (`MIN_JUGADAS_CALIBRACION`):
+    # con menos jugadas evaluadas la partida no cuenta como calibración.
     resumen_falso = {
         "precision_global": 30.0,
         "conteo_calidad": {"blunder": 1},
         "curva_efectividad": [],
         "consejo_tutor": "consejo de prueba",
-        "total_jugadas": 2,
+        "total_jugadas": MIN_JUGADAS_CALIBRACION,
     }
     monkeypatch.setattr(
         ruta_partida_mod,

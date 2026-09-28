@@ -25,7 +25,11 @@ class EstadisticasUsuarioResponse(BaseModel):
 
 
 class PartidaHistorialItem(BaseModel):
-    """Una fila de GET /usuario/historial-partidas."""
+    """Una fila de GET /usuario/historial-partidas.
+
+    Solo incluye partidas con al menos una jugada del jugador (ver
+    `servicio_estadisticas.obtener_historial_partidas`) — las que la Sala de
+    Control crea sola y nadie llega a jugar no aparecen acá."""
 
     id: str
     fecha: str
@@ -33,6 +37,7 @@ class PartidaHistorialItem(BaseModel):
     tipo_oponente: str
     nivel: int
     cantidad_jugadas: int
+    estado: str | None = None
 
 
 class HistorialPartidasResponse(BaseModel):

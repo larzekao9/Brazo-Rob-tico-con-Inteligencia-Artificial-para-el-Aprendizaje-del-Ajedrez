@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, func
+from sqlalchemy import ForeignKey, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.database import Base
@@ -53,8 +53,9 @@ class UsuarioORM(Base):
     # Autenticación federada (Google OAuth) y perfil
     google_id: Mapped[str | None] = mapped_column(nullable=True, index=True)
     avatar_url: Mapped[str | None] = mapped_column(nullable=True)
-    # Resultado de la última "Mide tu nivel" completada (HU5/HU10) — se pisa
-    # en cada diagnóstico nuevo, no se guarda historial (ver PLAN_IMPLEMENTACION_COMPLETO.md).
+    # Nivel/rango vigente del jugador: lo recalcula `servicio_calibracion` al terminar
+    # cada partida (promedio de las últimas calibraciones, historial en `CalibracionORM`)
+    # y también lo pisa "Mide tu nivel" (HU5/HU10) como punto de partida manual.
     nivel_estimado: Mapped[int | None] = mapped_column(nullable=True)
     rango_estimado: Mapped[str | None] = mapped_column(nullable=True)  # 'Principiante' | 'Intermedio' | 'Avanzado'
     # Perfil editable por el propio usuario (PATCH /auth/me) — genérico para
@@ -117,6 +118,15 @@ class PartidaORM(Base):
     # Si la jugada de respuesta de la estrategia activa también se ejecuta en el
     # brazo (ver `modelos/partida.py`, `Partida.usa_brazo`, HU9).
     usa_brazo: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
+    # Ciclo de vida de la partida (ver `modelos/partida.py`, `Partida.estado` y
+    # `ESTADOS_PARTIDA`): 'en_curso' | 'terminada' | 'abandonada'.
+    estado: Mapped[str] = mapped_column(nullable=False, default="en_curso", server_default="en_curso")
+    # Momento de la primera jugada del jugador humano. Nulo si la partida se
+    # creó pero nadie movió todavía (ver `Partida.iniciada_en`).
+    iniciada_en: Mapped[datetime | None] = mapped_column(nullable=True)
+    # Momento de la última jugada aplicada (humano o estrategia). Nulo hasta
+    # la primera jugada (ver `Partida.actualizada_en`).
+    actualizada_en: Mapped[datetime | None] = mapped_column(nullable=True)
 
     jugadas: Mapped[list["JugadaORM"]] = relationship(back_populates="partida", cascade="all, delete-orphan")
     usuario: Mapped["UsuarioORM"] = relationship(back_populates="partidas")
@@ -170,3 +180,59 @@ class MensajeTutorORM(Base):
     rol: Mapped[str] = mapped_column(nullable=False)  # 'user' | 'assistant'
     contenido: Mapped[str] = mapped_column(nullable=False)
     creado_en: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class CalibracionORM(Base):
+    """Una fila por partida terminada que ya calibró el nivel de su dueño
+    (`backend/servicios/calibracion/servicio_calibracion.py`). Tabla nueva —
+    `Base.metadata.create_all` la crea sola, no hace falta tocar
+    `_COLUMNAS_AGREGADAS` en `backend/database.py`.
+
+    `precision_global` es la precisión de las jugadas del propio jugador en esa
+    partida (cada una comparada contra Stockfish), no la de ambos bandos.
+    `nivel_partida`/`rango_partida` son el nivel que saldría mirando SOLO esa
+    partida; el nivel vigente del jugador (`UsuarioORM.nivel_estimado`) sale del
+    promedio de las últimas calibraciones, no de esta columna.
+
+    `partida_id` no es clave foránea: las partidas pueden vivir solo en memoria
+    (`RepositorioPartidasEnMemoria`) y no tener fila en `partida`. La restricción
+    única `(usuario_id, partida_id)` hace idempotente registrar dos veces la
+    misma partida.
+    """
+
+    __tablename__ = "calibracion"
+    __table_args__ = (
+        UniqueConstraint("usuario_id", "partida_id", name="uq_calibracion_usuario_partida"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuario.id"), nullable=False, index=True)
+    partida_id: Mapped[str] = mapped_column(nullable=False)
+    precision_global: Mapped[float] = mapped_column(nullable=False)
+    nivel_partida: Mapped[int] = mapped_column(nullable=False)
+    rango_partida: Mapped[str] = mapped_column(nullable=False)
+    total_jugadas: Mapped[int] = mapped_column(nullable=False)  # jugadas evaluadas del jugador
+    creado_en: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class ExportacionDatasetORM(Base):
+    """Una fila por cada descarga del dataset de partidas para reentrenar el
+    modelo propio (HU4, todavía sin construir — ver
+    `backend/servicios/entrenamiento/servicio_dataset.py`). Tabla nueva —
+    `Base.metadata.create_all` la crea sola, no hace falta tocar
+    `_COLUMNAS_AGREGADAS` en `backend/database.py`.
+
+    `corte_en` es el instante de corte de esa descarga (el más reciente entre
+    `actualizada_en`/`fecha` de las partidas incluidas) — sirve para que la
+    próxima descarga con `solo_nuevas=true` sepa desde dónde son "nuevas"
+    las partidas (ver `servicio_dataset.estado_entrenamiento`)."""
+
+    __tablename__ = "exportacion_dataset"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuario.id"), nullable=False, index=True)
+    creado_en: Mapped[datetime] = mapped_column(server_default=func.now())
+    corte_en: Mapped[datetime] = mapped_column(nullable=False)
+    cantidad_partidas: Mapped[int] = mapped_column(nullable=False)
+    cantidad_jugadas: Mapped[int] = mapped_column(nullable=False)
+    formato: Mapped[str] = mapped_column(nullable=False)

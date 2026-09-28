@@ -1,13 +1,16 @@
 """Inferencia del modelo de jugadas (HU4): carga el checkpoint entrenado en Colab
 y predice la jugada más probable para una posición, entre las jugadas legales.
 
-Esto nunca decide la jugada real de la partida (ver reglas del PAPs) — Stockfish
-sigue siendo la única fuente de la jugada que se ejecuta. Este módulo es la base
-para conectar el modelo propio a `EstrategiaJugada` (HU4) y a las explicaciones
-de HU5.
+Cuando el oponente elegido es `"modelo"`, `predecir_jugada_maestra` decide la
+jugada real de la partida por su cuenta (vía `EstrategiaModelo`), sin consultar
+a Stockfish; Stockfish solo actúa como oráculo de comparación en otros módulos.
+Este módulo además es la base de las explicaciones de HU5/HU6. Nada acá aprende
+en vivo: los pesos solo cambian al reentrenar en lotes versionados.
 """
 from __future__ import annotations
 
+import math
+import random
 import re
 import time
 from functools import lru_cache
@@ -24,6 +27,7 @@ from backend.servicios.aprendizaje.modelo_jugadas import (
     RedSEResNetAjedrez,
     tensor_a_entrada_red,
 )
+from backend.servicios.aprendizaje.niveles import NIVEL_MAESTRO, NIVEL_MAX_MODELO  # noqa: F401
 from training.data_pipeline import board_to_tensor, jugada_a_etiqueta
 
 def _obtener_checkpoint_por_defecto() -> Path:
@@ -202,12 +206,113 @@ def _evaluar_candidata_tactica(tablero: chess.Board, jugada: chess.Move) -> dict
         tablero.pop()
 
 
+NIVEL_MIN = 0
+NIVEL_MAX = 20
+# `NIVEL_MAESTRO` (desde ese nivel el modelo juega determinista, siempre la mejor
+# candidata tras el filtro táctico) y `NIVEL_MAX_MODELO` (su techo en la escala
+# 0-20) se importan arriba desde `niveles.py`, que no depende de torch.
+
+TEMPERATURA_MAX = 3.0  # niveles NIVEL_MIN..5 (Principiante)
+TEMPERATURA_MIN = 1.0  # nivel 17, el último antes del modo maestro
+_NIVEL_TEMPERATURA_MAX = 5
+_NIVEL_TEMPERATURA_MIN = NIVEL_MAESTRO - 1
+
+
+def temperatura_y_pool_por_nivel(nivel: int | None) -> tuple[float, int]:
+    """Mapea el nivel de juego (0-20, mismo rango que el Skill Level de Stockfish)
+    a los parámetros con que el modelo muestrea entre sus candidatas.
+
+    Función pura: no toca la red ni el tablero. El nivel viene del perfil del
+    jugador (Principiante ≈ 5, Intermedio ≈ 11, Avanzado ≈ 18; el facilitador usa 20).
+
+    Mapeo (`temperatura`, `top_k`):
+
+    - `nivel is None` o `nivel >= 18` (NIVEL_MAESTRO): `(0.0, 3)` — temperatura 0
+      significa "sin muestreo": se elige siempre la mejor candidata (comportamiento
+      original de `predecir_jugada_maestra`, determinista).
+    - `nivel` 0-17: la temperatura baja linealmente de 3.0 (niveles 0-5) a 1.0
+      (nivel 17): T = 3.0 - 2.0 * (nivel - 5) / 12, redondeada a 2 decimales.
+      Ejemplos: nivel 5 -> 3.0, nivel 8 -> 2.5, nivel 11 -> 2.0, nivel 14 -> 1.5,
+      nivel 17 -> 1.0. Con T=1 se muestrea de la distribución propia de la red;
+      con T mayor la distribución se aplana y las candidatas peores ganan peso.
+    - `top_k` (tamaño del pool de candidatas de la red entre las que se muestrea):
+      3 para niveles 14-17, 4 para niveles 9-13 y 5 para niveles 0-8.
+
+    Un `nivel` fuera de [0, 20] se recorta a ese rango.
+
+    Returns:
+        Tupla `(temperatura, top_k)`.
+    """
+    if nivel is None:
+        return 0.0, 3
+    nivel = max(NIVEL_MIN, min(NIVEL_MAX, nivel))
+    if nivel >= NIVEL_MAESTRO:
+        return 0.0, 3
+
+    if nivel <= _NIVEL_TEMPERATURA_MAX:
+        temperatura = TEMPERATURA_MAX
+    else:
+        tramo = _NIVEL_TEMPERATURA_MIN - _NIVEL_TEMPERATURA_MAX
+        temperatura = TEMPERATURA_MAX - (
+            (TEMPERATURA_MAX - TEMPERATURA_MIN) * (nivel - _NIVEL_TEMPERATURA_MAX) / tramo
+        )
+
+    if nivel <= 8:
+        top_k = 5
+    elif nivel <= 13:
+        top_k = 4
+    else:
+        top_k = 3
+    return round(temperatura, 2), top_k
+
+
+def _elegir_candidata_muestreada(
+    tablero: chess.Board,
+    candidatas: list[chess.Move],
+    puntajes: torch.Tensor,
+    temperatura: float,
+    rng: random.Random,
+) -> chess.Move:
+    """Elige una jugada entre `candidatas` por muestreo softmax con `temperatura`,
+    aplicando antes los mismos chequeos tácticos que el modo maestro:
+
+    1. Si alguna candidata da jaque mate, se juega (la primera en orden de la red).
+    2. Se descartan las que permiten mate en 1 al rival. Si no queda ninguna, se
+       cae en la mejor candidata de la red (mismo fallback que el modo maestro).
+    3. A las restantes se les resta la penalidad por pieza colgada al score de la
+       red ANTES de aplicar el softmax, así que a nivel bajo errar es más probable
+       pero una pieza regalada sigue siendo poco probable.
+
+    Nunca consulta a Stockfish ni devuelve una jugada fuera de `candidatas` (todas
+    legales).
+    """
+    supervivientes: list[tuple[chess.Move, float]] = []
+    for jugada in candidatas:
+        tactica = _evaluar_candidata_tactica(tablero, jugada)
+        if tactica["da_jaque_mate"]:
+            return jugada
+        if tactica["rival_tiene_mate_en_1"]:
+            continue
+        score = puntajes[jugada_a_etiqueta(tablero, jugada)].item()
+        supervivientes.append((jugada, score - tactica["penalidad_pieza_colgada"]))
+
+    if not supervivientes:
+        return candidatas[0]
+
+    scores = [score / temperatura for _, score in supervivientes]
+    maximo = max(scores)  # estabilidad numérica del softmax
+    pesos = [math.exp(s - maximo) for s in scores]
+    return rng.choices([j for j, _ in supervivientes], weights=pesos, k=1)[0]
+
+
 def predecir_jugada_maestra(
     fen: str,
     ruta_checkpoint: str | Path = RUTA_CHECKPOINT_POR_DEFECTO,
     top_candidatas: int = 3,
+    nivel: int | None = None,
+    rng: random.Random | None = None,
 ) -> str:
-    """Predice la mejor jugada combinando intuición neuronal y filtro táctico autónomo.
+    """Predice la jugada del modelo combinando intuición neuronal y filtro táctico autónomo.
 
     Diseñado especialmente para el control físico del brazo robótico (RF11/RF14):
     1. La red neuronal sugiere las `top_candidatas` mejores jugadas.
@@ -218,8 +323,29 @@ def predecir_jugada_maestra(
          sin defensores propios, se penaliza drásticamente.
     3. Garantiza una tasa de victoria de nivel maestro en demostraciones físicas.
 
+    Adaptación al nivel del jugador (Causa 2 de la tesis: rival de nivel equivalente):
+    - `nivel is None` o `nivel >= 18`: modo maestro, arriba descrito. Determinista,
+      idéntico al comportamiento previo a la existencia de `nivel`.
+    - `nivel < 18`: en lugar de elegir siempre la mejor candidata, se muestrea entre
+      las `top_k` mejores de la red con softmax a la temperatura que fija
+      `temperatura_y_pool_por_nivel(nivel)` (más alta y con más candidatas cuanto
+      menor el nivel). Los chequeos tácticos se mantienen a cualquier nivel: el mate
+      en 1 propio se juega, las jugadas que permiten mate en 1 se descartan, y la
+      penalidad por pieza colgada se resta del score antes de muestrear. El pool
+      efectivo es `max(top_candidatas, top_k)`.
+
+    Args:
+        fen: posición a resolver.
+        ruta_checkpoint: checkpoint del modelo (por defecto, el más reciente).
+        top_candidatas: mínimo de candidatas de la red a considerar.
+        nivel: nivel de juego 0-20 (viene del perfil del jugador); `None` = maestro.
+        rng: generador de números aleatorios para el muestreo (`nivel < 18`);
+            se inyecta con semilla en los tests. Por defecto, uno nuevo sin semilla.
+            No se consume en modo maestro.
+
     Cumple estrictamente la Regla 1 del proyecto: no consulta a Stockfish durante
-    el juego; es un cálculo táctico local ejecutado por la red neuronal y reglas de ajedrez.
+    el juego; es un cálculo táctico local ejecutado por la red neuronal y reglas de
+    ajedrez. El muestreo es aleatoriedad por jugada, sin estado ni aprendizaje en vivo.
     """
     tablero = chess.Board(fen)
     jugadas_legales = list(tablero.legal_moves)
@@ -228,6 +354,11 @@ def predecir_jugada_maestra(
 
     if len(jugadas_legales) == 1:
         return tablero.san(jugadas_legales[0])
+
+    muestrear = nivel is not None and nivel < NIVEL_MAESTRO
+    if muestrear:
+        temperatura, top_k = temperatura_y_pool_por_nivel(nivel)
+        top_candidatas = max(top_candidatas, top_k)
 
     modelo = cargar_modelo(ruta_checkpoint)
     entrada = tensor_a_entrada_red(board_to_tensor(tablero)).unsqueeze(0)
@@ -241,6 +372,13 @@ def predecir_jugada_maestra(
     )
 
     candidatas = jugadas_ordenadas[: min(top_candidatas, len(jugadas_ordenadas))]
+
+    if muestrear:
+        elegida = _elegir_candidata_muestreada(
+            tablero, candidatas, puntajes, temperatura, rng if rng is not None else random.Random()
+        )
+        return tablero.san(elegida)
+
     mejor_jugada = candidatas[0]
     mejor_score = -float("inf")
 

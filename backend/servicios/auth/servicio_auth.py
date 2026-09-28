@@ -220,10 +220,11 @@ def create_user(
 
 
 def actualizar_nivel_estimado(db: Session, user: UsuarioORM, nivel: int, rango: str) -> UsuarioORM:
-    """Guarda el resultado de la última "Mide tu nivel" completada (HU5/HU10).
+    """Guarda el nivel/rango vigente del jugador: el de "Mide tu nivel" (HU5/HU10)
+    o el que calcula `servicio_calibracion.registrar_calibracion` tras cada partida.
 
-    Pisa el valor anterior a propósito — no se guarda historial de
-    evaluaciones, solo el nivel/rango vigente del jugador.
+    Pisa el valor anterior a propósito — acá vive solo el nivel vigente; el
+    historial de calibraciones por partida está en `CalibracionORM`.
     """
     user.nivel_estimado = nivel
     user.rango_estimado = rango

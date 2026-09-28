@@ -9,7 +9,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from backend.database import DATABASE_URL, crear_fabrica_sesiones, crear_tablas, obtener_engine
+from backend.database import DATABASE_URL, crear_fabrica_sesiones, crear_tablas, fecha_a_iso, obtener_engine
 from backend.esquemas.auth_esquema import (
     ActualizarPerfilRequest,
     GoogleAuthRequest,
@@ -21,6 +21,7 @@ from backend.esquemas.auth_esquema import (
     AuthResponse,
     UsuarioResponse,
 )
+from backend.esquemas.calibracion_esquema import NivelJugadorResponse
 from backend.esquemas.usuario_esquema import HistorialPartidasResponse
 from backend.modelos.tablas_orm import PartidaORM, UsuarioORM
 from backend.servicios.auth import (
@@ -36,6 +37,11 @@ from backend.servicios.auth import (
     get_user_by_email,
     get_user_by_id,
     verificar_token_google,
+)
+from backend.servicios.calibracion import (
+    contar_calibraciones,
+    contar_calibraciones_por_usuario,
+    estado_nivel_jugador,
 )
 from backend.servicios.usuario.servicio_avatar import guardar_avatar
 from backend.servicios.usuario.servicio_estadisticas import obtener_historial_partidas
@@ -61,13 +67,13 @@ def get_db() -> Iterator[Session]:
         db.close()
 
 
-def _a_respuesta(user) -> UsuarioResponse:
+def _a_respuesta(user, partidas_calibradas: int) -> UsuarioResponse:
     return UsuarioResponse(
         id=user.id,
         email=user.email,
         nombre=user.nombre,
         rol=user.rol,
-        creado_en=user.creado_en.isoformat(),
+        creado_en=fecha_a_iso(user.creado_en),
         google_id=user.google_id,
         avatar_url=user.avatar_url,
         nivel_estimado=user.nivel_estimado,
@@ -75,6 +81,8 @@ def _a_respuesta(user) -> UsuarioResponse:
         edad=user.edad,
         descripcion=user.descripcion,
         preset_ensenanza=user.preset_ensenanza,
+        diagnostico_completado=partidas_calibradas > 0,
+        partidas_calibradas=partidas_calibradas,
     )
 
 
@@ -151,7 +159,7 @@ def registro(data: RegistroRequest, db: Session = Depends(get_db)) -> AuthRespon
     access, refresh = create_tokens(user)
 
     return AuthResponse(
-        usuario=_a_respuesta(user),
+        usuario=_a_respuesta(user, contar_calibraciones(db, user.id)),
         tokens=TokenResponse(
             access_token=access,
             refresh_token=refresh,
@@ -182,7 +190,7 @@ def login_google(data: GoogleAuthRequest, db: Session = Depends(get_db)) -> Auth
 
     access, refresh = create_tokens(user)
     return AuthResponse(
-        usuario=_a_respuesta(user),
+        usuario=_a_respuesta(user, contar_calibraciones(db, user.id)),
         tokens=TokenResponse(
             access_token=access,
             refresh_token=refresh,
@@ -214,7 +222,7 @@ def login(data: LoginRequest, db: Session = Depends(get_db)) -> AuthResponse:
     access, refresh = create_tokens(user)
 
     return AuthResponse(
-        usuario=_a_respuesta(user),
+        usuario=_a_respuesta(user, contar_calibraciones(db, user.id)),
         tokens=TokenResponse(
             access_token=access,
             refresh_token=refresh,
@@ -252,7 +260,22 @@ def me(user_id: int = Depends(get_current_user), db: Session = Depends(get_db)) 
     user = get_user_by_id(db, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    return _a_respuesta(user)
+    return _a_respuesta(user, contar_calibraciones(db, user.id))
+
+
+@router.get(
+    "/nivel",
+    response_model=NivelJugadorResponse,
+    summary="Nivel calibrado del jugador, su historial y la escala de niveles",
+)
+def nivel_jugador(user_id: int = Depends(get_current_user), db: Session = Depends(get_db)) -> NivelJugadorResponse:
+    """Estado del nivel del usuario autenticado (RF20): nivel y rango vigentes, cuántas
+    partidas lo calibraron, progreso hacia el siguiente nivel, las últimas 10
+    calibraciones y la escala de niveles del sistema (bandas y techo de Turing)."""
+    user = get_user_by_id(db, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return NivelJugadorResponse(**estado_nivel_jugador(db, user))
 
 
 @router.patch(
@@ -267,13 +290,26 @@ def guardar_nivel_estimado(
 ) -> UsuarioResponse:
     """Guarda el nivel/rango calculado al terminar el diagnóstico (HU5/HU10).
 
-    Pisa el resultado anterior — no se guarda historial de evaluaciones.
+    Pisa el nivel vigente. Es solo el punto de partida manual: la próxima
+    partida terminada lo recalcula (`POST /partida/{id}/calibrar`) y el
+    historial por partida se consulta en `GET /auth/nivel`.
+
+    Solo para jugadores (403 si no) — un facilitador no tiene nivel de
+    juego propio; `registrar_calibracion` ya protege el camino automático
+    (`dueno_no_jugador`), esto protege el manual, que hasta ahora un
+    facilitador podía llamar igual (desde la app móvil o directo a la API)
+    aunque el frontend web ya le oculte el selector.
     """
     user = get_user_by_id(db, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if user.rol != "jugador":
+        raise HTTPException(
+            status_code=403,
+            detail="Este endpoint es solo para jugadores; los facilitadores no tienen nivel de juego.",
+        )
     user = actualizar_nivel_estimado(db, user, data.nivel, data.rango)
-    return _a_respuesta(user)
+    return _a_respuesta(user, contar_calibraciones(db, user.id))
 
 
 @router.patch(
@@ -296,7 +332,7 @@ def actualizar_perfil_propio(
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     campos = data.model_dump(exclude_unset=True)
     user = actualizar_perfil(db, user, campos)
-    return _a_respuesta(user)
+    return _a_respuesta(user, contar_calibraciones(db, user.id))
 
 
 @router.post(
@@ -324,7 +360,7 @@ async def subir_foto_perfil(
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     user = actualizar_perfil(db, user, {"avatar_url": url})
-    return _a_respuesta(user)
+    return _a_respuesta(user, contar_calibraciones(db, user.id))
 
 
 @router.get(
@@ -338,7 +374,8 @@ def listar_usuarios(
 ) -> list[UsuarioResponse]:
     """Lista todos los usuarios registrados. Requiere rol facilitador."""
     usuarios = db.scalars(select(UsuarioORM).order_by(UsuarioORM.creado_en.desc())).all()
-    return [_a_respuesta(u) for u in usuarios]
+    calibradas = contar_calibraciones_por_usuario(db, [u.id for u in usuarios])
+    return [_a_respuesta(u, calibradas.get(u.id, 0)) for u in usuarios]
 
 
 @router.get(

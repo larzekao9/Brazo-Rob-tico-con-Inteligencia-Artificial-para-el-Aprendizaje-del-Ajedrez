@@ -7,6 +7,10 @@ from datetime import datetime, timezone
 
 import chess
 
+ESTADOS_PARTIDA = ("en_curso", "terminada", "abandonada")
+"""Valores válidos de `Partida.estado` (ver `backend/servicios/partida/ciclo_vida.py`
+para quién los asigna)."""
+
 
 @dataclass
 class Partida:
@@ -69,6 +73,32 @@ class Partida:
     facilitador vía `PATCH /partida/{id}/permisos` (ver
     `servicio_brazo.ejecutar_respuesta_en_brazo`, HU9). Nunca ejecuta la
     jugada del humano, solo la de la estrategia."""
+    estado: str = "en_curso"
+    """Ciclo de vida de la partida (`ESTADOS_PARTIDA`): `"en_curso"` mientras
+    se sigue jugando, `"terminada"` cuando el tablero llega a jaque mate/tablas
+    (lo pone `servicio_partida.mover`), o `"abandonada"` cuando el jugador la
+    dejó a medias y `ciclo_vida.py` la cerró sin borrarla (tenía jugadas
+    suficientes como para no descartarla). Independiente de `terminada`
+    (que solo mira el tablero): una partida abandonada casi siempre tiene
+    `terminada=False`, porque el tablero nunca llegó a un final real."""
+    iniciada_en: str | None = None
+    """Momento (ISO 8601 UTC) de la primera jugada del humano — `None` si
+    todavía no jugó ninguna (la partida se creó pero nadie movió). Lo fija
+    `servicio_partida.mover` la primera vez que se llama para esta partida."""
+    actualizada_en: str | None = None
+    """Momento (ISO 8601 UTC) de la última jugada aplicada (humano o
+    estrategia) — lo pisa `servicio_partida.mover` en cada llamada. Sirve
+    para detectar inactividad (`ciclo_vida.py`) sin depender de `creada_en`,
+    que no cambia."""
+
+    @property
+    def jugadas_jugador(self) -> int:
+        """Cuántas de las jugadas ya aplicadas fueron del humano.
+
+        El humano siempre juega blancas y siempre mueve primero
+        (`servicio_partida.mover`), así que sus jugadas son las de ply impar:
+        1ª, 3ª, 5ª... Con `n` plies jugados en total, movió `ceil(n / 2)`."""
+        return (len(self.tablero.move_stack) + 1) // 2
 
     @property
     def fen(self) -> str:

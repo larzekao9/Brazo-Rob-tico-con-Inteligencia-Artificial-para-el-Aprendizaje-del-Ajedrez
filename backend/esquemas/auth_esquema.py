@@ -56,7 +56,11 @@ class RefreshRequest(BaseModel):
 
 
 class UsuarioResponse(BaseModel):
-    """Datos públicos del usuario autenticado."""
+    """Datos públicos del usuario autenticado.
+
+    `partidas_calibradas` es la cantidad de partidas que ya calibraron su nivel
+    (`CalibracionORM`); `diagnostico_completado` es `partidas_calibradas > 0`.
+    """
 
     id: int
     email: str
@@ -70,6 +74,8 @@ class UsuarioResponse(BaseModel):
     edad: int | None = None
     descripcion: str | None = None
     preset_ensenanza: str | None = None
+    diagnostico_completado: bool = False
+    partidas_calibradas: int = 0
 
     class Config:
         from_attributes = True
