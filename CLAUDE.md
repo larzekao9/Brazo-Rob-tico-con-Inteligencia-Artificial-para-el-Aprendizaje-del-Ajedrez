@@ -129,6 +129,12 @@ user.name` / `user.email` local).
   describir solo el cambio de código — sin mencionar que fueron asistidos por IA.
 - Esta regla se aplica también a comentarios dentro del código, nombres de variables, archivos
   de documentación generados, y cualquier otro artefacto que termine en el repositorio.
+- **Autoría sin cambios:** el repositorio, los commits y los PRs siguen con la autoría de siempre:
+  la persona que usa la sesión (Suárez Burgos Hebert, según su `git config`) y su compañero (Arze
+  Kao Luis Ángel) cuando corresponda. No cambies `user.name` / `user.email`, no agregues otros
+  autores, y no menciones a Claude ni a Anthropic en ningún lugar del repo, ni siquiera de forma
+  indirecta. Esto aplica también a los plugins o skills que generen texto de commit o PR: revisá el
+  mensaje antes de confirmarlo.
 
 Esta regla ya está reforzada a nivel de configuración en `.claude/settings.json` (ver ese archivo
 en la raíz del repo) — pero seguí esta instrucción explícitamente de todas formas, incluso si por
