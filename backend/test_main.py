@@ -371,6 +371,38 @@ def test_mover_desde_foto_de_otro_usuario_devuelve_403_sin_tocar_la_camara() -> 
     assert respuesta.status_code == 403
 
 
+def test_analisis_red_sin_token_devuelve_401() -> None:
+    assert cliente.get("/partida/x/analisis-red").status_code == 401
+
+
+def test_analisis_red_de_jugador_devuelve_403() -> None:
+    respuesta = cliente.get("/partida/x/analisis-red", headers=_headers_usuario_nuevo())
+    assert respuesta.status_code == 403
+
+
+def test_analisis_red_partida_inexistente_devuelve_404() -> None:
+    respuesta = cliente.get("/partida/no-existe/analisis-red", headers=_headers_facilitador_nuevo())
+    assert respuesta.status_code == 404
+
+
+@pytest.mark.skipif(not RUTA_CHECKPOINT.exists(), reason="No hay checkpoint entrenado en esta máquina")
+def test_analisis_red_facilitador_ve_las_jugadas_reales_de_un_jugador() -> None:
+    headers_jugador = _headers_usuario_nuevo()
+    partida_id = cliente.post("/partida", json={"nivel": 5}, headers=headers_jugador).json()["id"]
+    cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "e2e4"}, headers=headers_jugador)
+    estado = cliente.get(f"/partida/{partida_id}", headers=headers_jugador).json()
+
+    respuesta = cliente.get(f"/partida/{partida_id}/analisis-red", headers=_headers_facilitador_nuevo())
+
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert cuerpo["partida_id"] == partida_id
+    assert len(cuerpo["jugadas"]) == len(estado["jugadas"])
+    assert cuerpo["jugadas"][0]["quien"] == "jugador"
+    assert cuerpo["jugadas"][0]["color"] == "blancas"
+    assert cuerpo["resumen"]["total_jugadas"] == len(estado["jugadas"])
+
+
 def test_listar_partidas_incluye_la_recien_creada_con_su_tipo_y_jugadas() -> None:
     headers = _headers_usuario_nuevo()
     partida_id = cliente.post("/partida", json={"nivel": 5}, headers=headers).json()["id"]

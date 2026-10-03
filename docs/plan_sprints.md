@@ -113,9 +113,9 @@ Drive; `reconocer_tablero` reconoce correctamente al menos un tablero de prueba 
 diagnóstico de nivel, configuración de partida, análisis en tiempo real durante la partida,
 retroalimentación post-partida, estadísticas personales, y reentrenamiento del modelo en lotes.
 
-**Nota de plataforma:** todas las HU de frontend se implementan en **Flutter** (mobile-first),
-no React. Flutter permite compilar a iOS/Android/Web desde el mismo código, con mejor
-performance en mobile y UX más nativa.
+**Nota de plataforma:** el frontend de Sprint 2 se implementa en **React (web)**. La app móvil
+(Flutter) queda para jugar, desafíos y rankings; la enseñanza guiada (onboarding, panel de
+aprendizaje, análisis y estadísticas) vive en la web.
 
 | HU   | Descripción                                 | Puntos | Responsable | Orden      |
 | ---- | ------------------------------------------- | ------ | ----------- | ---------- |
@@ -131,12 +131,16 @@ performance en mobile y UX más nativa.
 
 ### **HU12 — Onboarding Educativo Visual** (5 pts, Luis Ángel)
 
-Flujo de tarjetas interactivas que enseñan las reglas antes de jugar:
+✅ **Hecho en la web (React).** Flujo de tarjetas interactivas que enseñan las reglas antes de jugar:
 
-- [ ] 8-10 tarjetas (una por pieza + movimientos básicos)
-- [ ] Cada tarjeta: imagen, nombre, movimiento, ejemplo interactivo en miniatura
-- [ ] Prueba final: pequeño puzzle de 1-2 movimientos para validar comprensión
-- [ ] Guardá en sesión: `onboarding_completado = true`
+- [x] 9 tarjetas: introducción, una por pieza (6), jaque y jaque mate, y prueba final
+- [x] Cada tarjeta de pieza: imagen, nombre, apodo, cómo se mueve y un tablero en miniatura en el
+      que hay que tocar una casilla alcanzable (`casillasIlustrativas`)
+- [x] Prueba final: la torre tiene que dar jaque al rey negro en una jugada
+- [x] Marca de finalizado por usuario (`onboarding_completado_<id>`) en el navegador. Se guarda en
+      el navegador y no en la sesión del servidor: aparece una sola vez por dispositivo. "Saltar"
+      y "Empezar a jugar" también la marcan.
+- [x] Contenido de las piezas compartido con el Panel de Aprendizaje (`src/contenido/piezas.js`)
 
 **Salida:** Jugador sabe qué hace cada pieza y cómo se mueve.
 

@@ -6,6 +6,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from backend.esquemas.analisis_red_esquema import AnalisisRedResponse
 from backend.esquemas.calibracion_esquema import CalibracionResponse
 from backend.esquemas.partida_esquema import (
     ActualizarPermisosPartidaRequest,
@@ -43,6 +44,7 @@ from backend.servicios.partida.servicio_partida import (
     obtener_partida_en_demostracion,
     partida_en_curso_de,
 )
+from backend.servicios.aprendizaje.analisis_red import analizar_partida_con_red
 from backend.servicios.retroalimentacion.servicio_retroalimentacion import RANGO_POR_DEFECTO
 
 logger = logging.getLogger(__name__)
@@ -358,6 +360,32 @@ def mover_partida_desde_foto(
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     return ResultadoMovimientoResponse(**resultado)
+
+
+@router.get("/{partida_id}/analisis-red", response_model=AnalisisRedResponse)
+def analisis_red_partida(
+    partida_id: str,
+    _facilitador: int = Depends(get_current_facilitador),
+) -> AnalisisRedResponse:
+    """Compara, jugada por jugada, lo que elegiría la red con lo que se jugó (HU6 ampliada).
+
+    Solo facilitador: puede mirar cualquier partida (de jugadores o suya). Recorre la partida
+    desde su posición inicial y pregunta a la red en cada una. La red decide sola; esto solo mide.
+    404 si la partida no existe; 503 si falta el checkpoint de la red.
+    """
+    try:
+        partida = obtener_partida(partida_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    try:
+        analisis = analizar_partida_con_red(
+            fen_inicial=partida.fen_inicial,
+            jugadas_san=partida.jugadas_san,
+            tipo_oponente=partida.tipo_oponente,
+        )
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    return AnalisisRedResponse(partida_id=partida_id, **analisis)
 
 
 @router.post("/{partida_id}/calibrar", response_model=CalibracionResponse)
