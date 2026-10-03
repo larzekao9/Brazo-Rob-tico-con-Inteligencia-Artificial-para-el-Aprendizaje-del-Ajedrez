@@ -233,11 +233,11 @@ def test_estadisticas_top_errores_cuenta_blunder_tras_analisis_completo(contexto
 
     partida_id = cliente.post("/partida", json={"nivel": 10}, headers=headers).json()["id"]
 
-    resp1 = cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "f2f3"})
+    resp1 = cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "f2f3"}, headers=headers)
     assert resp1.status_code == 200
     assert resp1.json()["terminada"] is False
 
-    resp2 = cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "g2g4"})
+    resp2 = cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "g2g4"}, headers=headers)
     assert resp2.status_code == 200
     assert resp2.json()["terminada"] is True
     assert resp2.json()["resultado"] == "0-1"
@@ -289,8 +289,8 @@ def test_analisis_completo_actualiza_rango_del_dueno_segun_precision(contexto, m
     )
 
     partida_id = cliente.post("/partida", json={"nivel": 10}, headers=headers).json()["id"]
-    cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "f2f3"})
-    resp2 = cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "g2g4"})
+    cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "f2f3"}, headers=headers)
+    resp2 = cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "g2g4"}, headers=headers)
     assert resp2.json()["terminada"] is True
 
     # `total_jugadas` alcanza el mínimo para calibrar (`MIN_JUGADAS_CALIBRACION`):

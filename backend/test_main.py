@@ -10,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 from backend.database import crear_fabrica_sesiones, crear_tablas
 from backend.main import app
 from backend.rutas.ruta_auth import get_db
+from backend.rutas.ruta_vision import TAMANO_MAXIMO_FOTO_BYTES
 from backend.servicios.partida.servicio_partida import crear_partida
 from backend.servicios.vision.piezas import RUTA_CHECKPOINT
 
@@ -288,8 +289,9 @@ def test_crear_partida_con_tipo_oponente_no_soportado_devuelve_400() -> None:
 
 
 def test_mover_partida_responde_con_jugada_del_motor() -> None:
-    partida_id = cliente.post("/partida", json={"nivel": 5}, headers=_headers_usuario_nuevo()).json()["id"]
-    respuesta = cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "e2e4"})
+    headers = _headers_usuario_nuevo()
+    partida_id = cliente.post("/partida", json={"nivel": 5}, headers=headers).json()["id"]
+    respuesta = cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "e2e4"}, headers=headers)
     assert respuesta.status_code == 200
     cuerpo = respuesta.json()
     assert cuerpo["jugada_motor"] is not None
@@ -299,8 +301,9 @@ def test_mover_partida_responde_con_jugada_del_motor() -> None:
 def test_mover_partida_incluye_variantes_candidatas_para_hu6() -> None:
     """HU6: el frontend necesita variantes_candidatas en /mover para pintar
     la barra Win% y el indicador de calidad en tiempo real sin llamar a /analisis."""
-    partida_id = cliente.post("/partida", json={"nivel": 5}, headers=_headers_usuario_nuevo()).json()["id"]
-    respuesta = cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "e2e4"})
+    headers = _headers_usuario_nuevo()
+    partida_id = cliente.post("/partida", json={"nivel": 5}, headers=headers).json()["id"]
+    respuesta = cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "e2e4"}, headers=headers)
     assert respuesta.status_code == 200
     cuerpo = respuesta.json()
     assert "variantes_candidatas" in cuerpo
@@ -314,16 +317,66 @@ def test_mover_partida_incluye_variantes_candidatas_para_hu6() -> None:
 
 
 def test_mover_partida_jugada_ilegal_devuelve_400() -> None:
-    partida_id = cliente.post("/partida", json={"nivel": 5}, headers=_headers_usuario_nuevo()).json()["id"]
-    respuesta = cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "e2e5"})
+    headers = _headers_usuario_nuevo()
+    partida_id = cliente.post("/partida", json={"nivel": 5}, headers=headers).json()["id"]
+    respuesta = cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "e2e5"}, headers=headers)
     assert respuesta.status_code == 400
 
 
-def test_listar_partidas_incluye_la_recien_creada_con_su_tipo_y_jugadas() -> None:
-    partida_id = cliente.post("/partida", json={"nivel": 5}, headers=_headers_usuario_nuevo()).json()["id"]
-    cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "e2e4"})
+def test_mover_partida_sin_token_devuelve_401() -> None:
+    headers = _headers_usuario_nuevo()
+    partida_id = cliente.post("/partida", json={"nivel": 5}, headers=headers).json()["id"]
+    respuesta = cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "e2e4"})
+    assert respuesta.status_code == 401
 
+
+def test_mover_partida_de_otro_usuario_devuelve_403() -> None:
+    # Antes cualquiera con el ID podía mover la partida de otro: ahora el dueño es el único que mueve.
+    partida_id = cliente.post("/partida", json={"nivel": 5}, headers=_headers_usuario_nuevo()).json()["id"]
+    respuesta = cliente.post(
+        f"/partida/{partida_id}/mover", json={"jugada": "e2e4"}, headers=_headers_usuario_nuevo()
+    )
+    assert respuesta.status_code == 403
+
+
+def test_listar_partidas_sin_token_devuelve_401() -> None:
     respuesta = cliente.get("/partida")
+    assert respuesta.status_code == 401
+
+
+def test_listar_partidas_de_jugador_solo_muestra_las_suyas() -> None:
+    headers_dueno = _headers_usuario_nuevo()
+    partida_id = cliente.post("/partida", json={"nivel": 5}, headers=headers_dueno).json()["id"]
+    cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "e2e4"}, headers=headers_dueno)
+
+    respuesta = cliente.get("/partida", headers=_headers_usuario_nuevo())
+    assert respuesta.status_code == 200
+    assert partida_id not in [r["id"] for r in respuesta.json()]
+
+
+def test_listar_partidas_de_facilitador_incluye_las_de_jugadores() -> None:
+    headers_dueno = _headers_usuario_nuevo()
+    partida_id = cliente.post("/partida", json={"nivel": 5}, headers=headers_dueno).json()["id"]
+    cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "e2e4"}, headers=headers_dueno)
+
+    respuesta = cliente.get("/partida", headers=_headers_facilitador_nuevo())
+    assert respuesta.status_code == 200
+    assert partida_id in [r["id"] for r in respuesta.json()]
+
+
+def test_mover_desde_foto_de_otro_usuario_devuelve_403_sin_tocar_la_camara() -> None:
+    # El chequeo de dueño corre antes de capturar la cámara: no depende de hardware.
+    partida_id = cliente.post("/partida", json={"nivel": 5}, headers=_headers_usuario_nuevo()).json()["id"]
+    respuesta = cliente.post(f"/partida/{partida_id}/mover-desde-foto", headers=_headers_usuario_nuevo())
+    assert respuesta.status_code == 403
+
+
+def test_listar_partidas_incluye_la_recien_creada_con_su_tipo_y_jugadas() -> None:
+    headers = _headers_usuario_nuevo()
+    partida_id = cliente.post("/partida", json={"nivel": 5}, headers=headers).json()["id"]
+    cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "e2e4"}, headers=headers)
+
+    respuesta = cliente.get("/partida", headers=headers)
     assert respuesta.status_code == 200
     resumenes = respuesta.json()
     resumen = next(r for r in resumenes if r["id"] == partida_id)
@@ -334,7 +387,7 @@ def test_listar_partidas_incluye_la_recien_creada_con_su_tipo_y_jugadas() -> Non
 def test_estado_partida_incluye_las_jugadas_completas() -> None:
     headers = _headers_usuario_nuevo()
     partida_id = cliente.post("/partida", json={"nivel": 5}, headers=headers).json()["id"]
-    cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "e2e4"})
+    cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "e2e4"}, headers=headers)
 
     respuesta = cliente.get(f"/partida/{partida_id}", headers=headers)
     assert respuesta.status_code == 200
@@ -371,10 +424,25 @@ def test_estado_partida_sin_usuario_asociado_devuelve_nombre_null() -> None:
 
 @pytest.mark.skipif(not CAMARA_DISPONIBLE, reason="No hay cámara conectada en esta máquina")
 def test_vision_foto_devuelve_jpeg() -> None:
-    respuesta = cliente.get("/vision/foto")
+    respuesta = cliente.get("/vision/foto", headers=_headers_usuario_nuevo())
     assert respuesta.status_code == 200
     assert respuesta.headers["content-type"] == "image/jpeg"
     assert len(respuesta.content) > 0
+
+
+@pytest.mark.parametrize(
+    ("metodo", "ruta"),
+    [("get", "/vision/foto"), ("post", "/vision/reconocer"), ("post", "/vision/grilla-debug")],
+)
+def test_vision_sin_token_devuelve_401(metodo: str, ruta: str) -> None:
+    # Las rutas capturan la cámara fija: sin token no deben ni intentar la captura.
+    respuesta = getattr(cliente, metodo)(ruta)
+    assert respuesta.status_code == 401
+
+
+def test_mover_desde_foto_sin_token_devuelve_401() -> None:
+    respuesta = cliente.post("/partida/cualquier-id/mover-desde-foto")
+    assert respuesta.status_code == 401
 
 
 @pytest.mark.skipif(not CAMARA_DISPONIBLE, reason="No hay cámara conectada en esta máquina")
@@ -383,7 +451,7 @@ def test_vision_reconocer_responde_200_o_422_si_no_ve_tablero() -> None:
     # No depende de que la cámara esté apuntando a un tablero real — solo confirma
     # que el endpoint no rompe: reconoce un tablero válido (200) o avisa que no
     # encontró ninguno en la imagen (422), nunca un error interno sin manejar.
-    respuesta = cliente.post("/vision/reconocer", data={"turno": "w"})
+    respuesta = cliente.post("/vision/reconocer", data={"turno": "w"}, headers=_headers_usuario_nuevo())
     assert respuesta.status_code in (200, 422)
 
 
@@ -398,6 +466,31 @@ def test_vision_reconocer_con_foto_subida_sin_tablero_devuelve_422() -> None:
         "/vision/reconocer",
         data={"turno": "w"},
         files={"foto_subida": ("foto.jpg", buffer.tobytes(), "image/jpeg")},
+        headers=_headers_usuario_nuevo(),
+    )
+    assert respuesta.status_code == 422
+
+
+@pytest.mark.parametrize("ruta", ["/vision/reconocer", "/vision/grilla-debug"])
+def test_vision_foto_subida_sobre_el_tope_devuelve_413(ruta: str) -> None:
+    datos = b"\x00" * (TAMANO_MAXIMO_FOTO_BYTES + 1)
+    respuesta = cliente.post(
+        ruta,
+        data={"turno": "w"},
+        files={"foto_subida": ("grande.jpg", datos, "image/jpeg")},
+        headers=_headers_usuario_nuevo(),
+    )
+    assert respuesta.status_code == 413
+
+
+def test_vision_grilla_debug_con_foto_subida_sin_tablero_devuelve_422() -> None:
+    imagen = np.full((200, 200, 3), 128, dtype=np.uint8)
+    exito, buffer = cv2.imencode(".jpg", imagen)
+    assert exito
+    respuesta = cliente.post(
+        "/vision/grilla-debug",
+        files={"foto_subida": ("foto.jpg", buffer.tobytes(), "image/jpeg")},
+        headers=_headers_usuario_nuevo(),
     )
     assert respuesta.status_code == 422
 
@@ -408,8 +501,9 @@ def test_mover_desde_foto_responde_200_o_422_si_no_coincide_ninguna_jugada() -> 
     # No depende de que la cámara esté apuntando a un tablero físico real en la
     # posición inicial — solo confirma que el endpoint no rompe con un error
     # interno sin manejar, sea que detecte una jugada válida (200) o no (422).
-    partida_id = cliente.post("/partida", json={"nivel": 5}, headers=_headers_usuario_nuevo()).json()["id"]
-    respuesta = cliente.post(f"/partida/{partida_id}/mover-desde-foto")
+    headers = _headers_usuario_nuevo()
+    partida_id = cliente.post("/partida", json={"nivel": 5}, headers=headers).json()["id"]
+    respuesta = cliente.post(f"/partida/{partida_id}/mover-desde-foto", headers=headers)
     assert respuesta.status_code in (200, 422)
 
 

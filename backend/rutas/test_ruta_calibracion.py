@@ -111,8 +111,8 @@ def _partida(contexto, headers, terminar: bool = True) -> str:
     contexto.oponente.reiniciar()
     partida_id = cliente.post("/partida", json={"nivel": 10}, headers=headers).json()["id"]
     if terminar:
-        assert cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "f2f3"}).status_code == 200
-        cierre = cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "g2g4"})
+        assert cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "f2f3"}, headers=headers).status_code == 200
+        cierre = cliente.post(f"/partida/{partida_id}/mover", json={"jugada": "g2g4"}, headers=headers)
         assert cierre.json()["terminada"] is True
     return partida_id
 

@@ -125,12 +125,20 @@ def crear(
 
 
 @router.get("", response_model=list[ResumenPartidaResponse])
-def listar(db: Session = Depends(get_db)) -> list[ResumenPartidaResponse]:
+def listar(
+    usuario_id: int = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[ResumenPartidaResponse]:
     """Registro de partidas jugadas mientras este proceso sigue corriendo.
 
     No sobrevive un reinicio del backend (`RepositorioPartidasEnMemoria`, ver
     sección 4.3 y 7 de PLAN_IMPLEMENTACION_COMPLETO.md) — pero es un registro
     real, no datos de ejemplo.
+
+    Requiere `Authorization: Bearer <token>`. El facilitador ve todas las
+    partidas (Registro de Partidas, Monitoreo); cualquier otro usuario solo ve
+    las suyas. Antes era público y exponía el ID y el nombre de cada
+    estudiante, lo que permitía tomar cualquier partida.
 
     Resuelve `usuario_nombre` con una sola consulta para todos los dueños
     distintos de la lista (`get_users_by_ids`), no una por partida — no hay
@@ -141,7 +149,13 @@ def listar(db: Session = Depends(get_db)) -> list[ResumenPartidaResponse]:
     nadie llegó a jugar — no aportan nada al registro y antes lo inflaban
     (ver `ciclo_vida.py`, que además las va limpiando de la base).
     """
-    partidas = [partida for partida in listar_partidas() if partida.jugadas_jugador >= 1]
+    usuario = get_user_by_id(db, usuario_id)
+    es_facilitador = usuario is not None and usuario.rol == "facilitador"
+    partidas = [
+        partida
+        for partida in listar_partidas()
+        if partida.jugadas_jugador >= 1 and (es_facilitador or partida.usuario_id == usuario_id)
+    ]
     ids_duenos = {partida.usuario_id for partida in partidas if partida.usuario_id is not None}
     usuarios_por_id = get_users_by_ids(db, ids_duenos)
     return [
@@ -292,8 +306,29 @@ def jugadas_legales(partida_id: str, casilla: str) -> JugadasLegalesResponse:
     return JugadasLegalesResponse(casillas=casillas)
 
 
+def _exigir_dueno(partida_id: str, usuario_id: int) -> None:
+    """404 si la partida no existe; 403 si no es del usuario del token.
+
+    Una partida sin dueño también da 403: no hay nadie autorizado a jugarla, y
+    antes cualquiera con el ID podía mover la partida de otro.
+    """
+    try:
+        partida = obtener_partida(partida_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    if partida.usuario_id != usuario_id:
+        raise HTTPException(status_code=403, detail="Solo el dueño de la partida puede moverla")
+
+
 @router.post("/{partida_id}/mover", response_model=ResultadoMovimientoResponse)
-def mover_partida(partida_id: str, request: MoverRequest) -> ResultadoMovimientoResponse:
+def mover_partida(
+    partida_id: str,
+    request: MoverRequest,
+    usuario_id: int = Depends(get_current_user),
+) -> ResultadoMovimientoResponse:
+    """Requiere `Authorization: Bearer <token>` y que la partida sea del usuario
+    del token (403 si es de otro, o no tiene dueño)."""
+    _exigir_dueno(partida_id, usuario_id)
     try:
         resultado = mover(partida_id, request.jugada)
     except KeyError as error:
@@ -304,8 +339,16 @@ def mover_partida(partida_id: str, request: MoverRequest) -> ResultadoMovimiento
 
 
 @router.post("/{partida_id}/mover-desde-foto", response_model=ResultadoMovimientoResponse)
-def mover_partida_desde_foto(partida_id: str) -> ResultadoMovimientoResponse:
-    """Detecta la jugada hecha en el tablero físico (cámara fija) y la aplica (RF11)."""
+def mover_partida_desde_foto(
+    partida_id: str,
+    usuario_id: int = Depends(get_current_user),
+) -> ResultadoMovimientoResponse:
+    """Detecta la jugada hecha en el tablero físico (cámara fija) y la aplica (RF11).
+
+    Exige token y que la partida sea del usuario del token: captura la cámara
+    fija y aplica una jugada real.
+    """
+    _exigir_dueno(partida_id, usuario_id)
     try:
         resultado = mover_desde_foto(partida_id)
     except KeyError as error:
