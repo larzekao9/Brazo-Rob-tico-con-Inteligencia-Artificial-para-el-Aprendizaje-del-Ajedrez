@@ -15,7 +15,9 @@ import numpy as np
 from backend.servicios.vision.modelo_piezas import CLASE_VACIA
 from backend.servicios.vision.piezas import clasificar_pieza
 from backend.servicios.vision.tablero import (
+    MARGEN_TABLERO_PORCENTAJE,
     detectar_esquinas_tablero,
+    dibujar_grilla_debug,
     dividir_en_casillas,
     enderezar_tablero,
 )
@@ -75,3 +77,22 @@ def reconocer_tablero(imagen: np.ndarray, turno: str = "w") -> str:
     ocupacion = {nombre: clasificar_pieza(recorte) for nombre, recorte in casillas.items()}
     piezas_fen = _ocupacion_a_fen_piezas(ocupacion)
     return f"{piezas_fen} {turno} - - 0 1"
+
+
+def generar_imagen_grilla_debug(imagen: np.ndarray) -> np.ndarray:
+    """Devuelve la foto, enderezada y con la grilla 8x8 dibujada encima, tal
+    cual queda dividida para reconocer_tablero — para mostrar visualmente que
+    la detección geométrica (esquinas + perspectiva + alineación) encontró el
+    tablero correctamente, sin pasar por la clasificación de piezas.
+
+    Raises:
+        ValueError: si no se detecta el tablero en la imagen (igual que
+            reconocer_tablero).
+    """
+    esquinas = detectar_esquinas_tablero(imagen)
+    plano = enderezar_tablero(imagen, esquinas)
+    lado = plano.shape[0]
+    margen = int(lado * MARGEN_TABLERO_PORCENTAJE / 100)
+    if margen:
+        plano = plano[margen : lado - margen, margen : lado - margen]
+    return dibujar_grilla_debug(plano)

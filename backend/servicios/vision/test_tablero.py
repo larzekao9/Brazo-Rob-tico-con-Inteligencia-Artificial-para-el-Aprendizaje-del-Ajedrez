@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from backend.servicios.vision.tablero import (
+    MARGEN_TABLERO_PORCENTAJE,
     TAMANO_TABLERO_PLANO,
     detectar_esquinas_tablero,
     dibujar_grilla_debug,
@@ -72,7 +73,9 @@ def test_dividir_en_casillas_devuelve_64_casillas_del_mismo_tamano() -> None:
 
     assert len(casillas) == 64
     assert set(casillas) == {f"{col}{fila}" for col in "abcdefgh" for fila in range(1, 9)}
-    paso = TAMANO_TABLERO_PLANO // 8
+    # `dividir_en_casillas` recorta el margen configurado antes de dividir en 8x8.
+    margen = int(TAMANO_TABLERO_PLANO * MARGEN_TABLERO_PORCENTAJE / 100)
+    paso = (TAMANO_TABLERO_PLANO - 2 * margen) // 8
     for recorte in casillas.values():
         assert recorte.shape == (paso, paso, 3)
 

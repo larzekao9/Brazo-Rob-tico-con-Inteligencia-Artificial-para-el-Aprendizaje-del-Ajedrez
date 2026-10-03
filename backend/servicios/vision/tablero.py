@@ -7,11 +7,24 @@ esta parte esté validada contra fotos reales.
 """
 from __future__ import annotations
 
+import os
+
 import cv2
 import numpy as np
 
 TAMANO_TABLERO_PLANO = 800  # píxeles de lado de la imagen ya enderezada
 TAMANO_CASILLA = TAMANO_TABLERO_PLANO // 8
+
+# `detectar_esquinas_tablero` encuentra el contorno de 4 lados más GRANDE de la
+# imagen — en un tablero con borde ancho e impreso (letras/números alrededor
+# del área de juego, ej. un tablero plegable tipo valija) eso agarra el borde
+# de madera completo, no el área 8x8 real, y la grilla de `dividir_en_casillas`
+# queda corrida respecto a las casillas reales (confirmado visualmente con
+# `dibujar_grilla_debug` contra una foto real: con 0% de margen la grilla no
+# coincide con las casillas, con ~7-9% sí). Config por variable de entorno
+# (mismo patrón que `CAMARA_FUENTE`) para no tocar el comportamiento de
+# tableros sin ese borde ancho si hiciera falta volver a 0.
+MARGEN_TABLERO_PORCENTAJE = float(os.environ.get("MARGEN_TABLERO_PORCENTAJE", "7"))
 
 
 def _ordenar_esquinas(puntos: np.ndarray) -> np.ndarray:
@@ -95,7 +108,9 @@ def enderezar_tablero(
     return cv2.warpPerspective(imagen, matriz, (tamano, tamano))
 
 
-def dividir_en_casillas(tablero_plano: np.ndarray) -> dict[str, np.ndarray]:
+def dividir_en_casillas(
+    tablero_plano: np.ndarray, margen_porcentaje: float = MARGEN_TABLERO_PORCENTAJE
+) -> dict[str, np.ndarray]:
     """Divide la imagen ya enderezada del tablero en sus 64 casillas.
 
     Asume que la esquina superior-izquierda de `tablero_plano` es la casilla
@@ -103,10 +118,21 @@ def dividir_en_casillas(tablero_plano: np.ndarray) -> dict[str, np.ndarray]:
     asunción depende de cómo se monte la cámara real y se ajusta una sola
     vez al calibrarla — no se recalcula en cada foto.
 
+    Args:
+        margen_porcentaje: recorta ese % de cada borde antes de dividir en
+            8x8, para compensar tableros con borde ancho impreso (ver
+            `MARGEN_TABLERO_PORCENTAJE`) — `detectar_esquinas_tablero` agarra
+            el borde completo, no el área de juego, y sin este recorte la
+            grilla queda corrida respecto a las casillas reales.
+
     Returns:
         Dict que mapea notación algebraica (ej. "e4") al recorte de imagen
         de esa casilla.
     """
+    lado_original = tablero_plano.shape[0]
+    margen = int(lado_original * margen_porcentaje / 100)
+    if margen:
+        tablero_plano = tablero_plano[margen : lado_original - margen, margen : lado_original - margen]
     lado = tablero_plano.shape[0]
     paso = lado // 8
     casillas: dict[str, np.ndarray] = {}

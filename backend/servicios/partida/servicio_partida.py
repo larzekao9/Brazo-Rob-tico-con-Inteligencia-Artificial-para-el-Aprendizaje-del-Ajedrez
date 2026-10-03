@@ -78,6 +78,15 @@ def crear_partida(
             tablero = chess.Board(fen_inicial)
         except ValueError as error:
             raise ValueError(f"FEN inicial inválido: {fen_inicial}") from error
+        if not tablero.piece_map():
+            # Caso frecuente al probar la cámara/foto: el tablero físico está
+            # vacío a propósito (sin piezas todavía) — mensaje aparte del de
+            # "posición imposible" de abajo, porque acá no hay nada mal
+            # reconocido: es que no hay piezas que reconocer.
+            raise ValueError(
+                "El tablero reconocido está vacío — no se detectó ninguna pieza en la foto. "
+                "Armá el tablero con las piezas y volvé a intentar."
+            )
         if not tablero.is_valid():
             # Puede pasar con una posición mal reconocida por visión (ej.
             # demasiadas piezas) — sintácticamente es un FEN válido, pero
