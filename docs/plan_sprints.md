@@ -117,15 +117,15 @@ retroalimentación post-partida, estadísticas personales, y reentrenamiento del
 (Flutter) queda para jugar, desafíos y rankings; la enseñanza guiada (onboarding, panel de
 aprendizaje, análisis y estadísticas) vive en la web.
 
-| HU   | Descripción                                 | Puntos | Responsable | Orden      |
+| HU   | Descripción                                 | Puntos | Responsable | Estado     |
 | ---- | ------------------------------------------- | ------ | ----------- | ---------- |
-| HU12 | Onboarding Educativo Visual                 | 5      | Luis Ángel  | 1️⃣ Primero |
-| HU13 | Cuestionario Diagnóstico de Nivel           | 3      | Luis Ángel  | 2️⃣ Segundo |
-| HU10 | Configuración de Partida (frontend Flutter) | 3      | Luis Ángel  | 3️⃣ Tercero |
-| HU6  | Análisis en Tiempo Real Durante la Partida  | 5      | Hebert      | 4️⃣ Cuarto  |
+| HU12 | Onboarding Educativo Visual                 | 5      | Luis Ángel  | ✅ Hecho (web) |
+| HU13 | Cuestionario Diagnóstico de Nivel           | 3      | Luis Ángel  | ⏳ Pendiente de decisión |
+| HU10 | Configuración de Partida (web)              | 3      | Luis Ángel  | ◐ Casi hecho |
+| HU6  | Análisis en Tiempo Real Durante la Partida  | 5      | Hebert      | ✅ Hecho   |
 | HU5  | Retroalimentación Técnica Post-Partida      | 5      | Luis Ángel  | ✅ Hecho   |
-| HU14 | Estadísticas Personales y Progreso          | 3      | Luis Ángel  | 5️⃣ Quinto  |
-| HU4  | Reentrenamiento y Evaluación del Modelo     | 5      | Luis Ángel  | 6️⃣ Último  |
+| HU14 | Estadísticas Personales y Progreso          | 3      | Luis Ángel  | ◐ Parcial  |
+| HU4  | Reentrenamiento y Evaluación del Modelo     | 5      | Luis Ángel  | ◐ Base (falta el ciclo) |
 
 **Total Sprint 2: 29 puntos.**
 
@@ -146,6 +146,10 @@ aprendizaje, análisis y estadísticas) vive en la web.
 
 ### **HU13 — Cuestionario Diagnóstico de Nivel** (3 pts, Luis Ángel)
 
+⏳ **Pendiente de decisión.** Hoy el nivel se mide por partidas (calibración contra Stockfish), no con
+cuestionario. Hay que decidir si se construye el cuestionario o se reescribe esta HU como calibración
+por partidas.
+
 Evaluación dinámica de nivel antes de la primera partida:
 
 - [ ] 5-8 preguntas (ej: "¿Has jugado ajedrez antes?", "¿Conoces aperturas?", "¿Sabes tácticas?")
@@ -155,7 +159,11 @@ Evaluación dinámica de nivel antes de la primera partida:
 
 **Salida:** Cada jugador tiene un nivel personalizado, no random.
 
-### **HU10 — Configuración de Partida (Frontend Flutter)** (3 pts, Luis Ángel)
+### **HU10 — Configuración de Partida (web)** (3 pts, Luis Ángel)
+
+◐ **Casi hecho en la web.** Selector de oponente (Turing o Stockfish), nivel precargado desde el perfil
+y botón que crea la partida. Falta el slider de nivel 1-20 (hoy es un selector) y el mensaje claro
+cuando el backend rechaza la partida.
 
 Pantalla para elegir oponente y parámetros antes de jugar:
 
@@ -207,6 +215,12 @@ Pantalla para elegir oponente y parámetros antes de jugar:
       el mate en 1 ni de evitar jugadas que permiten mate en 1. Sigue decidiendo solo con su red (sin
       Stockfish) y sin aprendizaje en vivo; `explicar_top_candidatas` no se tocó.
 
+- [x] **Ampliación (Hebert): panel del facilitador.** En Razonamiento Neuronal, al elegir la partida de un
+      estudiante, el análisis de la red compara jugada por jugada lo que elige la red con lo que se jugó
+      (`GET /partida/{id}/analisis-red`, sin Stockfish). Tocar una jugada muestra la inferencia real en esa
+      posición. En Análisis Jugada a Jugada, el facilitador ve el resumen de la partida: precisión de la
+      contraparte (Turing o Stockfish) frente a Stockfish y la del estudiante.
+
 **Salida:** Jugador ve feedback visual EN TIEMPO REAL, diferenciador vs ChessKid/Chess.com.
 
 ### **HU5 — Retroalimentación Técnica Post-Partida** (5 pts, Luis Ángel)
@@ -244,7 +258,18 @@ documento). Implementado:
       jugador "te perdiste de capturar la dama" justo después de capturarla). Ahora el análisis
       retrospectivo siempre corre a fuerza máxima, sin importar el nivel de la partida.
 
+**Ampliación (Hebert) — enseñanza sobre lo que jugó cada uno.** Los textos de la contraparte (Turing o
+Stockfish) están en tercera persona y explican qué pasó y qué aprender; los del estudiante hablan de su
+jugada y, cuando se equivocó, dicen qué podía jugar. El repaso y el consejo del resumen usan solo las
+jugadas del estudiante. El análisis jugada a jugada agrega un consejo según la pieza que hizo la jugada
+(cómo se mueve, qué cuidar y qué podía jugar). La calidad de cada jugada viene del backend, así que un
+mate permitido aparece como blunder.
+
 ### **HU14 — Estadísticas Personales y Progreso** (3 pts, Luis Ángel)
+
+◐ **Parcial.** Ya están: racha de días, camino de capítulos, precisión por partida y curva de efectividad.
+Falta el dashboard: total de partidas, promedio, errores más frecuentes (top 3), comparación con la semana
+anterior y gráfico semanal.
 
 Dashboard post-partida con métricas personales:
 
@@ -293,6 +318,12 @@ y ver cuándo hay "suficientes" nuevas — el reentrenamiento en sí (los pasos 
 sin construirse; esto solo junta la materia prima.
 
 ---
+
+**Avance nuevo para HU4 (facilitador):** tabla **Turing frente a Stockfish, por nivel** en Entrenamiento
+del modelo (`GET /entrenamiento/turing-por-nivel`). Por nivel de partida muestra partidas y jugadas
+analizadas, precisión (jugadas a 50 cp o menos de la mejor de Stockfish), pérdida media (con tope de
+1000 cp para que los mates no distorsionen) y blunders. Solo cuentan partidas ya analizadas. Es la base
+para medir si el reentrenamiento mejora al modelo; el reentrenamiento en sí sigue sin construirse.
 
 ### **Flujo del Jugador Completo (Ahora)**
 
