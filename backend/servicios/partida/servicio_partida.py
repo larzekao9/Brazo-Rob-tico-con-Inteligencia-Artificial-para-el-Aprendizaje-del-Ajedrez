@@ -460,6 +460,8 @@ def analisis_completo(partida_id: str, tiempo_limite: float = 0.3, rango: str = 
             mate_en_antes=antes["mate_en"],
             mate_en_despues=mate_resultante,
         )
+        # El humano siempre juega primero (blancas): sus jugadas son las de índice par.
+        es_jugador = i % 2 == 0
         principio, explicacion = explicar_jugada(
             fen_antes=posiciones_fen[i],
             jugada_san=jugada_san,
@@ -468,12 +470,14 @@ def analisis_completo(partida_id: str, tiempo_limite: float = 0.3, rango: str = 
             clasificacion=calidad,
             perdida_cp=perdida_cp,
             rango=rango,
+            es_jugador=es_jugador,
         )
         prob_win = centipawns_a_probabilidad_victoria(eval_resultante_cp, mate_resultante)
 
         resultado.append({
             "numero_ply": numero_ply,
             "color": "blanco" if i % 2 == 0 else "negro",
+            "quien": "jugador" if es_jugador else "contraparte",
             "jugada_san": jugada_san,
             "fen_antes": posiciones_fen[i],
             "fen_despues": posiciones_fen[i + 1],
@@ -491,4 +495,5 @@ def analisis_completo(partida_id: str, tiempo_limite: float = 0.3, rango: str = 
         })
 
     resumen = generar_resumen_partida(resultado, rango=rango)
+    resumen["nivel_partida"] = partida.nivel
     return {"partida_id": partida_id, "jugadas": resultado, "resumen": resumen}

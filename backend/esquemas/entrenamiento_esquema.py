@@ -3,7 +3,7 @@ del dataset — el reentrenamiento en sí todavía no está construido).
 """
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class DescargarDatasetRequest(BaseModel):
@@ -45,3 +45,20 @@ class EstadoEntrenamientoResponse(BaseModel):
     listo_para_entrenar: bool
     ultima_descarga: UltimaDescargaInfo | None = None
     modelo_actual: str | None = None
+
+
+class TuringPorNivelItem(BaseModel):
+    """Cómo jugó Turing en las partidas de un nivel, frente a Stockfish."""
+
+    nivel: int
+    partidas_analizadas: int
+    jugadas_analizadas: int
+    precision: float
+    perdida_media_cp: float
+    blunders: int
+
+
+class TuringPorNivelResponse(BaseModel):
+    """Cuerpo de salida para GET /entrenamiento/turing-por-nivel (solo facilitador)."""
+
+    niveles: list[TuringPorNivelItem] = Field(default_factory=list)

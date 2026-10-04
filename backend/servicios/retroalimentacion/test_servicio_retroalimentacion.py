@@ -208,3 +208,101 @@ def test_generar_resumen_partida_sin_jugadas_del_jugador_devuelve_precision_nula
 
     assert resumen["total_jugadas_jugador"] == 0
     assert resumen["precision_jugador"] is None
+
+
+def _fens_de_partida(*jugadas_san: str) -> list[str]:
+    """FEN antes de cada jugada y el FEN final, para armar posiciones reales."""
+    tablero = chess.Board()
+    fens = [tablero.fen()]
+    for san in jugadas_san:
+        tablero.push_san(san)
+        fens.append(tablero.fen())
+    return fens
+
+
+def test_jugada_de_la_contraparte_no_se_describe_como_del_estudiante() -> None:
+    # 1.f3 e5 2.g4 Qh4# — Negras (contraparte) dan mate: el texto no debe hablarle al estudiante.
+    fens = _fens_de_partida("f3", "e5", "g4")
+    principio, texto = explicar_jugada(
+        fen_antes=fens[-1],
+        jugada_san="Qh4#",
+        fen_despues=_fens_de_partida("f3", "e5", "g4", "Qh4")[-1],
+        mejor_jugada_san="Qh4#",
+        clasificacion="mejor",
+        perdida_cp=0,
+        rango="Principiante",
+        es_jugador=False,
+    )
+    assert principio == "contraparte"
+    assert texto.startswith("La contraparte dio jaque mate con Qh4#")
+    assert "Ganaste" not in texto
+    assert "tu " not in texto.lower()
+
+
+def test_jugada_del_estudiante_sigue_usando_segunda_persona() -> None:
+    # El mismo mate, pero jugado por el estudiante: el texto de siempre (y el de Principiante).
+    fens = _fens_de_partida("f3", "e5", "g4")
+    _, texto = explicar_jugada(
+        fen_antes=fens[-1],
+        jugada_san="Qh4#",
+        fen_despues=_fens_de_partida("f3", "e5", "g4", "Qh4")[-1],
+        mejor_jugada_san="Qh4#",
+        clasificacion="mejor",
+        perdida_cp=0,
+        rango="Principiante",
+        es_jugador=True,
+    )
+    assert "Ganaste" in texto
+
+
+def test_consejo_del_resumen_solo_cuenta_jugadas_del_estudiante() -> None:
+    # Dos blunders de la contraparte (ply par) y ninguno del estudiante: no debe salir el consejo de blunders.
+    jugadas = [
+        {"numero_ply": ply, "calidad": "blunder" if ply % 2 == 0 else "mejor", "jugada_san": "x",
+         "probabilidad_victoria": 50.0}
+        for ply in range(1, 7)
+    ]
+    resumen = generar_resumen_partida(jugadas, rango="Principiante")
+    assert resumen["conteo_calidad"]["blunder"] == 3
+    assert resumen["consejo_tutor"] != generar_resumen_partida(
+        [{"numero_ply": 1, "calidad": "blunder", "jugada_san": "x", "probabilidad_victoria": 50.0},
+         {"numero_ply": 3, "calidad": "blunder", "jugada_san": "x", "probabilidad_victoria": 50.0}],
+        rango="Principiante",
+    )["consejo_tutor"]
+
+
+def test_error_del_estudiante_que_permite_mate_indica_la_alternativa() -> None:
+    # 1.f3 e5 y el estudiante juega 2.g4?? — deja mate con Qh4#. Debe decirle qué podía jugar (d4).
+    fen_antes = _fens_de_partida("f3", "e5")[-1]
+    fen_despues = _fens_de_partida("f3", "e5", "g4")[-1]
+    _, texto = explicar_jugada(
+        fen_antes=fen_antes,
+        jugada_san="g4",
+        fen_despues=fen_despues,
+        mejor_jugada_san="d4",
+        clasificacion="blunder",
+        perdida_cp=900,
+        rango="Principiante",
+        es_jugador=True,
+    )
+    assert "d4" in texto
+
+
+def test_resumen_mide_la_contraparte_frente_a_stockfish() -> None:
+    # Pares (jugador, contraparte): la contraparte (ply par) juega la mejor jugada de Stockfish en 2 de 3.
+    jugadas = []
+    for ply in range(1, 7):
+        es_contraparte = ply % 2 == 0
+        jugadas.append({
+            "numero_ply": ply,
+            "jugada_san": "e4",
+            "mejor_jugada_motor": "e4" if (not es_contraparte or ply != 4) else "d4",
+            "calidad": "mejor" if ply != 6 else "blunder",
+            "probabilidad_victoria": 50.0,
+        })
+    resumen = generar_resumen_partida(jugadas, rango="Intermedio")
+    assert resumen["total_jugadas_contraparte"] == 3
+    assert resumen["coincidencias_contraparte"] == 2
+    assert resumen["conteo_contraparte"]["blunder"] == 1
+    assert resumen["precision_contraparte"] is not None
+    assert resumen["coincidencias_jugador"] == 3

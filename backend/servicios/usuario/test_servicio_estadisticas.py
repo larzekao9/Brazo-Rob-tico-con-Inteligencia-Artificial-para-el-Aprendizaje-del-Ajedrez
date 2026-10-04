@@ -59,3 +59,33 @@ def test_no_clasifica_sin_evaluacion_de_la_jugada_realmente_jugada() -> None:
 
 def test_no_clasifica_sin_evaluacion_de_la_mejor_jugada() -> None:
     assert _clasificar_jugada(evaluacion_cp=-400, evaluacion_mejor_cp=None, mate_en=None, mate_en_mejor=None) is None
+
+
+def test_resumir_turing_por_nivel_agrupa_y_mide_precision() -> None:
+    from backend.servicios.usuario.servicio_estadisticas import resumir_turing_por_nivel
+
+    # Nivel 8: dos partidas; una jugada perfecta (0 de pérdida), una con 120 cp de pérdida y otra sin evaluar.
+    filas = [
+        (8, "p1", 10, 10, None, None),
+        (8, "p1", -50, -50, None, None),
+        (8, "p2", -130, -10, None, None),
+        (8, "p2", None, None, None, None),
+        (14, "p3", 0, 0, None, None),
+    ]
+    niveles = {n["nivel"]: n for n in resumir_turing_por_nivel(filas)}
+    assert niveles[8]["partidas_analizadas"] == 2
+    assert niveles[8]["jugadas_analizadas"] == 3
+    assert niveles[8]["precision"] == round(2 / 3 * 100, 1)
+    assert niveles[8]["blunders"] == 0
+    assert niveles[14]["jugadas_analizadas"] == 1
+
+
+def test_resumir_turing_por_nivel_no_deja_que_un_mate_distorsione_la_perdida_media() -> None:
+    from backend.servicios.usuario.servicio_estadisticas import resumir_turing_por_nivel
+
+    filas = [
+        (5, "p1", 0, 0, None, None),
+        (5, "p1", -100000, 0, -3, None),  # mate en contra: pérdida enorme
+    ]
+    nivel = resumir_turing_por_nivel(filas)[0]
+    assert nivel["perdida_media_cp"] <= 1000

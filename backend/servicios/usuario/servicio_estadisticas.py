@@ -65,7 +65,8 @@ def _perdida(
         return None
     if evaluacion_mejor_cp is None and mate_en_mejor is None:
         return None
-    return _puntaje(evaluacion_mejor_cp, mate_en_mejor) - _puntaje(evaluacion_cp, mate_en)
+    # Nunca negativa: si la jugada guardada supera a la 'mejor' guardada, la pérdida es 0.
+    return max(0, _puntaje(evaluacion_mejor_cp, mate_en_mejor) - _puntaje(evaluacion_cp, mate_en))
 
 
 def _clasificar_jugada(
@@ -237,3 +238,65 @@ def obtener_historial_partidas(db: Session, usuario_id: int, limit: int, offset:
     ]
 
     return {"total": total, "partidas": partidas}
+
+
+# Un mate pierde una puntuación enorme; sin este tope distorsiona la pérdida media.
+TOPE_PERDIDA_MEDIA_CP = 1000
+
+
+def resumir_turing_por_nivel(filas: list[tuple]) -> list[dict]:
+    """Agrupa las jugadas de Turing por nivel de la partida y resume cómo jugó frente a Stockfish.
+
+    Cada fila es `(nivel, partida_id, evaluacion_cp, evaluacion_mejor_cp, mate_en, mate_en_mejor)`
+    de una jugada del modelo. Por nivel: partidas y jugadas analizadas, porcentaje de jugadas a
+    `UMBRAL_INEXACTITUD` cp o menos de la mejor de Stockfish (precisión), pérdida media y blunders.
+    Las jugadas sin evaluación se descartan.
+    """
+    por_nivel: dict[int, dict] = {}
+    for nivel, partida_id, evaluacion_cp, evaluacion_mejor_cp, mate_en, mate_en_mejor in filas:
+        perdida = _perdida(evaluacion_cp, evaluacion_mejor_cp, mate_en, mate_en_mejor)
+        if perdida is None:
+            continue
+        grupo = por_nivel.setdefault(nivel, {"partidas": set(), "perdidas": []})
+        grupo["partidas"].add(partida_id)
+        grupo["perdidas"].append(perdida)
+
+    resultado = []
+    for nivel in sorted(por_nivel):
+        grupo = por_nivel[nivel]
+        perdidas = grupo["perdidas"]
+        aciertos = sum(1 for perdida in perdidas if perdida <= UMBRAL_INEXACTITUD)
+        resultado.append({
+            "nivel": nivel,
+            "partidas_analizadas": len(grupo["partidas"]),
+            "jugadas_analizadas": len(perdidas),
+            "precision": round(aciertos / len(perdidas) * 100, 1),
+            "perdida_media_cp": round(sum(min(p, TOPE_PERDIDA_MEDIA_CP) for p in perdidas) / len(perdidas), 1),
+            "blunders": sum(1 for perdida in perdidas if perdida >= UMBRAL_BLUNDER),
+        })
+    return resultado
+
+
+def calcular_turing_por_nivel(db: Session) -> list[dict]:
+    """Cómo juega Turing según el nivel de la partida, frente a Stockfish (panel del facilitador).
+
+    Solo cuenta partidas terminadas contra el modelo cuyas jugadas ya fueron analizadas con
+    Stockfish: la evaluación se guarda cuando se corre el análisis completo de la partida.
+    """
+    filas = db.execute(
+        select(
+            PartidaORM.nivel,
+            PartidaORM.id,
+            JugadaORM.evaluacion_cp,
+            JugadaORM.evaluacion_mejor_cp,
+            JugadaORM.mate_en,
+            JugadaORM.mate_en_mejor,
+        )
+        .join(JugadaORM, JugadaORM.partida_id == PartidaORM.id)
+        .where(
+            PartidaORM.resultado.is_not(None),
+            PartidaORM.tipo_oponente == "modelo",
+            JugadaORM.decidido_por == "modelo",
+        )
+    ).all()
+    return resumir_turing_por_nivel([tuple(fila) for fila in filas])

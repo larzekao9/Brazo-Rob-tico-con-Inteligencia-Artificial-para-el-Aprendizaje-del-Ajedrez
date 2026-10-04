@@ -226,6 +226,34 @@ def clasificar_calidad_jugada(
     return "blunder"
 
 
+def _explicacion_contraparte(
+    tablero_despues: chess.Board,
+    jugada_san: str,
+    clasificacion: str,
+    mejor_jugada_san: str | None,
+) -> str:
+    """Texto en tercera persona para una jugada de la contraparte.
+
+    Describe qué pasó y qué puede aprender el estudiante de esa jugada. No le habla
+    como si la hubiera hecho él.
+    """
+    if tablero_despues.is_checkmate():
+        return (
+            f"La contraparte dio jaque mate con {jugada_san}. Fijate cómo se armó el ataque final: "
+            "así se reconoce ese patrón."
+        )
+    if tablero_despues.is_check():
+        return f"La contraparte dio jaque con {jugada_san}. Mirá qué pieza queda obligada a responder."
+    if clasificacion in ("blunder", "error", "imprecision") and mejor_jugada_san and mejor_jugada_san != jugada_san:
+        return (
+            f"La contraparte jugó {jugada_san}, pero había una opción más fuerte: {mejor_jugada_san}. "
+            "Esta posición sirve para aprender a detectarla."
+        )
+    if clasificacion in ("brillante", "mejor", "excelente"):
+        return f"La contraparte jugó {jugada_san}, una de las mejores opciones de la posición. Observá qué idea busca."
+    return f"La contraparte jugó {jugada_san}. Observá qué plan sigue en esta posición."
+
+
 def explicar_jugada(
     fen_antes: str,
     jugada_san: str,
@@ -234,6 +262,39 @@ def explicar_jugada(
     clasificacion: str,
     perdida_cp: int,
     rango: str = RANGO_POR_DEFECTO,
+    es_jugador: bool = True,
+) -> tuple[str, str]:
+    """Explica una jugada en lenguaje natural según quién la jugó.
+
+    Para el estudiante, además del caso pedagógico, si cometió un error y el texto no
+    dice cuál era la mejor opción, agrega "la alternativa era X" (lo que debía jugar).
+    Para la contraparte, el texto es en tercera persona (ver `_explicacion_contraparte`).
+    """
+    principio, texto = _explicar_jugada_base(
+        fen_antes, jugada_san, fen_despues, mejor_jugada_san, clasificacion, perdida_cp,
+        rango=rango, es_jugador=es_jugador,
+    )
+    if (
+        es_jugador
+        and clasificacion in ("error", "blunder", "imprecision")
+        and mejor_jugada_san
+        and mejor_jugada_san != jugada_san
+        and mejor_jugada_san not in texto
+    ):
+        caso = "imprecision_posicional" if clasificacion == "imprecision" else "error_tactico"
+        texto += _sugerencia(caso, rango, mejor_jugada_san)
+    return principio, texto
+
+
+def _explicar_jugada_base(
+    fen_antes: str,
+    jugada_san: str,
+    fen_despues: str,
+    mejor_jugada_san: str | None,
+    clasificacion: str,
+    perdida_cp: int,
+    rango: str = RANGO_POR_DEFECTO,
+    es_jugador: bool = True,
 ) -> tuple[str, str]:
     """Genera la explicación pedagógica en lenguaje natural y detecta el principio ajedrecístico involucrado.
 
@@ -253,6 +314,10 @@ def explicar_jugada(
         return "general", _texto("general", rango, jugada_san=jugada_san)
 
     tablero_despues = chess.Board(fen_despues)
+    if not es_jugador:
+        # Jugada de la contraparte (Turing o Stockfish): se describe en tercera persona,
+        # nunca como si la hubiera jugado el estudiante ("tu rey", "¡Ganaste!").
+        return "contraparte", _explicacion_contraparte(tablero_despues, jugada_san, clasificacion, mejor_jugada_san)
     turno = tablero_antes.turn  # True = Blancas, False = Negras
     color_str = "blancas" if turno == chess.WHITE else "negras"
     pieza = tablero_antes.piece_at(movimiento.from_square)
@@ -502,6 +567,14 @@ def generar_resumen_partida(
     }
 
     curva_efectividad: list[dict[str, Any]] = []
+    # Conteo solo de las jugadas del estudiante: es lo que se le aconseja, no lo de la contraparte.
+    conteo_jugador: dict[str, int] = {k: 0 for k in conteo}
+    # Jugadas de la contraparte (Turing o Stockfish), para comparar cómo juega cada una.
+    conteo_contraparte: dict[str, int] = {k: 0 for k in conteo}
+    puntos_contraparte = 0.0
+    total_jugadas_contraparte = 0
+    coincidencias_contraparte = 0  # veces que jugó exactamente la mejor jugada de Stockfish
+    coincidencias_jugador = 0
     puntos_ponderados = 0.0
     total_jugadas_evaluadas = 0
     puntos_jugador = 0.0
@@ -534,22 +607,38 @@ def generar_resumen_partida(
         peso = pesos_calidad.get(calidad, 50.0)
         puntos_ponderados += peso
         total_jugadas_evaluadas += 1
+        coincide_con_mejor = j.get("jugada_san") is not None and j.get("jugada_san") == j.get("mejor_jugada_motor")
         if ply % 2 == 1:
             puntos_jugador += peso
             total_jugadas_jugador += 1
+            if calidad in conteo_jugador:
+                conteo_jugador[calidad] += 1
+            if coincide_con_mejor:
+                coincidencias_jugador += 1
+        else:
+            puntos_contraparte += peso
+            total_jugadas_contraparte += 1
+            if calidad in conteo_contraparte:
+                conteo_contraparte[calidad] += 1
+            if coincide_con_mejor:
+                coincidencias_contraparte += 1
 
     precision_global = round(puntos_ponderados / total_jugadas_evaluadas, 1) if total_jugadas_evaluadas > 0 else 50.0
     precision_jugador = round(puntos_jugador / total_jugadas_jugador, 1) if total_jugadas_jugador > 0 else None
+    precision_contraparte = (
+        round(puntos_contraparte / total_jugadas_contraparte, 1) if total_jugadas_contraparte > 0 else None
+    )
 
     # Diagnóstico pedagógico global
-    if conteo["blunder"] >= 2:
+    precision_consejo = precision_jugador if precision_jugador is not None else precision_global
+    if conteo_jugador["blunder"] >= 2:
         consejo = _consejo("blunders", rango)
-    elif conteo["error"] + conteo["imprecision"] >= 4:
+    elif conteo_jugador["error"] + conteo_jugador["imprecision"] >= 4:
         consejo = _consejo("errores_imprecisiones", rango)
-    elif precision_global >= 80.0:
-        consejo = _consejo("alta_precision", rango, precision_global=precision_global)
+    elif precision_consejo >= 80.0:
+        consejo = _consejo("alta_precision", rango, precision_global=precision_consejo)
     else:
-        consejo = _consejo("balanceada", rango, precision_global=precision_global)
+        consejo = _consejo("balanceada", rango, precision_global=precision_consejo)
 
     return {
         "precision_global": precision_global,
@@ -559,6 +648,11 @@ def generar_resumen_partida(
         "total_jugadas": total_jugadas_evaluadas,
         "precision_jugador": precision_jugador,
         "total_jugadas_jugador": total_jugadas_jugador,
+        "precision_contraparte": precision_contraparte,
+        "total_jugadas_contraparte": total_jugadas_contraparte,
+        "conteo_contraparte": conteo_contraparte,
+        "coincidencias_contraparte": coincidencias_contraparte,
+        "coincidencias_jugador": coincidencias_jugador,
     }
 
 

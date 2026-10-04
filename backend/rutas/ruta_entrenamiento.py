@@ -7,8 +7,14 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
-from backend.esquemas.entrenamiento_esquema import DescargarDatasetRequest, EstadoEntrenamientoResponse
+from backend.esquemas.entrenamiento_esquema import (
+    DescargarDatasetRequest,
+    EstadoEntrenamientoResponse,
+    TuringPorNivelItem,
+    TuringPorNivelResponse,
+)
 from backend.rutas.ruta_auth import get_current_facilitador, get_db
+from backend.servicios.usuario.servicio_estadisticas import calcular_turing_por_nivel
 from backend.servicios.entrenamiento.servicio_dataset import (
     SinPartidasValidasError,
     estado_entrenamiento,
@@ -46,3 +52,15 @@ def descargar_dataset(
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{nombre_archivo}"'},
     )
+
+
+@router.get("/turing-por-nivel", response_model=TuringPorNivelResponse)
+def turing_por_nivel(
+    _: int = Depends(get_current_facilitador),
+    db: Session = Depends(get_db),
+) -> TuringPorNivelResponse:
+    """Cómo juega Turing según el nivel de la partida, frente a Stockfish. Solo facilitador.
+
+    Solo incluye partidas ya analizadas con Stockfish (análisis completo).
+    """
+    return TuringPorNivelResponse(niveles=[TuringPorNivelItem(**n) for n in calcular_turing_por_nivel(db)])

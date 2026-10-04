@@ -175,6 +175,7 @@ class JugadaAnalisisResponse(BaseModel):
 
     numero_ply: int
     color: str
+    quien: str = "jugador"  # "jugador" o "contraparte" (Turing o Stockfish)
     jugada_san: str
     fen_antes: str
     fen_despues: str
@@ -207,6 +208,13 @@ class ResumenRendimiento(BaseModel):
     total_jugadas: int
     precision_jugador: float | None = None
     total_jugadas_jugador: int | None = None
+    # Jugadas de la contraparte (Turing o Stockfish): cómo juega frente al estudiante.
+    precision_contraparte: float | None = None
+    total_jugadas_contraparte: int = 0
+    conteo_contraparte: dict[str, int] = Field(default_factory=dict)
+    coincidencias_contraparte: int = 0
+    coincidencias_jugador: int = 0
+    nivel_partida: int | None = None
 
 
 class AnalisisCompletoResponse(BaseModel):
