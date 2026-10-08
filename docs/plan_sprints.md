@@ -121,7 +121,7 @@ aprendizaje, análisis y estadísticas) vive en la web.
 | ---- | ------------------------------------------- | ------ | ----------- | ---------- |
 | HU12 | Onboarding Educativo Visual                 | 5      | Luis Ángel  | ✅ Hecho (web) |
 | HU13 | Cuestionario Diagnóstico de Nivel           | 3      | Luis Ángel  | ⏳ Pendiente de decisión |
-| HU10 | Configuración de Partida (web)              | 3      | Luis Ángel  | ◐ Casi hecho |
+| HU10 | Configuración de Partida (web)              | 3      | Luis Ángel  | ✅ Hecho (web) |
 | HU6  | Análisis en Tiempo Real Durante la Partida  | 5      | Hebert      | ✅ Hecho   |
 | HU5  | Retroalimentación Técnica Post-Partida      | 5      | Luis Ángel  | ✅ Hecho   |
 | HU14 | Estadísticas Personales y Progreso          | 3      | Luis Ángel  | ◐ Parcial  |
@@ -161,17 +161,19 @@ Evaluación dinámica de nivel antes de la primera partida:
 
 ### **HU10 — Configuración de Partida (web)** (3 pts, Luis Ángel)
 
-◐ **Casi hecho en la web.** Selector de oponente (Turing o Stockfish), nivel precargado desde el perfil
-y botón que crea la partida. Falta el slider de nivel 1-20 (hoy es un selector) y el mensaje claro
-cuando el backend rechaza la partida.
+✅ **Hecho en la web.** Selector de oponente (Turing o Stockfish), nivel precargado desde el perfil,
+slider de nivel (0-20 para Stockfish, 0-18 para Turing) y mensaje claro junto a NUEVA PARTIDA cuando
+el backend rechaza la partida (400). La pre-carga desde HU13 sigue pendiente de la decisión de esa HU.
+El estudiante puede elegir otro nivel de Turing a mano; si no coincide con el de su perfil, la pantalla lo
+avisa (decisión del equipo: Turing se adapta al perfil por defecto, la elección manual queda visible).
 
 Pantalla para elegir oponente y parámetros antes de jugar:
 
 - [ ] Selector de oponente: "Motor Stockfish" o "Modelo IA" (grisado si modelo aún no existe)
 - [ ] Pre-carga nivel diagnosticado de HU13
-- [ ] Opción de cambiar nivel manualmente (slider 1-20)
+- [x] Opción de cambiar nivel manualmente (slider 0-20; Turing hasta 18)
 - [ ] Botón "Jugar" → `POST /partida` con `tipo_oponente` y `nivel`
-- [ ] Feedback visual si el backend rechaza el tipo de oponente (400 error)
+- [x] Feedback visual si el backend rechaza el tipo de oponente (400 error)
 
 **Dependencias:** HU13 (nivel pre-cargado).
 
