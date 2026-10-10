@@ -122,8 +122,8 @@ aprendizaje, análisis y estadísticas) vive en la web.
 | HU12 | Onboarding Educativo Visual                 | 5      | Luis Ángel  | ✅ Hecho (web) |
 | HU13 | Cuestionario Diagnóstico de Nivel           | 3      | Luis Ángel  | ⏳ Pendiente de decisión |
 | HU10 | Configuración de Partida (web)              | 3      | Luis Ángel  | ✅ Hecho (web) |
-| HU6  | Análisis en Tiempo Real Durante la Partida  | 5      | Hebert      | ✅ Hecho   |
-| HU5  | Retroalimentación Técnica Post-Partida      | 5      | Luis Ángel  | ✅ Hecho   |
+| HU6  | Análisis en Tiempo Real Durante la Partida  | 5      | Hebert      | ◐ Parcial (falta el indicador de calidad en vivo) |
+| HU5  | Retroalimentación Técnica Post-Partida      | 5      | Luis Ángel  | ◐ Casi hecho (falta FEN antes/después y conteo de calidades) |
 | HU14 | Estadísticas Personales y Progreso          | 3      | Luis Ángel  | ◐ Parcial  |
 | HU4  | Reentrenamiento y Evaluación del Modelo     | 5      | Luis Ángel  | ◐ Base (falta el ciclo) |
 
@@ -134,8 +134,9 @@ aprendizaje, análisis y estadísticas) vive en la web.
 ✅ **Hecho en la web (React).** Flujo de tarjetas interactivas que enseñan las reglas antes de jugar:
 
 - [x] 9 tarjetas: introducción, una por pieza (6), jaque y jaque mate, y prueba final
-- [x] Cada tarjeta de pieza: imagen, nombre, apodo, cómo se mueve y un tablero en miniatura en el
+- [x] Cada tarjeta de pieza: nombre, cómo se mueve y un tablero en miniatura en el
       que hay que tocar una casilla alcanzable (`casillasIlustrativas`)
+- [ ] Mostrar el apodo de la pieza en la tarjeta (hoy solo aparece en el Panel de Aprendizaje)
 - [x] Prueba final: la torre tiene que dar jaque al rey negro en una jugada
 - [x] Marca de finalizado por usuario (`onboarding_completado_<id>`) en el navegador. Se guarda en
       el navegador y no en la sesión del servidor: aparece una sola vez por dispositivo. "Saltar"
@@ -169,10 +170,10 @@ avisa (decisión del equipo: Turing se adapta al perfil por defecto, la elecció
 
 Pantalla para elegir oponente y parámetros antes de jugar:
 
-- [ ] Selector de oponente: "Motor Stockfish" o "Modelo IA" (grisado si modelo aún no existe)
-- [ ] Pre-carga nivel diagnosticado de HU13
+- [x] Selector de oponente: "Motor Stockfish" o "Modelo IA" (falta grisarlo si el modelo no está disponible)
+- [x] Pre-carga del nivel desde el perfil del jugador (la fuente HU13 sigue pendiente de decisión)
 - [x] Opción de cambiar nivel manualmente (slider 0-20; Turing hasta 18)
-- [ ] Botón "Jugar" → `POST /partida` con `tipo_oponente` y `nivel`
+- [x] Botón NUEVA PARTIDA → `POST /partida` con `tipo_oponente` y `nivel`
 - [x] Feedback visual si el backend rechaza el tipo de oponente (400 error)
 
 **Dependencias:** HU13 (nivel pre-cargado).
@@ -183,14 +184,19 @@ Pantalla para elegir oponente y parámetros antes de jugar:
 
 ### **HU6 — Análisis en Tiempo Real Durante la Partida** (5 pts, Hebert)
 
-✅ **Completado.** Retroalimentación visual en vivo mientras el jugador juega:
+◐ **Parcial.** Hecho: sugerencia de jugada, variantes candidatas, integración con Turing y todo el panel
+de Razonamiento Neuronal. Falta lo que el jugador debería ver mientras juega (auditoría 2026-10-10):
+la barra de la Sala de Control es lineal (no usa Win%), el mate se muestra como "M3" sobre la barra y no
+hay indicador de calidad de su jugada — `mover()` devuelve un valor fijo (`buena`, 0 cp) y
+`analizar_jugada_en_tiempo_real` no se llama desde producción.
 
-- [x] **Evaluación actual:** barra de porcentaje ganador (0-100%, no centipawns crudos)
+- [ ] **Evaluación actual:** barra de porcentaje ganador (0-100%, no centipawns crudos)
   - Usa fórmula Lichess: `Win% = 50 + 50 * (2 / (1 + exp(-0.00368208 * cp)) - 1)`
-- [x] **Indicador de calidad de la jugada:** después de que el jugador mueve, muestra si fue buena/mala
+  - La fórmula ya existe en backend y en `aprendizaje.js`; falta usarla en la barra de Sala de Control
+- [ ] **Indicador de calidad de la jugada:** después de que el jugador mueve, muestra si fue buena/mala
   - Colores y categorías: brillante, mejor, excelente, buena (verde), imprecisión (amarillo), error (naranja), blunder (rojo)
 - [x] **Sugerencia de mejor jugada:** muestra la jugada óptima calculada
-- [x] **Mate forzado:** si hay mate en N, muestra "MATE en N" en vez de la barra normal
+- [ ] **Mate forzado:** si hay mate en N, muestra "MATE en N" en vez de la barra normal
 - [x] **Integración con EstrategiaModelo:** el modelo v5 propio (SE-ResNet-8) decide jugadas maestras de forma autónoma con poda táctica.
 - [x] **Ampliación (Hebert, esta semana):** el modelo propio ahora se autoidentifica en toda la
       interfaz como **"Turing"** (antes "Caissa" — se cambió porque el avatar 3D es masculino).
@@ -227,12 +233,13 @@ Pantalla para elegir oponente y parámetros antes de jugar:
 
 ### **HU5 — Retroalimentación Técnica Post-Partida** (5 pts, Luis Ángel)
 
-✅ **Completado.** Vista "Aprendizaje" y Tutoría Pedagógica:
+✅ **Casi completo.** Vista "Aprendizaje" y Tutoría Pedagógica. Faltan dos ítems que el estudiante todavía
+no ve (auditoría 2026-10-10):
 
 - [x] Lista de jugadas clasificadas con explicación del principio ajedrecístico violado o aplicado (qué/por qué/cómo)
 - [x] Curva de efectividad (Win% turno a turno a lo largo de la partida)
-- [x] Resumen post-partida: precisión global ponderada, conteo de calidades y consejo pedagógico del tutor virtual
-- [x] Panel de detalle de cada jugada con FEN antes/después y sugerencia de alternativa óptima
+- [ ] Resumen post-partida: precisión global ponderada, consejo del tutor (hecho) y conteo de calidades (el estudiante no lo ve)
+- [ ] Panel de detalle de cada jugada con FEN antes/después (falta) y sugerencia de alternativa óptima (hecho)
 
 **Salida:** Jugador entiende qué salió mal y cómo mejorar de manera amena y educativa.
 
