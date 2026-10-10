@@ -320,3 +320,13 @@ def test_dejar_escapar_un_mate_propio_sigue_siendo_blunder() -> None:
 
 def test_permitir_un_mate_rival_sigue_siendo_blunder() -> None:
     assert clasificar_calidad_jugada(0, es_mejor_jugada=False, mate_en_antes=None, mate_en_despues=-2) == "blunder"
+
+
+def test_la_jugada_que_da_mate_tiene_100_por_ciento_de_victoria() -> None:
+    # mate en 0 = el tablero quedó en mate tras la jugada: ganó quien la hizo.
+    assert centipawns_a_probabilidad_victoria(None, 0) == 100.0
+    assert centipawns_a_probabilidad_victoria(None, 3) == 100.0
+
+
+def test_un_mate_recibido_sigue_siendo_0_por_ciento() -> None:
+    assert centipawns_a_probabilidad_victoria(None, -2) == 0.0

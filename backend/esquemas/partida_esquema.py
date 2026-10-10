@@ -177,6 +177,9 @@ class JugadaAnalisisResponse(BaseModel):
     color: str
     quien: str = "jugador"  # "jugador" o "contraparte" (Turing o Stockfish)
     jugada_san: str
+    # La jugada y la mejor del motor en notación de casillas ("e2e4"), para dibujar flechas.
+    jugada_uci: str = ""
+    mejor_jugada_uci: str = ""
     fen_antes: str
     fen_despues: str
     evaluacion_cp: int | None
@@ -203,6 +206,8 @@ class ResumenRendimiento(BaseModel):
 
     precision_global: float
     conteo_calidad: dict[str, int]
+    # Calidades de las jugadas del estudiante solamente (`conteo_calidad` cuenta las de ambos bandos).
+    conteo_jugador: dict[str, int] = Field(default_factory=dict)
     curva_efectividad: list[dict] = Field(default_factory=list)
     consejo_tutor: str
     total_jugadas: int

@@ -123,7 +123,7 @@ aprendizaje, análisis y estadísticas) vive en la web.
 | HU13 | Cuestionario Diagnóstico de Nivel           | 3      | Luis Ángel  | ⏳ Pendiente de decisión |
 | HU10 | Configuración de Partida (web)              | 3      | Luis Ángel  | ✅ Hecho (web) |
 | HU6  | Análisis en Tiempo Real Durante la Partida  | 5      | Hebert      | ✅ Hecho |
-| HU5  | Retroalimentación Técnica Post-Partida      | 5      | Luis Ángel  | ◐ Casi hecho (falta FEN antes/después y conteo de calidades) |
+| HU5  | Retroalimentación Técnica Post-Partida      | 5      | Luis Ángel  | ✅ Hecho |
 | HU14 | Estadísticas Personales y Progreso          | 3      | Luis Ángel  | ◐ Parcial  |
 | HU4  | Reentrenamiento y Evaluación del Modelo     | 5      | Luis Ángel  | ◐ Base (falta el ciclo) |
 
@@ -233,13 +233,16 @@ Win% y el mate se muestra en palabras. Verificado con tests, contra la API real 
 
 ### **HU5 — Retroalimentación Técnica Post-Partida** (5 pts, Luis Ángel)
 
-✅ **Casi completo.** Vista "Aprendizaje" y Tutoría Pedagógica. Faltan dos ítems que el estudiante todavía
-no ve (auditoría 2026-10-10):
+✅ **Completado** (2026-10-10, tras la auditoría). Vista "Aprendizaje" y Tutoría Pedagógica. Se agregó lo que
+el estudiante no veía: el tablero antes y después de cada jugada (con flechas de la jugada hecha y de la mejor
+del motor) y el conteo de sus jugadas por calidad. De paso, la curva de efectividad se corrigió para graficarse
+desde el punto de vista de las blancas (antes alternaba arriba y abajo en cada turno). Verificado con tests y
+en el navegador (celular 390 px y escritorio).
 
 - [x] Lista de jugadas clasificadas con explicación del principio ajedrecístico violado o aplicado (qué/por qué/cómo)
 - [x] Curva de efectividad (Win% turno a turno a lo largo de la partida)
-- [ ] Resumen post-partida: precisión global ponderada, consejo del tutor (hecho) y conteo de calidades (el estudiante no lo ve)
-- [ ] Panel de detalle de cada jugada con FEN antes/después (falta) y sugerencia de alternativa óptima (hecho)
+- [x] Resumen post-partida: precisión ponderada, conteo de calidades de las jugadas del estudiante y consejo del tutor
+- [x] Panel de detalle de cada jugada con el tablero antes y después (FEN) y la alternativa óptima, con flechas
 
 **Salida:** Jugador entiende qué salió mal y cómo mejorar de manera amena y educativa.
 

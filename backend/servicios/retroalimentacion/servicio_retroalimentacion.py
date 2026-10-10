@@ -178,9 +178,12 @@ def centipawns_a_probabilidad_victoria(cp: int | None, mate_en: int | None = Non
     """Convierte centipawns a porcentaje de victoria (0.0% a 100.0%) mediante la curva logística ajustada de Lichess.
 
     Fórmula oficial: Win% = 50 + 50 * (2 / (1 + exp(-0.00368208 * cp)) - 1)
+
+    `cp` y `mate_en` son desde quien acaba de jugar. Un mate en 0 es que esa jugada dio el mate
+    (el tablero ya está en mate), o sea victoria segura; un mate negativo es un mate recibido.
     """
     if mate_en is not None:
-        return 100.0 if mate_en > 0 else 0.0
+        return 100.0 if mate_en >= 0 else 0.0
     if cp is None:
         return 50.0
 
@@ -647,6 +650,7 @@ def generar_resumen_partida(
     return {
         "precision_global": precision_global,
         "conteo_calidad": conteo,
+        "conteo_jugador": conteo_jugador,
         "curva_efectividad": curva_efectividad,
         "consejo_tutor": consejo,
         "total_jugadas": total_jugadas_evaluadas,

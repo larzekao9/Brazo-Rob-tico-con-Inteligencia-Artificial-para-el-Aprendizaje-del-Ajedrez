@@ -229,6 +229,19 @@ def jugadas_legales_desde(partida_id: str, casilla: str) -> list[str]:
     return sorted(destinos)
 
 
+def _san_a_uci(fen: str, jugada_san: str | None) -> str:
+    """Pasa una jugada SAN ("Nf3") a casillas ("g1f3") en esa posición; `""` si no se puede.
+
+    Solo sirve para dibujar flechas en el frontend, así que nunca debe romper un análisis.
+    """
+    if not jugada_san:
+        return ""
+    try:
+        return chess.Board(fen).parse_san(jugada_san).uci()
+    except ValueError:
+        return ""
+
+
 TIEMPO_ANALISIS_EN_VIVO = 0.3  # segundos por posición; igual que el análisis post-partida
 
 
@@ -507,6 +520,8 @@ def analisis_completo(partida_id: str, tiempo_limite: float = 0.3, rango: str = 
             "color": "blanco" if i % 2 == 0 else "negro",
             "quien": "jugador" if es_jugador else "contraparte",
             "jugada_san": jugada_san,
+            "jugada_uci": _san_a_uci(posiciones_fen[i], jugada_san),
+            "mejor_jugada_uci": _san_a_uci(posiciones_fen[i], antes["jugada"]),
             "fen_antes": posiciones_fen[i],
             "fen_despues": posiciones_fen[i + 1],
             "evaluacion_cp": eval_resultante_cp,

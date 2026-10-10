@@ -642,3 +642,17 @@ def test_analisis_completo_no_marca_blunder_a_la_jugada_que_da_mate() -> None:
 
     assert jugada_final["jugada_san"] == "Re8#"
     assert jugada_final["calidad"] == "mejor"
+
+
+def test_analisis_completo_incluye_las_jugadas_en_casillas_y_el_conteo_del_jugador() -> None:
+    partida = crear_partida(nivel=5)
+    mover(partida.id, "e2e4")
+
+    resultado = analisis_completo(partida.id)
+
+    primera = resultado["jugadas"][0]
+    assert primera["jugada_uci"] == "e2e4"
+    assert len(primera["mejor_jugada_uci"]) in (4, 5)  # la mejor del motor, ej. "e2e4" o "d2d4"
+    # Solo la jugada del estudiante cuenta en su conteo (la de la contraparte va aparte).
+    assert sum(resultado["resumen"]["conteo_jugador"].values()) == 1
+    assert sum(resultado["resumen"]["conteo_calidad"].values()) == 2
