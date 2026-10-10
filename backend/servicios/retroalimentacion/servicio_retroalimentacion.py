@@ -206,9 +206,13 @@ def clasificar_calidad_jugada(
     - 'error': pérdida entre 100 y 299 cp.
     - 'blunder': pérdida >= 300 cp o permitir mate rival.
     """
+    # `mate_en_despues == 0`: tras la jugada el tablero ya está en mate (el motor devuelve 0), o
+    # sea que la jugada DIO el mate — no es "perder el mate", es la mejor jugada posible.
+    if mate_en_despues == 0:
+        return "mejor"
     if mate_en_despues is not None and mate_en_despues < 0:
         return "blunder"
-    if mate_en_antes is not None and mate_en_antes > 0 and (mate_en_despues is None or mate_en_despues <= 0):
+    if mate_en_antes is not None and mate_en_antes > 0 and mate_en_despues is None:
         return "blunder"
 
     if es_sacrificio_ganador and perdida_cp <= 15:

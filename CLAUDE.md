@@ -53,6 +53,12 @@ confirmación antes de desviarte.
 5. **Seguir la estructura de carpetas** ya definida en `PLAN_IMPLEMENTACION_COMPLETO.md`
    (`backend/`, `training/`, `frontend/`, `docs/`). Si hace falta una carpeta nueva, proponela
    antes de crearla por tu cuenta si cambia la estructura general.
+6. **Toda interfaz que se construya o se modifique debe ser responsive.** Aplica a pantallas
+   nuevas, cambios en pantallas existentes y componentes nuevos (web `frontend/`, `front_app/`
+   y cualquier otra interfaz). Se diseña primero para celular y se verifica de 360 px hasta
+   1920 px: sin scroll horizontal de la página, sin contenido cortado ni superpuesto, y con
+   botones y controles que se puedan tocar. Una tarea de interfaz no se da por terminada hasta
+   haberla probado en un ancho de celular y en uno de escritorio.
 
 ---
 

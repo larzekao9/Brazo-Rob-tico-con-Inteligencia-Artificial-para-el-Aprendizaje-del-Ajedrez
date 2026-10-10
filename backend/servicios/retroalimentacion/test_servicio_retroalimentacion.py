@@ -306,3 +306,17 @@ def test_resumen_mide_la_contraparte_frente_a_stockfish() -> None:
     assert resumen["conteo_contraparte"]["blunder"] == 1
     assert resumen["precision_contraparte"] is not None
     assert resumen["coincidencias_jugador"] == 3
+
+
+def test_la_jugada_que_da_mate_es_la_mejor_y_no_un_blunder() -> None:
+    # Tenía mate en 1 y lo dio: el motor devuelve mate_en=0 en el tablero ya mateado.
+    # Antes esto se leía como "dejó escapar el mate" y salía blunder.
+    assert clasificar_calidad_jugada(0, es_mejor_jugada=True, mate_en_antes=1, mate_en_despues=0) == "mejor"
+
+
+def test_dejar_escapar_un_mate_propio_sigue_siendo_blunder() -> None:
+    assert clasificar_calidad_jugada(500, es_mejor_jugada=False, mate_en_antes=2, mate_en_despues=None) == "blunder"
+
+
+def test_permitir_un_mate_rival_sigue_siendo_blunder() -> None:
+    assert clasificar_calidad_jugada(0, es_mejor_jugada=False, mate_en_antes=None, mate_en_despues=-2) == "blunder"

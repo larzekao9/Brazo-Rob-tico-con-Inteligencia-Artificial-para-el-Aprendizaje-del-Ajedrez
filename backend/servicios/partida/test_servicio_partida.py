@@ -574,3 +574,71 @@ def test_partida_en_curso_de_devuelve_la_que_tiene_jugadas() -> None:
 
     assert en_curso is not None
     assert en_curso.id == partida.id
+
+
+def _analisis_falso(evaluacion_cp: int, jugada: str = "e4", mate_en: int | None = None) -> dict:
+    return {
+        "evaluacion_cp": evaluacion_cp,
+        "mate_en": mate_en,
+        "jugada": jugada,
+        "variantes_candidatas": [],
+    }
+
+
+def test_mover_califica_de_verdad_la_jugada_del_jugador(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Antes de su jugada el jugador estaba +30; después, el rival (que mueve ahora) ve +900:
+    # el jugador cayó a -900 de golpe, o sea que regaló material. Tiene que salir blunder,
+    # no el "buena" fijo que devolvía antes.
+    monkeypatch.setattr(
+        servicio_partida,
+        "analizar_posiciones",
+        lambda fens, nivel, tiempo: [_analisis_falso(30, jugada="d4"), _analisis_falso(900, jugada="d5")],
+    )
+    partida = crear_partida(nivel=5)
+
+    resultado = mover(partida.id, "e2e4")
+
+    en_vivo = resultado["retroalimentacion_en_vivo"]
+    assert en_vivo["calidad"] == "blunder"
+    assert en_vivo["perdida_cp"] == 930
+    assert en_vivo["mejor_alternativa"] == "d4"
+
+
+def test_mover_con_una_jugada_precisa_no_marca_perdida(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        servicio_partida,
+        "analizar_posiciones",
+        lambda fens, nivel, tiempo: [_analisis_falso(30), _analisis_falso(-30, jugada="e5")],
+    )
+    partida = crear_partida(nivel=5)
+
+    en_vivo = mover(partida.id, "e2e4")["retroalimentacion_en_vivo"]
+
+    assert en_vivo["perdida_cp"] == 0
+    assert en_vivo["calidad"] in {"brillante", "mejor", "excelente"}
+
+
+def test_mover_si_falla_el_motor_al_calificar_la_jugada_igual_queda_aplicada(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _motor_caido(*args, **kwargs):
+        raise RuntimeError("motor caído")
+
+    monkeypatch.setattr(servicio_partida, "analizar_posiciones", _motor_caido)
+    partida = crear_partida(nivel=5)
+
+    resultado = mover(partida.id, "e2e4")
+
+    assert resultado["retroalimentacion_en_vivo"] is None
+    assert resultado["jugadas"][0] == "e4"
+
+
+def test_analisis_completo_no_marca_blunder_a_la_jugada_que_da_mate() -> None:
+    # Mate del pasillo: las blancas juegan Te8# y la partida termina ahí.
+    partida = crear_partida(nivel=5, fen_inicial="6k1/5ppp/8/8/8/8/5PPP/4R1K1 w - - 0 1")
+    mover(partida.id, "e1e8")
+
+    jugada_final = analisis_completo(partida.id)["jugadas"][-1]
+
+    assert jugada_final["jugada_san"] == "Re8#"
+    assert jugada_final["calidad"] == "mejor"

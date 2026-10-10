@@ -11,6 +11,7 @@ secciones 4.1 y 4.3).
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 import chess
@@ -22,6 +23,7 @@ from backend.servicios.estrategias.fabrica_estrategias import TIPOS_SOPORTADOS, 
 from backend.servicios.motor.motor_ajedrez import NIVEL_MAX, analizar_posicion, analizar_posiciones
 import backend.servicios.partida.ciclo_vida as ciclo_vida
 from backend.servicios.retroalimentacion.servicio_retroalimentacion import (
+    analizar_jugada_en_tiempo_real,
     centipawns_a_probabilidad_victoria,
     clasificar_calidad_jugada,
     explicar_jugada,
@@ -227,6 +229,38 @@ def jugadas_legales_desde(partida_id: str, casilla: str) -> list[str]:
     return sorted(destinos)
 
 
+TIEMPO_ANALISIS_EN_VIVO = 0.3  # segundos por posición; igual que el análisis post-partida
+
+
+def _calidad_de_la_jugada_humana(fen_antes: str, jugada_san: str, fen_despues: str) -> dict | None:
+    """Califica la jugada que acaba de hacer el jugador (HU6): brillante, mejor, ..., blunder.
+
+    Compara la posición antes y después de SU jugada, siempre con Stockfish a fuerza
+    máxima (con un nivel bajo las evaluaciones no tienen sentido, ver `analisis_completo`),
+    y con el mismo criterio de pérdida en centipeones que el análisis post-partida. Es
+    un dato auxiliar: si el motor falla devuelve `None` y la jugada ya jugada no se pierde.
+    """
+    try:
+        antes, despues = analizar_posiciones([fen_antes, fen_despues], NIVEL_MAX, TIEMPO_ANALISIS_EN_VIVO)
+    except Exception:  # noqa: BLE001 — la jugada ya quedó guardada; esto es solo el indicador
+        logging.getLogger(__name__).warning("No se pudo calificar la jugada en vivo", exc_info=True)
+        return None
+
+    # `despues` se evalúa desde el bando que mueve ahora (el rival): se invierte el signo.
+    eval_resultante = None if despues["evaluacion_cp"] is None else -despues["evaluacion_cp"]
+    mate_resultante = None if despues["mate_en"] is None else -despues["mate_en"]
+    return analizar_jugada_en_tiempo_real(
+        fen_antes=fen_antes,
+        jugada_san=jugada_san,
+        fen_despues=fen_despues,
+        evaluacion_antes_cp=antes["evaluacion_cp"] if antes["evaluacion_cp"] is not None else 0,
+        evaluacion_despues_cp=eval_resultante if eval_resultante is not None else 0,
+        mejor_jugada_san=antes["jugada"],
+        mate_en_antes=antes["mate_en"],
+        mate_en_despues=mate_resultante,
+    )
+
+
 def mover(partida_id: str, jugada_uci: str) -> dict:
     """Aplica la jugada del humano (UCI) y responde con la jugada de la estrategia activa.
 
@@ -272,7 +306,9 @@ def mover(partida_id: str, jugada_uci: str) -> dict:
 
     tablero_intento = partida.tablero.copy()
     fen_antes_humano = tablero_intento.fen()
+    jugada_humano_san = tablero_intento.san(jugada_humano)
     tablero_intento.push(jugada_humano)
+    fen_despues_humano = tablero_intento.fen()
     jugadas_a_registrar = [
         (len(tablero_intento.move_stack), fen_antes_humano, jugada_humano.uci(), "jugador")
     ]
@@ -310,20 +346,12 @@ def mover(partida_id: str, jugada_uci: str) -> dict:
     variantes_candidatas: list[dict] = []
     retroalimentacion_en_vivo: dict | None = None
     if not partida.terminada and jugada_motor_san is not None:
-        analisis = analizar_posicion(partida.fen, partida.nivel)
+        analisis = analizar_posicion(partida.fen, NIVEL_MAX)  # fuerza máxima: el nivel de la partida solo regula al rival
         variantes_candidatas = analisis.get("variantes_candidatas", [])
 
-        eval_cp = analisis.get("evaluacion_cp")
-        mate_en = analisis.get("mate_en")
-        prob_win = centipawns_a_probabilidad_victoria(eval_cp, mate_en)
-        retroalimentacion_en_vivo = {
-            "calidad": "buena",
-            "perdida_cp": 0,
-            "probabilidad_victoria": prob_win,
-            "principio_ajedrecistico": "posicion_activa",
-            "explicacion": f"Posición activa con {prob_win:.1f}% de probabilidad de victoria.",
-            "mejor_alternativa": analisis.get("jugada"),
-        }
+        retroalimentacion_en_vivo = _calidad_de_la_jugada_humana(
+            fen_antes_humano, jugada_humano_san, fen_despues_humano
+        )
 
     return {
         "fen": partida.fen,

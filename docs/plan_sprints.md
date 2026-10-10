@@ -122,7 +122,7 @@ aprendizaje, análisis y estadísticas) vive en la web.
 | HU12 | Onboarding Educativo Visual                 | 5      | Luis Ángel  | ✅ Hecho (web) |
 | HU13 | Cuestionario Diagnóstico de Nivel           | 3      | Luis Ángel  | ⏳ Pendiente de decisión |
 | HU10 | Configuración de Partida (web)              | 3      | Luis Ángel  | ✅ Hecho (web) |
-| HU6  | Análisis en Tiempo Real Durante la Partida  | 5      | Hebert      | ◐ Parcial (falta el indicador de calidad en vivo) |
+| HU6  | Análisis en Tiempo Real Durante la Partida  | 5      | Hebert      | ✅ Hecho |
 | HU5  | Retroalimentación Técnica Post-Partida      | 5      | Luis Ángel  | ◐ Casi hecho (falta FEN antes/después y conteo de calidades) |
 | HU14 | Estadísticas Personales y Progreso          | 3      | Luis Ángel  | ◐ Parcial  |
 | HU4  | Reentrenamiento y Evaluación del Modelo     | 5      | Luis Ángel  | ◐ Base (falta el ciclo) |
@@ -184,19 +184,19 @@ Pantalla para elegir oponente y parámetros antes de jugar:
 
 ### **HU6 — Análisis en Tiempo Real Durante la Partida** (5 pts, Hebert)
 
-◐ **Parcial.** Hecho: sugerencia de jugada, variantes candidatas, integración con Turing y todo el panel
-de Razonamiento Neuronal. Falta lo que el jugador debería ver mientras juega (auditoría 2026-10-10):
-la barra de la Sala de Control es lineal (no usa Win%), el mate se muestra como "M3" sobre la barra y no
-hay indicador de calidad de su jugada — `mover()` devuelve un valor fijo (`buena`, 0 cp) y
-`analizar_jugada_en_tiempo_real` no se llama desde producción.
+✅ **Implementado** (2026-10-10, tras la auditoría). Antes `mover()` devolvía una calidad fija
+(`buena`, 0 cp) y la barra era lineal. Ahora `mover()` califica la jugada del jugador comparando la
+posición antes y después con Stockfish a fuerza máxima (`_calidad_de_la_jugada_humana`), la barra usa
+Win% y el mate se muestra en palabras. Verificado con tests, contra la API real y en el navegador (celular 390 px y escritorio).
 
-- [ ] **Evaluación actual:** barra de porcentaje ganador (0-100%, no centipawns crudos)
+- [x] **Evaluación actual:** barra de porcentaje ganador (0-100%, no centipawns crudos)
   - Usa fórmula Lichess: `Win% = 50 + 50 * (2 / (1 + exp(-0.00368208 * cp)) - 1)`
-  - La fórmula ya existe en backend y en `aprendizaje.js`; falta usarla en la barra de Sala de Control
-- [ ] **Indicador de calidad de la jugada:** después de que el jugador mueve, muestra si fue buena/mala
-  - Colores y categorías: brillante, mejor, excelente, buena (verde), imprecisión (amarillo), error (naranja), blunder (rojo)
+  - La barra de Sala de Control usa `winPercent` y la etiqueta muestra el porcentaje
+- [x] **Indicador de calidad de la jugada:** después de que el jugador mueve, muestra si fue buena/mala
+  - Categorías con color e ícono: mejor, buena, inexactitud, error, blunder (el backend manda 7 niveles; "brillante" y "mejor" se agrupan, igual que en Aprendizaje)
+  - Muestra la explicación, cuánto perdió y la mejor alternativa cuando hubo pérdida
 - [x] **Sugerencia de mejor jugada:** muestra la jugada óptima calculada
-- [ ] **Mate forzado:** si hay mate en N, muestra "MATE en N" en vez de la barra normal
+- [x] **Mate forzado:** si hay mate en N, muestra "MATE en N" en el panel de Stockfish (la etiqueta de la barra, que es chica, dice "M3")
 - [x] **Integración con EstrategiaModelo:** el modelo v5 propio (SE-ResNet-8) decide jugadas maestras de forma autónoma con poda táctica.
 - [x] **Ampliación (Hebert, esta semana):** el modelo propio ahora se autoidentifica en toda la
       interfaz como **"Turing"** (antes "Caissa" — se cambió porque el avatar 3D es masculino).
