@@ -224,22 +224,22 @@ contra el backend real. Marcar `[x]` aquí al completar.
   piezas y de las pantallas de tablero/filas-columnas/posición inicial.
 
 ### Fase 2 — Entrada y home (A) · ~1 día
-- [ ] **Login/registro** (diseño de `login_screen.dart`; `rol_esperado: "jugador"`; error 403
+- [x] **Login/registro** (diseño de `login_screen.dart`; `rol_esperado: "jugador"`; error 403
       con mensaje claro; login con Google solo si `GOOGLE_CLIENT_ID` está configurado).
-- [ ] **Inicio** (diseño de `imgapp/home.png`): saludo, nivel, racha, tarjeta "Jugar",
+- [x] **Inicio** (diseño de `imgapp/home.png`): saludo, nivel, racha, tarjeta "Jugar",
       3 estadísticas, `RadarHabilidades`, progreso al siguiente nivel, frase del día. Todo desde
       `GET /usuario/estadisticas` y `/auth/nivel`; sin números inventados (si falta un dato se
       muestra "—").
 - **Listo cuando:** registrar un jugador nuevo, entrar y ver su Home con datos reales.
 
 ### Fase 3 — Jugar (A) · ~2 días
-- [ ] **Selección de modo** y **configuración** (oponente `motor`/`modelo`, nivel precargado del
+- [x] **Selección de modo** y **configuración** (oponente `motor`/`modelo`, nivel precargado del
       perfil, color; `POST /partida`).
-- [ ] **Partida**: `TableroAjedrez` con jugadas legales (`/partida/:id/jugadas-legales`) y mover
+- [x] **Partida**: `TableroAjedrez` con jugadas legales (`/partida/:id/jugadas-legales`) y mover
       (`/partida/:id/mover`), reloj, historial, `BarraEvaluacion` y calidad de la jugada
       (pendientes de HU6 en `docs/plan_sprints.md`: mostrar lo que el backend ya devuelva,
       sin inventar), retomar partida en curso (`obtenerPartidaEnCurso`), rendirse/terminar.
-- [ ] **Resultado** (victoria/derrota, `imgapp/derrota.png`): análisis completo
+- [x] **Resultado** (victoria/derrota, `imgapp/derrota.png`): análisis completo
       (`analisis-completo`), curva de evaluación, lista de errores con explicación, botón
       "Jugar de nuevo". Dispara `calibrarPartida` y refresca nivel/estadísticas.
 - **Listo cuando:** se juega una partida completa contra el motor y contra el modelo, y el
@@ -325,6 +325,12 @@ contra el backend real. Marcar `[x]` aquí al completar.
 
 *(Vacío. Cada agente anota aquí lo que necesita del otro: `[A→B]` o `[B→A]`, fecha, qué se pide,
 estado.)*
+
+- `[A→backend]` 2026-10-10: `POST /partida` no acepta color (el jugador siempre juega blancas) ni hay endpoint
+  para rendirse; `retroalimentacion_en_vivo.calidad` siempre es `"buena"` (la UI muestra solo la probabilidad de
+  victoria); `analisis-completo` marca como `blunder` la jugada que da mate (`mate_en: 0`) y da precisión 0 %; no hay
+  desglose de habilidades por fase (el radar del Inicio usa 5 métricas reales). La imagen Docker de :8000 estaba
+  desactualizada (sin `/auth/nivel` ni `/partida/en-curso`): reconstruirla.
 
 ---
 
