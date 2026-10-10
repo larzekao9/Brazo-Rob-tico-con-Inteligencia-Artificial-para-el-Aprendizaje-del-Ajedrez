@@ -91,3 +91,11 @@ def test_jugada_ilegal_levanta_value_error() -> None:
         analizar_partida_con_red(
             FEN_INICIAL, ["e5"], tipo_oponente="motor", predictor=_predictor_guionado()
         )
+
+
+def test_cada_jugada_incluye_la_jugada_real_en_uci() -> None:
+    resultado = analizar_partida_con_red(
+        FEN_INICIAL, ["e4", "e5"], tipo_oponente="modelo", predictor=_predictor_guionado()
+    )
+
+    assert [j["jugada_uci"] for j in resultado["jugadas"]] == ["e2e4", "e7e5"]

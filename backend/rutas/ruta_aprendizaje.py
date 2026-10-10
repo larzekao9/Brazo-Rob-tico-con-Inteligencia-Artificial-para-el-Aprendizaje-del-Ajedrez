@@ -48,6 +48,20 @@ def estado_modelo_endpoint() -> EstadoModeloResponse:
         )
 
 
+def _san_a_uci(tablero: chess.Board, jugada_san: str) -> str:
+    """Convierte una jugada SAN ("Nf3") a UCI ("g1f3") en el tablero dado.
+
+    Devuelve `""` si la jugada viene vacía o no es legal ahí: el UCI solo sirve para
+    dibujar la flecha en el frontend, así que nunca debe romper la inferencia.
+    """
+    if not jugada_san:
+        return ""
+    try:
+        return tablero.parse_san(jugada_san).uci()
+    except ValueError:
+        return ""
+
+
 @router.post("/inferencia", response_model=InferenciaModeloResponse)
 def inferencia_endpoint(request: InferenciaModeloRequest) -> InferenciaModeloResponse:
     """Ejecuta inferencia del modelo propio y compara con Stockfish."""
@@ -73,6 +87,8 @@ def inferencia_endpoint(request: InferenciaModeloRequest) -> InferenciaModeloRes
         evaluacion_cp = antes["evaluacion_cp"] or 0
 
         tablero = chess.Board(request.fen)
+        jugada_elegida_uci = _san_a_uci(tablero, jugada_elegida)
+        jugada_motor_uci = _san_a_uci(tablero, jugada_motor)
         tablero.push_san(jugada_elegida)
         despues = analizar_posicion(tablero.fen(), nivel=20, tiempo_limite=0.5)
         eval_resultante_cp = 0 if despues["evaluacion_cp"] is None else -despues["evaluacion_cp"]
@@ -82,6 +98,7 @@ def inferencia_endpoint(request: InferenciaModeloRequest) -> InferenciaModeloRes
             jugada_motor=jugada_motor,
             evaluacion_cp=evaluacion_cp,
             diferencia_cp=diferencia_cp,
+            jugada_motor_uci=jugada_motor_uci,
         )
 
         # Detalle completo de las top-3 candidatas REALES de la red (no solo la
@@ -121,6 +138,7 @@ def inferencia_endpoint(request: InferenciaModeloRequest) -> InferenciaModeloRes
 
         return InferenciaModeloResponse(
             jugada_elegida=jugada_elegida,
+            jugada_elegida_uci=jugada_elegida_uci,
             candidatas=candidatas,
             candidatas_detalladas=candidatas_detalladas,
             latencia_ms=latencia_ms,

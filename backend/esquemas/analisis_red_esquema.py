@@ -15,6 +15,8 @@ class JugadaRedResponse(BaseModel):
     quien: str
     fen_antes: str
     jugada: str
+    # La jugada que se jugó de verdad, en notación UCI ("e2e4"), para dibujarla en el tablero.
+    jugada_uci: str = ""
     red_elige: str | None
     probabilidad_red: float | None
     probabilidad_jugada: float | None

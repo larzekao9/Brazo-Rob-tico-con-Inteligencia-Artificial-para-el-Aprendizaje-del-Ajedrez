@@ -17,6 +17,8 @@ class ComparacionStockfish(BaseModel):
     jugada_motor: str
     evaluacion_cp: int
     diferencia_cp: int
+    # Misma jugada en notación UCI ("e2e4"), para dibujar origen y destino en el tablero.
+    jugada_motor_uci: str = ""
 
 
 class CandidataDetallada(BaseModel):
@@ -52,6 +54,8 @@ class InferenciaModeloResponse(BaseModel):
     """Cuerpo de salida para /inferencia."""
 
     jugada_elegida: str
+    # Jugada elegida en notación UCI ("e2e4"), para dibujar la flecha origen → destino.
+    jugada_elegida_uci: str = ""
     candidatas: list[CandidataModelo]
     candidatas_detalladas: list[CandidataDetallada] = Field(default_factory=list)
     latencia_ms: float

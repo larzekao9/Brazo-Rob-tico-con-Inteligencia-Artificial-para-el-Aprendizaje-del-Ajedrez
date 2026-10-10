@@ -93,6 +93,7 @@ def analizar_partida_con_red(
                 "quien": "jugador" if mueven_blancas else tipo_oponente,
                 "fen_antes": fen_antes,
                 "jugada": san,
+                "jugada_uci": movimiento.uci(),
                 "red_elige": jugada_red,
                 "probabilidad_red": probabilidad_red,
                 "probabilidad_jugada": probabilidad_jugada,
