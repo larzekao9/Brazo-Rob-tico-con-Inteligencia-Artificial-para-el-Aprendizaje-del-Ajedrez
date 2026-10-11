@@ -120,7 +120,7 @@ aprendizaje, análisis y estadísticas) vive en la web.
 | HU   | Descripción                                 | Puntos | Responsable | Estado     |
 | ---- | ------------------------------------------- | ------ | ----------- | ---------- |
 | HU12 | Onboarding Educativo Visual                 | 5      | Luis Ángel  | ✅ Hecho (web) |
-| HU13 | Cuestionario Diagnóstico de Nivel           | 3      | Luis Ángel  | ⏳ Pendiente de decisión |
+| HU13 | Diagnóstico de Nivel por Partidas           | 3      | Luis Ángel  | ✅ Hecho (reformulada) |
 | HU10 | Configuración de Partida (web)              | 3      | Luis Ángel  | ✅ Hecho (web) |
 | HU6  | Análisis en Tiempo Real Durante la Partida  | 5      | Hebert      | ✅ Hecho |
 | HU5  | Retroalimentación Técnica Post-Partida      | 5      | Luis Ángel  | ✅ Hecho |
@@ -145,33 +145,56 @@ aprendizaje, análisis y estadísticas) vive en la web.
 
 **Salida:** Jugador sabe qué hace cada pieza y cómo se mueve.
 
-### **HU13 — Cuestionario Diagnóstico de Nivel** (3 pts, Luis Ángel)
+### **HU13 — Diagnóstico de Nivel por Partidas** (3 pts, Luis Ángel)
 
-⏳ **Pendiente de decisión.** Hoy el nivel se mide por partidas (calibración contra Stockfish), no con
-cuestionario. Hay que decidir si se construye el cuestionario o se reescribe esta HU como calibración
-por partidas.
+✅ **Hecho, reformulada** (decisión del 2026-10-10: en vez del cuestionario de preguntas, el nivel se mide
+jugando). Esta HU nació como "Cuestionario Diagnóstico de Nivel", pero el sistema ya calcula el nivel del
+jugador por **calibración con partidas**, que es más objetivo que preguntarle cómo cree que juega: un
+cuestionario es una autoevaluación y viene sesgado (un principiante optimista se pone "Avanzado").
 
-Evaluación dinámica de nivel antes de la primera partida:
+**Cómo funciona:**
 
-- [ ] 5-8 preguntas (ej: "¿Has jugado ajedrez antes?", "¿Conoces aperturas?", "¿Sabes tácticas?")
-- [ ] Backend calcula puntuación → asigna nivel de Stockfish (1-20)
-- [ ] Alternativa: si elige "principiante", nivel=5; si "intermedio", nivel=12; si "avanzado", nivel=18
-- [ ] Guardá `nivel_diagnosticado` en la sesión del usuario
+1. **Primera partida = diagnóstico.** Mientras el jugador no tenga ninguna partida calibrada
+   (`diagnostico_completado = false`), Sala de Control lo hace jugar contra Stockfish a nivel fijo (8), sin
+   elegir rival ni nivel.
+2. **Medición.** Al terminar una partida (mínimo 5 jugadas del jugador) se compara cada jugada suya con la mejor
+   de Stockfish. La **precisión** es el porcentaje de jugadas a menos de medio peón de la mejor.
+3. **Nivel y rango.** Precisión de 80 % o más: Avanzado; de 55 % o más: Intermedio; menos: Principiante. El
+   nivel numérico (0-20) se ubica dentro de la banda de su rango (Principiante 0-6, Intermedio 7-13,
+   Avanzado 14-20).
+4. **Se recalibra con cada partida.** El nivel vigente es el promedio de las últimas 3 calibraciones, para que
+   una sola mala o buena tarde no lo mueva de golpe. Cada partida calibra una sola vez.
+5. **Se usa en todo el sistema:** precarga el nivel de Sala de Control, adapta la fuerza de Turing y el tono
+   de las explicaciones (RF20), y el aviso "Tu nivel cambió" le muestra al jugador qué pasó.
+6. **Punto de partida opcional.** En Mi Perfil el jugador puede elegir un nivel inicial, que sirve solo hasta
+   que se lo mide.
 
-**Salida:** Cada jugador tiene un nivel personalizado, no random.
+- [x] Primera partida de diagnóstico contra Stockfish a nivel fijo
+- [x] El backend calcula la precisión y asigna nivel (0-20) y rango
+- [x] Se guarda `nivel_estimado` y `rango_estimado` en el perfil del usuario
+- [x] Sala de Control precarga ese nivel (ver HU10)
+- [x] Recalibración con cada partida terminada (promedio de las últimas 3)
+- [x] Aviso al jugador cuando su nivel cambia
+- [ ] Cuestionario previo de 5-8 preguntas — **descartado** por ser autoevaluación; no se construye
+
+**Límites conocidos (para decir con honestidad en la defensa):** los umbrales de 55 % y 80 % son una primera
+versión que no se validó con muchos jugadores reales; la medición no pondera por el nivel del rival (con las
+pocas partidas disponibles no se pudo medir si el rival la afecta); y las partidas abandonadas no calibran.
+
+**Salida:** Cada jugador tiene un nivel personalizado, medido y no adivinado.
 
 ### **HU10 — Configuración de Partida (web)** (3 pts, Luis Ángel)
 
 ✅ **Hecho en la web.** Selector de oponente (Turing o Stockfish), nivel precargado desde el perfil,
 slider de nivel (0-20 para Stockfish, 0-18 para Turing) y mensaje claro junto a NUEVA PARTIDA cuando
-el backend rechaza la partida (400). La pre-carga desde HU13 sigue pendiente de la decisión de esa HU.
+el backend rechaza la partida (400). El nivel que se precarga viene de la calibración por partidas (HU13).
 El estudiante puede elegir otro nivel de Turing a mano; si no coincide con el de su perfil, la pantalla lo
 avisa (decisión del equipo: Turing se adapta al perfil por defecto, la elección manual queda visible).
 
 Pantalla para elegir oponente y parámetros antes de jugar:
 
 - [x] Selector de oponente: "Motor Stockfish" o "Modelo IA" (falta grisarlo si el modelo no está disponible)
-- [x] Pre-carga del nivel desde el perfil del jugador (la fuente HU13 sigue pendiente de decisión)
+- [x] Pre-carga del nivel desde el perfil del jugador (lo calcula la calibración, HU13)
 - [x] Opción de cambiar nivel manualmente (slider 0-20; Turing hasta 18)
 - [x] Botón NUEVA PARTIDA → `POST /partida` con `tipo_oponente` y `nivel`
 - [x] Feedback visual si el backend rechaza el tipo de oponente (400 error)
@@ -348,15 +371,15 @@ para medir si el reentrenamiento mejora al modelo; el reentrenamiento en sí sig
    ↓
 2. VE ONBOARDING (HU12) — "Aprende qué es cada pieza" (tarjetas interactivas)
    ↓
-3. HACE CUESTIONARIO (HU13) — "¿Cuál es tu nivel?" (5 preguntas)
+3. JUEGA SU PARTIDA DE DIAGNÓSTICO (HU13) — contra Stockfish a nivel fijo; al terminar el sistema mide su nivel
    ↓
-4. CONFIGURA PARTIDA (HU10) — "Contra quién querés jugar? Motor o Modelo?" (selector)
+4. CONFIGURA PARTIDA (HU10) — "Contra quién querés jugar? Turing o Stockfish?" (selector y slider de nivel)
    ↓
 5. JUEGA Y VE ANÁLISIS EN VIVO (HU6) — "¿Estoy jugando bien?" (barra Win%, indicador calidad)
    ↓
 6. TERMINA Y VE ANÁLISIS DETALLADO (HU5) — "Qué salió mal y por qué" (lista + curva)
    ↓
-7. VE SU PROGRESO (HU14) — "Mejoraba un 2% hoy, mi racha es 3 victorias" (dashboard)
+7. VE SU PROGRESO (HU14) — "Mejoraste 3 puntos de precisión esta semana, mi fase más floja es el medio juego" (dashboard)
    ↓
 8. [BACKGROUND] MODELO SE REENTRENÓ (HU4) — "Próxima versión lista" (después de 10 partidas)
    ↓
