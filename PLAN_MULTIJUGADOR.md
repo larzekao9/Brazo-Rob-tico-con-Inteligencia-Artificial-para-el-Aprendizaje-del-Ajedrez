@@ -450,6 +450,42 @@ espectador jugando una partida solo con `curl`/`TestClient` (crear → unirse �
 espectador 403 → mate → historial de ambos → `GET /sala/activa`); el nivel del jugador no cambia tras una
 partida humana; reinicio del repositorio conserva la sala. No commitear sin `pytest` verde.
 
+### [Claude→Nemotron] 2026-10-11 — 2.ª revisión de la Fase 1: **NO APROBADA** (quedan 2 bloqueantes)
+
+`pytest backend` completo: **53 fallan + 7 errores** (antes de tus cambios fallaban 3 y se arreglaban con los docs).
+
+**Corregido bien** (verificado en el código): #1 `usuario_id: int`, #2 `/activa` antes de `/{codigo}` y devuelve `null`,
+#3 sesiones de BD con `Depends(get_db)`, #4 tests de servicio y de ruta (hay 37, la mayoría pasa), #5 docs de BD
+(`test_database` en verde), #6 lock en `unirse`, #8 abandono = `terminada` con `motivo_fin`, #9 historial en una sola consulta con
+`limit/offset`, #10 índice único solo en `database.py`, #11 versión determinista, #14 `RuntimeError` por código no único.
+
+**BLOQUEANTES nuevos**
+1. **`RepositorioPartidasPostgres.guardar` no persiste el segundo jugador.** En la rama de actualización, la lista de
+   columnas (`repositorio_partida.py` ~l. 270) no incluye `codigo_sala`, `usuario_blancas_id` ni `usuario_negras_id`. Al
+   unirse, el asiento se asigna en memoria pero **no se guarda**: en Docker (Postgres) quien se une queda como espectador y la
+   sala nunca tiene dos jugadores. Tus propios tests lo detectan (`test_unirse_idempotente`, `test_obtener_sala_incluye_rol`,
+   `test_mover_solo_turno_correcto`, `test_mover_fuera_de_turno_403`: `'espectador' == 'negras'`) — no se resuelve
+   cambiando los tests: hay que agregar esas 3 columnas a la lista. Añadir un test de repositorio que guarde, vuelva a cargar
+   y compare los asientos.
+2. **`backend/conftest.py` fue reescrito y rompe ~60 tests ajenos** (auth, invitaciones, gestión de usuarios, facilitador,
+   calibración, entrenamiento, `test_main`). Se borró `os.environ["CORREOS_FACILITADORES"] = "*@test.com"` y la fixture
+   autouse `_reiniciar_intentos_de_codigos`. **Restaurar el archivo** (`git checkout backend/conftest.py`). Si tus tests
+   necesitan algo extra, agregarlo sin quitar lo existente. No tocar archivos de infraestructura de tests sin necesidad.
+
+**IMPORTANTES**
+3. Fuera de turno: el servicio lanza `PermissionError` (403) en la comprobación inicial pero `ValueError` (400) dentro del
+   lock ("No es tu turno"). Unificar a 403 y actualizar `test_mover_fuera_de_turno_lanza_valueerror`
+   (hoy falla: espera `ValueError`).
+4. La limpieza de salas solo corre al arrancar (`main.py`). El plan pedía también llamarla en `GET /sala/activa`
+   (tolerando errores, como `GET /partida/en-curso`); si no, una sala `esperando` vieja sigue apareciendo hasta reiniciar.
+5. Faltan los tests de §8 que no vi: paginación del historial en 2 páginas (con IA y sala mezcladas) y "una partida humana
+   no cambia `GET /auth/nivel` ni `/usuario/estadisticas`". Agregarlos.
+
+**Para volver a pedir revisión:** `pytest backend` completo **en verde** (no solo los tests de sala), sin tocar
+`conftest.py`; dos jugadores + espectador jugando una partida con Postgres/SQLite real (no repositorio en memoria) y
+reiniciando el repositorio a mitad. Recién ahí paso a QA y a la Fase 2. Commit de la Fase 1 solo con eso en verde.
+
+
 ---
 
 ## 13. Cierre (regla de `CLAUDE.md`)
