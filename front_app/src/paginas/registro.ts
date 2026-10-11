@@ -7,7 +7,7 @@ import SeleccionModo from './Jugar/SeleccionModo';
 import Configuracion from './Jugar/Configuracion';
 import Partida from './Jugar/Partida';
 import Resultado from './Jugar/Resultado';
-import Camino from './Aprender/Camino';
+import Panel from './Aprender/Panel';
 import Piezas from './Aprender/Piezas';
 import Tablero from './Aprender/Tablero';
 import FilasColumnas from './Aprender/FilasColumnas';
@@ -26,7 +26,7 @@ export const PAGINAS: Record<RutaApp, ComponentType> = {
   '/jugar/config': Configuracion,
   '/jugar/partida/:id': Partida,
   '/jugar/resultado/:id': Resultado,
-  '/aprender': Camino,
+  '/aprender': Panel,
   '/aprender/piezas': Piezas,
   '/aprender/tablero': Tablero,
   '/aprender/filas-columnas': FilasColumnas,

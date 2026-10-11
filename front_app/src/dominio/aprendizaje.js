@@ -175,3 +175,21 @@ export function comoMejorarJugada(jugada, categoria) {
     : ` Lo que podías jugar era ${mejor}.`;
   return `${consejo}${cuerpoMejor}`;
 }
+
+/**
+ * Lo que dice el tiempo de una jugada del estudiante: cuánto tardó y, cuando sirve, una pista sobre el
+ * ritmo (plantillas fijas, no generación libre). `mediaMs` es su promedio por jugada en esa partida.
+ * Devuelve `null` si la jugada no se midió o no es del estudiante.
+ */
+export function notaDeTiempoDeJugada(jugada, categoria, mediaMs) {
+  if (!esDelJugador(jugada) || jugada?.tiempo_ms == null) return null;
+  const tiempo = jugada.tiempo_ms;
+  const costosa = [CATEGORIAS.INEXACTITUD, CATEGORIAS.ERROR, CATEGORIAS.BLUNDER].includes(categoria);
+  if (costosa && tiempo < 10_000 && mediaMs && tiempo < mediaMs * 0.5) {
+    return "Fue una jugada rápida y tuvo un costo: antes de mover, probá revisar qué amenaza el rival.";
+  }
+  if (!costosa && mediaMs && tiempo > mediaMs * 2 && tiempo > 20_000) {
+    return "Le dedicaste más tiempo que a tus otras jugadas y valió la pena.";
+  }
+  return null;
+}

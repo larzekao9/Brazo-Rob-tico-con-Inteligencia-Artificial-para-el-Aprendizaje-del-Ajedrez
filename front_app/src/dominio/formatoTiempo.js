@@ -50,3 +50,13 @@ export function fechaHoraLegible(iso) {
     minute: '2-digit',
   });
 }
+
+/** "12 s", "1 min 05 s": cuánto tardó una jugada o cuánto duró una partida. `—` si no se midió. */
+export function formatearDuracion(ms) {
+  if (ms == null) return '—';
+  if (ms < 1000) return '<1 s';
+  const segundos = Math.round(ms / 1000);
+  if (segundos < 60) return `${segundos} s`;
+  const minutos = Math.floor(segundos / 60);
+  return `${minutos} min ${String(segundos % 60).padStart(2, '0')} s`;
+}
