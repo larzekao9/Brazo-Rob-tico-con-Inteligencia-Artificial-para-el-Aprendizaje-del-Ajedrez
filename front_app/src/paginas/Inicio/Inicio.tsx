@@ -10,6 +10,7 @@ import RadarHabilidades from '../../componentes/RadarHabilidades';
 import {precisionAPorcentaje} from '../../dominio/nivelJugador';
 import {useSesion, type Usuario} from '../../estado/SesionContext';
 import {irA} from '../../router';
+import PartidaPendiente from './PartidaPendiente';
 import {ejesDeRadar, fraseDelDia, textoPorcentaje, type NivelJugador} from './datosInicio';
 
 function Avatar({usuario}: {usuario: Usuario}) {
@@ -126,6 +127,8 @@ export default function Inicio() {
           <span className="text-sm font-semibold">Hay una demostración en vivo. Toca para verla.</span>
         </button>
       )}
+
+      <PartidaPendiente alTerminar={() => void cargar()} />
 
       <div className="flex flex-col gap-3 rounded-tarjeta bg-linear-to-br from-primary to-on-primary-fixed-variant p-5 text-on-primary shadow-lg shadow-primary/30">
         <h2 className="font-titulo text-2xl font-bold">Es tu turno de jugar</h2>
