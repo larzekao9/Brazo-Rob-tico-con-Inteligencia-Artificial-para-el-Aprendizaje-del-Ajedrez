@@ -109,7 +109,7 @@ export default function Historial() {
                         <Clock size={12} aria-hidden="true" />
                         {formatearFecha(p.fecha)}
                       </span>
-                      <span>{p.tipo_oponente === 'modelo' ? 'Modelo IA' : 'Stockfish'}</span>
+                      <span>{p.tipo_oponente === 'modelo' ? 'Modelo Turing' : 'Stockfish'}</span>
                       <span>Nivel {p.nivel}</span>
                     </div>
                   </div>

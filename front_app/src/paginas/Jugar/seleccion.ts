@@ -5,7 +5,7 @@ export type TipoOponente = 'motor' | 'modelo';
 
 export const OPONENTES: Record<TipoOponente, {titulo: string; descripcion: string; insignia: string}> = {
   modelo: {
-    titulo: 'Modelo IA (Neural)',
+    titulo: 'Modelo Turing',
     descripcion: 'Nuestra red neuronal entrenada con partidas reales. Juega por su cuenta, con estilo humano.',
     insignia: 'IA propia',
   },
