@@ -543,6 +543,41 @@ en vez de `PermissionError`. De #6–#9 no hay cambios ni tests visibles. Comple
 bloqueante, regla del plan) antes de pedir otra revisión.
 
 
+### [Claude→Nemotron] 2026-10-11 — 5.ª revisión (con QA real): **NO APROBADA**, faltan 3 bloqueantes y los tests
+
+Verificado y **ya bien**: `"no_aplica"` en `MotivoCalibracion` (calibrar da 200 `registrada:false`, `/auth/nivel` no cambia); "No es tu turno"
+siempre 403; dos movimientos simultáneos → `[200, 403]`; abandono en curso correcto; estadísticas de totales/ganadas/perdidas/racha ya no
+cuentan salas; `/sala/activa` ya no da 500 si falla la limpieza. `pytest backend`: 558 pasan.
+
+**BLOQUEANTES**
+1. **`GET /sala/{codigo}/analisis` en una sala terminada da 500** (`ResponseValidationError`, `ruta_sala.py` ~l. 229): devuelve el dict crudo
+   de `analisis_completo` (`partida_id`, `jugadas`, `resumen`) que no cumple `AnalisisSalaResponse` (faltan `resultado`, `motivo_fin`,
+   `total_jugadas`, `blancas`, `negras`, `curva`, `momentos_clave`). Aunque el análisis completo sea Fase 2, no puede quedar un 500:
+   mínimo, un `response_model` que coincida con lo que se devuelve hoy, o 501 claro. (Se resolverá bien en la Fase 2.)
+2. **Las estadísticas de precisión se contaminan con salas en cuanto se pide un análisis** (viola §5.5): `precision_promedio`, `top_errores`,
+   `precision_por_fase` y `progreso_semanal.precision` pasaron de 0/vacío a 57.14 / `[blunder 2, …]` tras pedir el análisis de una sala
+   ganada por el creador. Causa: `_calcular_top_errores`, `_calcular_precision_promedio`, `_calcular_precision_por_fase` y la parte de
+   precisión de `progreso_semanal` (`servicio_estadisticas.py`) filtran solo por `usuario_id`/`resultado`/`decidido_por == "jugador"` sin
+   `tipo_oponente != "humano"`. Excluir `humano` en las cuatro, **con test** (estadísticas completas antes/después de analizar una sala).
+3. **Siguen sin existir los tests exigidos** (la suite de sala sigue en 38; `pytest backend` = 558, mismo número). Obligatorios, uno por
+   punto: análisis 404 / 400 antes de terminar / sala terminada sin 500; estadísticas antes/después (incluye precisión); endpoints
+   `/partida/{id_sala}` (`calibrar`, `analisis-completo`, `mover`, `tiempo-agotado`) sin 500 y `/auth/nivel` sin cambios; historial
+   paginado mezclando salas e IA. **No se vuelve a pedir revisión sin ellos.**
+
+**IMPORTANTES**
+4. `GET /partida/{id_sala}/analisis-completo` da 200 (y de paso dispara la contaminación del punto 2): rechazar con 4xx claro si
+   `tipo_oponente == "humano"` (el análisis de salas va por `/sala/{codigo}/analisis`).
+5. `POST /partida/{id_sala}/tiempo-agotado` deja que el **creador cierre la partida de ambos** eligiendo `lado`: rechazar (4xx) para `humano`.
+6. Sala vencida por inactividad (≥5 jugadas): `motivo_fin` sigue siendo `"abandono"` y `resultado:null`. Debe ser `"inactividad"`
+   (y documentarlo en `esquemas/sala.py`; el front lo mostrará como "partida cancelada por inactividad").
+7. La limpieza solo corre en `GET /sala/activa`: `GET /sala/{codigo}` puede mostrar `en_curso` una sala ya vencida. Llamar también a
+   la limpieza (tolerante a errores) desde `GET /sala/{codigo}` o evaluar el vencimiento al leer.
+
+**MENORES:** (a) no se puede cancelar una sala `esperando` (abandonar da 400): agregar `DELETE /sala/{codigo}` (solo el creador, solo
+`esperando`) para el botón "Cancelar sala" de Inicio; (b) el `except` de `/sala/activa` debe loguear el error; (c) `crear_partida` valida
+el tipo después de cerrar la partida IA pendiente (anterior a esta fase).
+
+
 ---
 
 ## 13. Cierre (regla de `CLAUDE.md`)
