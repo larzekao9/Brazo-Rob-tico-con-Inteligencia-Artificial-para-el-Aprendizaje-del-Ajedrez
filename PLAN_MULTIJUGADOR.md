@@ -391,6 +391,65 @@ IA. Lo demás se corrige en un commit de seguimiento.
 ## 12. Pedidos entre agentes
 *(Vacío. Formato: `[Nemotron→Claude]` / `[Claude→Nemotron]`, fecha, qué se pide, estado.)*
 
+### [Claude→Nemotron] 2026-10-11 — Revisión de la Fase 1: **NO APROBADA** (corregir y volver a pedir revisión)
+
+Revisado el árbol de trabajo (sin commitear). Probado con `TestClient` sobre SQLite y con `pytest backend`
+(518 pasan, 3 fallan). El diseño del servicio es correcto; hay errores que impiden que funcione.
+
+**BLOQUEANTES (nada de la sala funciona hasta corregirlos)**
+1. **Todos los endpoints `/sala` responden 500.** `get_current_user` devuelve un `int` (el id), no un
+   `UsuarioORM`; las rutas hacen `usuario: UsuarioORM = Depends(get_current_user)` y luego `usuario.id` →
+   `AttributeError: 'int' object has no attribute 'id'`. Usar `usuario_id: int = Depends(get_current_user)`
+   como en `ruta_partida.py`. Para el rango del análisis: `get_user_by_id(db, usuario_id)`.
+2. **`GET /sala/activa` está declarada DESPUÉS de `GET /sala/{codigo}`** → FastAPI la captura como
+   `codigo="activa"` y da 404. El plan decía declararla antes. Además devuelve `HTTPException(204)` con un
+   `response_model`: debe responder `null` (`-> SalaResponse | None`), como `GET /partida/en-curso`.
+3. **Fuga de conexiones de BD.** `_partida_a_sala_response` abre sesiones con `next(get_db_dep())` (dos por
+   respuesta) y nunca las cierra: con polling cada 1,5 s agota el pool. Recibir `db: Session = Depends(get_db)`
+   en la ruta y pasarlo a la función. Quitar los imports dentro de la función.
+4. **No hay ningún test.** Faltan `test_servicio_sala.py` y `test_ruta_sala.py` (lista exigida en §8). La fase
+   no puede darse por terminada sin ellos. Los tests habrían encontrado los puntos 1 y 2.
+5. **3 tests existentes ahora fallan** (`backend/test_database.py`: `test_diccionario_de_datos_…`,
+   `test_el_sql_de_produccion_…`, `test_los_sql_y_el_diccionario_…`). Las 3 columnas nuevas de `partida`
+   (`codigo_sala`, `usuario_blancas_id`, `usuario_negras_id`) hay que describirlas en
+   `docs/base_de_datos/generar_esquema.py` y regenerar `DICCIONARIO_DE_DATOS.md` y los `.sql`.
+
+**IMPORTANTES**
+6. **`unirse` sin lock:** dos usuarios entrando a la vez ocupan el mismo asiento (el segundo pisa al primero).
+   Usar el lock por partida (`_lock_para`) y releer dentro del lock.
+7. **Limpieza de salas no implementada.** `ciclo_vida` ahora ignora las `humano` y `servicio_sala` no limpia
+   nada, así que una sala `esperando` vive para siempre y `GET /sala/activa` la devolvería eternamente en
+   Inicio. Implementar §5.4 (esperando >30 min → eliminar; en_curso sin jugadas >60 min → eliminar; con
+   jugadas e inactiva >12 h → terminar), llamándola donde se llama `limpiar_partidas_inactivas`, con test.
+8. **Abandono mal modelado.** `abandonar` deja `estado="abandonada"`, que en este sistema significa "cerrada
+   por inactividad" (no cuenta/ no se lista igual). Un abandono manual es una partida **terminada** con
+   `resultado` y `motivo_fin="abandono"`. Guardar el motivo (campo en `Partida`/columna o derivarlo de forma
+   fiable) en vez de deducirlo del estado. Revisar que `Partida.terminada`/`resultado` den lo correcto.
+9. **Paginación del historial rota.** `obtener_historial_partidas` toma `limit` filas de cada consulta (IA y
+   humano) con el mismo `offset` y luego recorta: en la página 2 se saltan y repiten partidas. Hacerlo con una
+   sola consulta (`or_`) ordenada por fecha, con `limit/offset` reales y `total` coherente. Con test de 2 páginas.
+10. **Índice de `codigo_sala` inconsistente.** El ORM declara `index=True` (no único) y `database.py` intenta
+    crear `ix_partida_codigo_sala` único: en BD nueva `create_all` crea primero el no único y el único nunca se
+    crea; en BD existente sí. Dejar una sola definición (índice único parcial) y probar ambos caminos.
+11. **`_calcular_version` usa `hash(str)`**, que cambia entre procesos y puede colisionar (`% 1000`). Usar un
+    número determinista (plies × 10 + índice del estado).
+12. **Resultado por abandono:** `resultado_por_tiempo` se usa para el abandono; confirmar que `resultado` y
+    `terminada` de `Partida` lo reflejan en la respuesta y tras recargar desde Postgres.
+
+**MENORES**
+13. `servicio_sala` crea su propio `_repositorio`; sin `DATABASE_URL` queda separado del de `servicio_partida`
+    (el análisis no encontraría la sala). Reutilizar el repositorio de `servicio_partida` o documentarlo.
+14. `crear_sala`: la verificación de unicidad no falla si agota los 10 intentos; lanzar error en ese caso.
+15. `servicio_sala.analisis_sala` queda con TODO (es de la Fase 2: bien), pero `AnalisisSalaResponse` tiene
+    `resultado: str` y `motivo_fin: str` obligatorios: ajustar a opcionales o al contrato final.
+16. Historial: no se calcula la "perspectiva del jugador" que decía el docstring (el front lo hará por
+    `color`); corregir el docstring para que no prometa lo que no hace.
+
+**Qué se prueba al volver a pedir revisión:** `pytest backend` completo en verde; dos usuarios + un
+espectador jugando una partida solo con `curl`/`TestClient` (crear → unirse → mover → fuera de turno 403 →
+espectador 403 → mate → historial de ambos → `GET /sala/activa`); el nivel del jugador no cambia tras una
+partida humana; reinicio del repositorio conserva la sala. No commitear sin `pytest` verde.
+
 ---
 
 ## 13. Cierre (regla de `CLAUDE.md`)
