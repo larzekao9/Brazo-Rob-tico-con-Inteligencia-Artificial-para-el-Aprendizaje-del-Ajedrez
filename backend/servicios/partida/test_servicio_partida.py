@@ -656,3 +656,70 @@ def test_analisis_completo_incluye_las_jugadas_en_casillas_y_el_conteo_del_jugad
     # Solo la jugada del estudiante cuenta en su conteo (la de la contraparte va aparte).
     assert sum(resultado["resumen"]["conteo_jugador"].values()) == 1
     assert sum(resultado["resumen"]["conteo_calidad"].values()) == 2
+
+
+def test_mover_informa_el_tablero_justo_despues_de_la_jugada_del_humano() -> None:
+    partida = crear_partida(nivel=5)
+
+    resultado = mover(partida.id, "e2e4")
+
+    # Antes de la respuesta del rival: el peón ya está en e4 y todavía le toca a las negras.
+    assert resultado["fen_tras_jugada"].startswith("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b")
+    # El estado final sí incluye la respuesta (vuelven a mover las blancas).
+    assert resultado["fen"] != resultado["fen_tras_jugada"]
+    assert resultado["fen"].split()[1] == "w"
+
+
+def test_terminar_por_tiempo_da_la_victoria_al_otro_lado() -> None:
+    from backend.servicios.partida.servicio_partida import terminar_por_tiempo
+
+    partida = crear_partida(nivel=5)
+    mover(partida.id, "e2e4")
+
+    terminada = terminar_por_tiempo(partida.id, "blancas")
+
+    assert terminada.terminada and terminada.resultado == "0-1" and terminada.estado == "terminada"
+    # Ya no admite jugadas, y el estado queda guardado.
+    with pytest.raises(ValueError):
+        mover(partida.id, "d2d4")
+    assert obtener_partida(partida.id).resultado == "0-1"
+
+
+def test_terminar_por_tiempo_si_se_le_acaba_al_rival_ganan_las_blancas() -> None:
+    from backend.servicios.partida.servicio_partida import terminar_por_tiempo
+
+    partida = crear_partida(nivel=5)
+    mover(partida.id, "e2e4")
+
+    assert terminar_por_tiempo(partida.id, "negras").resultado == "1-0"
+
+
+def test_terminar_por_tiempo_rechaza_los_casos_invalidos() -> None:
+    from backend.servicios.partida.servicio_partida import terminar_por_tiempo
+
+    partida = crear_partida(nivel=5)
+    with pytest.raises(ValueError):  # todavía sin jugadas
+        terminar_por_tiempo(partida.id, "blancas")
+    mover(partida.id, "e2e4")
+    with pytest.raises(ValueError):  # lado inválido
+        terminar_por_tiempo(partida.id, "verdes")
+    terminar_por_tiempo(partida.id, "blancas")
+    with pytest.raises(ValueError):  # ya terminada
+        terminar_por_tiempo(partida.id, "blancas")
+    with pytest.raises(KeyError):
+        terminar_por_tiempo("no-existe", "blancas")
+
+
+def test_una_partida_terminada_por_tiempo_se_restaura_terminada_desde_la_base() -> None:
+    """Guardada en la tabla `partida` el resultado queda en `resultado`; al reconstruirla sigue terminada."""
+    from backend.repositorios.repositorio_partida import _fila_a_partida, _partida_a_fila
+    from backend.servicios.partida.servicio_partida import terminar_por_tiempo
+
+    partida = crear_partida(nivel=5)
+    mover(partida.id, "e2e4")
+    terminar_por_tiempo(partida.id, "blancas")
+
+    restaurada = _fila_a_partida(_partida_a_fila(obtener_partida(partida.id)))
+
+    assert restaurada.terminada and restaurada.resultado == "0-1"
+    assert not restaurada.tablero.is_game_over()  # el tablero no tiene final: es por tiempo

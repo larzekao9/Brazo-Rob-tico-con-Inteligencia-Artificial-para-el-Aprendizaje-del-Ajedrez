@@ -23,6 +23,8 @@ class CrearPartidaRequest(BaseModel):
     nivel: int = Field(default=NIVEL_MAX, ge=NIVEL_MIN, le=NIVEL_MAX)
     tipo_oponente: str = "motor"
     fen_inicial: str | None = None
+    # Tiempo de reloj de cada lado para toda la partida, en milisegundos (0 = sin reloj).
+    control_tiempo_ms: int = Field(default=0, ge=0)
 
 
 class EstadoPartidaResponse(BaseModel):
@@ -67,6 +69,12 @@ class EstadoPartidaResponse(BaseModel):
     iniciada_en: str | None = None
     actualizada_en: str | None = None
     jugadas_jugador: int = 0
+    # Reloj: control de tiempo por lado (0 = sin reloj), lo que le queda a cada uno y cuánto tardó cada
+    # jugada (`null` = no se midió). Con esto la pantalla reanuda la partida con el reloj donde se quedó.
+    control_tiempo_ms: int = 0
+    tiempo_blancas_ms: int | None = None
+    tiempo_negras_ms: int | None = None
+    tiempos_jugadas_ms: list[int | None] = Field(default_factory=list)
 
 
 class ActualizarPermisosPartidaRequest(BaseModel):
@@ -125,9 +133,38 @@ class ResumenPartidaResponse(BaseModel):
 
 
 class MoverRequest(BaseModel):
-    """Cuerpo de entrada para POST /partida/{id}/mover. Jugada en notación UCI (ej. "e2e4")."""
+    """Cuerpo de entrada para POST /partida/{id}/mover. Jugada en notación UCI (ej. "e2e4").
+
+    `tiempo_jugada_ms` es cuánto tardó el jugador en decidir esta jugada y `reloj_blancas_ms` lo que le
+    queda en el reloj; los mide la pantalla y los dos son opcionales."""
 
     jugada: str
+    tiempo_jugada_ms: int | None = Field(default=None, ge=0)
+    reloj_blancas_ms: int | None = Field(default=None, ge=0)
+
+
+class ActualizarRelojRequest(BaseModel):
+    """Cuerpo de PUT /partida/{id}/reloj: lo que le queda a cada lado, o un control de tiempo nuevo.
+
+    `control_tiempo_ms` solo se acepta antes de la primera jugada."""
+
+    blancas_ms: int | None = Field(default=None, ge=0)
+    negras_ms: int | None = Field(default=None, ge=0)
+    control_tiempo_ms: int | None = Field(default=None, ge=0)
+
+
+class RelojResponse(BaseModel):
+    """Estado del reloj tras una jugada: lo que le queda a cada lado."""
+
+    control_tiempo_ms: int
+    blancas_ms: int
+    negras_ms: int
+
+
+class TiempoAgotadoRequest(BaseModel):
+    """Cuerpo de POST /partida/{id}/tiempo-agotado: a qué lado se le acabó el reloj."""
+
+    lado: str = "blancas"  # "blancas" (el humano) o "negras" (el rival)
 
 
 class RetroalimentacionEnVivo(BaseModel):
@@ -155,6 +192,9 @@ class ResultadoMovimientoResponse(BaseModel):
     """
 
     fen: str
+    # Cómo quedó el tablero justo después de la jugada del humano, antes de la respuesta del rival.
+    # Deja a la pantalla mostrar las dos jugadas una tras otra, como en una partida real.
+    fen_tras_jugada: str | None = None
     jugada_motor: str | None
     terminada: bool
     resultado: str | None
@@ -162,6 +202,9 @@ class ResultadoMovimientoResponse(BaseModel):
     variantes_candidatas: list[VarianteCandidata] = Field(default_factory=list)
     retroalimentacion_en_vivo: RetroalimentacionEnVivo | None = None
     error_brazo: str | None = None
+    # Lo que le queda a cada lado tras las dos jugadas (el rival descuenta lo que tardó en decidir);
+    # `null` si la partida no tiene reloj.
+    reloj: RelojResponse | None = None
 
 
 class JugadasLegalesResponse(BaseModel):
@@ -193,6 +236,8 @@ class JugadaAnalisisResponse(BaseModel):
     probabilidad_victoria: float = 50.0
     principio_ajedrecistico: str = "general"
     explicacion: str = ""
+    # Cuánto tardó en jugarse esta jugada, en milisegundos (`null` si no se midió).
+    tiempo_ms: int | None = None
 
 
 class ResumenRendimiento(BaseModel):
@@ -220,6 +265,10 @@ class ResumenRendimiento(BaseModel):
     coincidencias_contraparte: int = 0
     coincidencias_jugador: int = 0
     nivel_partida: int | None = None
+    # Tiempo: control de reloj de la partida, duración total jugada y promedio por jugada del estudiante.
+    control_tiempo_ms: int = 0
+    duracion_ms: int | None = None
+    tiempo_medio_jugador_ms: int | None = None
 
 
 class AnalisisCompletoResponse(BaseModel):

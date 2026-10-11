@@ -17,6 +17,8 @@ from backend.esquemas.partida_esquema import (
     MoverRequest,
     ResultadoMovimientoResponse,
     ResumenPartidaResponse,
+    ActualizarRelojRequest,
+    TiempoAgotadoRequest,
 )
 from backend.modelos.partida import Partida
 from backend.rutas.ruta_auth import (
@@ -43,6 +45,8 @@ from backend.servicios.partida.servicio_partida import (
     obtener_partida,
     obtener_partida_en_demostracion,
     partida_en_curso_de,
+    actualizar_reloj,
+    terminar_por_tiempo,
 )
 from backend.servicios.aprendizaje.analisis_red import analizar_partida_con_red
 from backend.servicios.retroalimentacion.servicio_retroalimentacion import RANGO_POR_DEFECTO
@@ -74,6 +78,10 @@ def _a_estado(partida: Partida, usuario_nombre: str | None = None) -> EstadoPart
         iniciada_en=partida.iniciada_en,
         actualizada_en=partida.actualizada_en,
         jugadas_jugador=partida.jugadas_jugador,
+        control_tiempo_ms=partida.control_tiempo_ms,
+        tiempo_blancas_ms=partida.restante_blancas_ms if partida.control_tiempo_ms else None,
+        tiempo_negras_ms=partida.restante_negras_ms if partida.control_tiempo_ms else None,
+        tiempos_jugadas_ms=partida.tiempos_jugadas_ms,
     )
 
 
@@ -120,6 +128,7 @@ def crear(
             tipo_oponente=request.tipo_oponente,
             fen_inicial=request.fen_inicial,
             usuario_id=usuario_id,
+            control_tiempo_ms=request.control_tiempo_ms,
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -332,12 +341,65 @@ def mover_partida(
     del token (403 si es de otro, o no tiene dueño)."""
     _exigir_dueno(partida_id, usuario_id)
     try:
-        resultado = mover(partida_id, request.jugada)
+        resultado = mover(
+            partida_id,
+            request.jugada,
+            tiempo_jugada_ms=request.tiempo_jugada_ms,
+            reloj_blancas_ms=request.reloj_blancas_ms,
+        )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     return ResultadoMovimientoResponse(**resultado)
+
+
+@router.put("/{partida_id}/reloj", response_model=EstadoPartidaResponse)
+def actualizar_reloj_partida(
+    partida_id: str,
+    request: ActualizarRelojRequest,
+    usuario_id: int = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> EstadoPartidaResponse:
+    """Guarda lo que le queda a cada lado en el reloj (la pantalla lo llama cada pocos segundos y al
+    cerrar la pestaña), o cambia el control de tiempo antes de la primera jugada.
+
+    Requiere ser el dueño de la partida (403 si no). 400 si ya terminó, si no tiene reloj o si se quiere
+    cambiar el control con la partida empezada."""
+    _exigir_dueno(partida_id, usuario_id)
+    try:
+        partida = actualizar_reloj(
+            partida_id,
+            blancas_ms=request.blancas_ms,
+            negras_ms=request.negras_ms,
+            control_tiempo_ms=request.control_tiempo_ms,
+        )
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return _a_estado(partida, usuario_nombre=_resolver_nombre_dueno(db, partida.usuario_id))
+
+
+@router.post("/{partida_id}/tiempo-agotado", response_model=EstadoPartidaResponse)
+def tiempo_agotado(
+    partida_id: str,
+    request: TiempoAgotadoRequest,
+    usuario_id: int = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> EstadoPartidaResponse:
+    """La pantalla informa que a un lado se le acabó el reloj: la partida termina y gana el otro.
+
+    Requiere ser el dueño de la partida (403 si no). 400 si ya terminó, si todavía no hubo jugadas
+    o si `lado` es inválido. Equivale a abandonar, solo que queda registrada como derrota."""
+    _exigir_dueno(partida_id, usuario_id)
+    try:
+        partida = terminar_por_tiempo(partida_id, request.lado)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return _a_estado(partida, usuario_nombre=_resolver_nombre_dueno(db, partida.usuario_id))
 
 
 @router.post("/{partida_id}/mover-desde-foto", response_model=ResultadoMovimientoResponse)

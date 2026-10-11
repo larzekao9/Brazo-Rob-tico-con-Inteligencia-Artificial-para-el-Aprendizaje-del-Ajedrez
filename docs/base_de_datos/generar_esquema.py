@@ -123,6 +123,10 @@ COLUMNAS: dict[tuple[str, str], str] = {
     ("partida", "estado"): "`en_curso`, `terminada` o `abandonada`. Lo administra el ciclo de vida de la partida (Sala de Control sin botón \"iniciar\").",
     ("partida", "iniciada_en"): "Momento de la primera jugada del jugador humano. Nulo si todavía no jugó ninguna.",
     ("partida", "actualizada_en"): "Momento de la última jugada aplicada (humano o estrategia). Nulo hasta la primera jugada.",
+    ("partida", "control_tiempo_ms"): "Control de tiempo: milisegundos que tiene cada lado para toda la partida. 0 = sin reloj. Se elige al crear la partida.",
+    ("partida", "tiempo_blancas_ms"): "Tiempo que le queda al jugador humano (blancas), en milisegundos. Nulo = todavía tiene el control completo. Permite reanudar la partida con el reloj donde se quedó.",
+    ("partida", "tiempo_negras_ms"): "Tiempo que le queda al rival (negras), en milisegundos. Nulo = todavía tiene el control completo.",
+    ("partida", "tiempos_jugadas_ms"): "Milisegundos que tardó cada jugada, separados por espacio y en el mismo orden que las jugadas; `-` si no se midió. Alimenta el tiempo por jugada del análisis y la retroalimentación.",
     # jugada
     ("jugada", "id"): "Identificador de la jugada.",
     ("jugada", "partida_id"): "Partida a la que pertenece.",

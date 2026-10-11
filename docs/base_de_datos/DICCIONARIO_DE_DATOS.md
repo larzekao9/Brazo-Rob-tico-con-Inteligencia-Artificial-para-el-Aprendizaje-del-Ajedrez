@@ -142,6 +142,10 @@ Cada partida jugada: quién la jugó, contra qué oponente, a qué nivel, la pos
 | `estado` | VARCHAR | no |  | en_curso | `en_curso`, `terminada` o `abandonada`. Lo administra el ciclo de vida de la partida (Sala de Control sin botón "iniciar"). |
 | `iniciada_en` | TIMESTAMP WITHOUT TIME ZONE | sí |  |  | Momento de la primera jugada del jugador humano. Nulo si todavía no jugó ninguna. |
 | `actualizada_en` | TIMESTAMP WITHOUT TIME ZONE | sí |  |  | Momento de la última jugada aplicada (humano o estrategia). Nulo hasta la primera jugada. |
+| `control_tiempo_ms` | INTEGER | no |  | 0 | Control de tiempo: milisegundos que tiene cada lado para toda la partida. 0 = sin reloj. Se elige al crear la partida. |
+| `tiempo_blancas_ms` | INTEGER | sí |  |  | Tiempo que le queda al jugador humano (blancas), en milisegundos. Nulo = todavía tiene el control completo. Permite reanudar la partida con el reloj donde se quedó. |
+| `tiempo_negras_ms` | INTEGER | sí |  |  | Tiempo que le queda al rival (negras), en milisegundos. Nulo = todavía tiene el control completo. |
+| `tiempos_jugadas_ms` | VARCHAR | no |  |  | Milisegundos que tardó cada jugada, separados por espacio y en el mismo orden que las jugadas; `-` si no se midió. Alimenta el tiempo por jugada del análisis y la retroalimentación. |
 
 ## `jugada`
 
@@ -248,6 +252,10 @@ erDiagram
         VARCHAR estado
         TIMESTAMP iniciada_en
         TIMESTAMP actualizada_en
+        INTEGER control_tiempo_ms
+        INTEGER tiempo_blancas_ms
+        INTEGER tiempo_negras_ms
+        VARCHAR tiempos_jugadas_ms
     }
     jugada {
         INTEGER id PK
@@ -344,6 +352,10 @@ classDiagram
         -VARCHAR estado
         -TIMESTAMP iniciada_en
         -TIMESTAMP actualizada_en
+        -INTEGER control_tiempo_ms
+        -INTEGER tiempo_blancas_ms
+        -INTEGER tiempo_negras_ms
+        -VARCHAR tiempos_jugadas_ms
     }
     class Jugada {
         -INTEGER id

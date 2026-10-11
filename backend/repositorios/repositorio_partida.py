@@ -138,6 +138,16 @@ def _fecha_iso_a_datetime(valor: str | None) -> datetime | None:
     return None if valor is None else datetime.fromisoformat(valor)
 
 
+def _tiempos_a_texto(tiempos: list[int | None]) -> str:
+    """Serializa los tiempos por jugada como texto separado por espacios (`-` = sin medir)."""
+    return " ".join("-" if t is None else str(int(t)) for t in tiempos)
+
+
+def _texto_a_tiempos(texto: str | None) -> list[int | None]:
+    """Inversa de `_tiempos_a_texto`; un texto vacío (o nulo) da una lista vacía."""
+    return [None if parte == "-" else int(parte) for parte in (texto or "").split()]
+
+
 def _partida_a_fila(partida: Partida) -> PartidaORM:
     """Traduce el dataclass de dominio a la fila de la tabla `partida`."""
     return PartidaORM(
@@ -158,6 +168,10 @@ def _partida_a_fila(partida: Partida) -> PartidaORM:
         estado=partida.estado,
         iniciada_en=_fecha_iso_a_datetime(partida.iniciada_en),
         actualizada_en=_fecha_iso_a_datetime(partida.actualizada_en),
+        control_tiempo_ms=partida.control_tiempo_ms,
+        tiempo_blancas_ms=partida.tiempo_blancas_ms,
+        tiempo_negras_ms=partida.tiempo_negras_ms,
+        tiempos_jugadas_ms=_tiempos_a_texto(partida.tiempos_jugadas_ms),
     )
 
 
@@ -174,8 +188,12 @@ def _fila_a_partida(fila: PartidaORM) -> Partida:
     tablero = chess.Board(fen_inicial)
     for jugada_uci in fila.jugadas_uci.split():
         tablero.push_uci(jugada_uci)
+    # Un resultado guardado con el tablero todavía sin final solo puede venir de una partida que
+    # terminó por tiempo (ver `Partida.resultado_por_tiempo`): se restaura para que siga terminada.
+    resultado_por_tiempo = fila.resultado if fila.resultado and not tablero.is_game_over() else None
     return Partida(
         tablero=tablero,
+        resultado_por_tiempo=resultado_por_tiempo,
         nivel=fila.nivel,
         tipo_oponente=fila.tipo_oponente,
         id=fila.id,
@@ -190,6 +208,10 @@ def _fila_a_partida(fila: PartidaORM) -> Partida:
         estado=fila.estado,
         iniciada_en=fecha_a_iso(fila.iniciada_en),
         actualizada_en=fecha_a_iso(fila.actualizada_en),
+        control_tiempo_ms=fila.control_tiempo_ms or 0,
+        tiempo_blancas_ms=fila.tiempo_blancas_ms,
+        tiempo_negras_ms=fila.tiempo_negras_ms,
+        tiempos_jugadas_ms=_texto_a_tiempos(fila.tiempos_jugadas_ms),
     )
 
 
@@ -215,6 +237,7 @@ class RepositorioPartidasPostgres(RepositorioPartidas):
                     "usuario_id", "resultado", "fen", "fen_inicial", "nivel", "tipo_oponente",
                     "jugadas_uci", "permite_simulacion_3d", "permite_camara", "es_demostracion",
                     "usa_brazo", "estado", "iniciada_en", "actualizada_en",
+                    "control_tiempo_ms", "tiempo_blancas_ms", "tiempo_negras_ms", "tiempos_jugadas_ms",
                 ):
                     setattr(fila_existente, columna, getattr(fila_nueva, columna))
             sesion.commit()

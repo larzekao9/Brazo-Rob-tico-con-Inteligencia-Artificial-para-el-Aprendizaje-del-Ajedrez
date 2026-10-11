@@ -128,6 +128,10 @@ _COLUMNAS_AGREGADAS: dict[str, dict[str, str]] = {
         "estado": "VARCHAR NOT NULL DEFAULT 'en_curso'",
         "iniciada_en": "TIMESTAMP",
         "actualizada_en": "TIMESTAMP",
+        "control_tiempo_ms": "INTEGER NOT NULL DEFAULT 0",
+        "tiempo_blancas_ms": "INTEGER",
+        "tiempo_negras_ms": "INTEGER",
+        "tiempos_jugadas_ms": "VARCHAR NOT NULL DEFAULT ''",
     },
 }
 

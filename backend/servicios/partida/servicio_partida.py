@@ -12,6 +12,7 @@ secciones 4.1 y 4.3).
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timezone
 
 import chess
@@ -36,11 +37,25 @@ from backend.servicios.vision.reconocimiento import reconocer_tablero
 _repositorio: RepositorioPartidas = crear_repositorio_partidas()
 
 
+CONTROL_TIEMPO_MIN_MS = 30_000
+CONTROL_TIEMPO_MAX_MS = 2 * 60 * 60 * 1000
+
+
+def _validar_control_tiempo(control_tiempo_ms: int) -> None:
+    """El control de tiempo es 0 (sin reloj) o un valor razonable por lado: entre 30 s y 2 h."""
+    if control_tiempo_ms != 0 and not CONTROL_TIEMPO_MIN_MS <= control_tiempo_ms <= CONTROL_TIEMPO_MAX_MS:
+        raise ValueError(
+            f"Control de tiempo inválido: {control_tiempo_ms} ms (0 = sin reloj, o entre "
+            f"{CONTROL_TIEMPO_MIN_MS} y {CONTROL_TIEMPO_MAX_MS} ms por lado)"
+        )
+
+
 def crear_partida(
     nivel: int = 20,
     tipo_oponente: str = "motor",
     fen_inicial: str | None = None,
     usuario_id: int | None = None,
+    control_tiempo_ms: int = 0,
 ) -> Partida:
     """Crea una partida nueva.
 
@@ -60,12 +75,17 @@ def crear_partida(
     sin este cierre cada apertura dejaría una partida `en_curso` más. Si
     `usuario_id` es `None` (partida sin dueño) no hay nada que cerrar.
 
+    `control_tiempo_ms` es el tiempo de reloj de cada lado para toda la partida (`0` = sin reloj):
+    queda guardado en la partida junto con lo que le resta a cada uno, así que al reanudarla el reloj
+    sigue donde se quedó.
+
     Raises:
         ValueError: si `tipo_oponente` no es un tipo soportado todavía (ver
-            `fabrica_estrategias.TIPOS_SOPORTADOS`), o si `fen_inicial` no es
-            un FEN válido — ambos se validan acá, al crear la partida, para
-            no dejar que fallen recién en la primera jugada.
+            `fabrica_estrategias.TIPOS_SOPORTADOS`), si `fen_inicial` no es
+            un FEN válido o si `control_tiempo_ms` no es válido — todo se valida acá, al
+            crear la partida, para no dejar que fallen recién en la primera jugada.
     """
+    _validar_control_tiempo(control_tiempo_ms)
     if usuario_id is not None:
         ciclo_vida.cerrar_partidas_pendientes(_repositorio, usuario_id)
     if tipo_oponente not in TIPOS_SOPORTADOS:
@@ -74,7 +94,9 @@ def crear_partida(
             f"(disponibles: {sorted(TIPOS_SOPORTADOS)})"
         )
     if fen_inicial is None:
-        partida = Partida(nivel=nivel, tipo_oponente=tipo_oponente, usuario_id=usuario_id)
+        partida = Partida(
+            nivel=nivel, tipo_oponente=tipo_oponente, usuario_id=usuario_id, control_tiempo_ms=control_tiempo_ms
+        )
     else:
         try:
             tablero = chess.Board(fen_inicial)
@@ -102,6 +124,7 @@ def crear_partida(
             tipo_oponente=tipo_oponente,
             fen_inicial=fen_inicial,
             usuario_id=usuario_id,
+            control_tiempo_ms=control_tiempo_ms,
         )
     _repositorio.guardar(partida)
     return partida
@@ -274,7 +297,83 @@ def _calidad_de_la_jugada_humana(fen_antes: str, jugada_san: str, fen_despues: s
     )
 
 
-def mover(partida_id: str, jugada_uci: str) -> dict:
+def actualizar_reloj(
+    partida_id: str,
+    blancas_ms: int | None = None,
+    negras_ms: int | None = None,
+    control_tiempo_ms: int | None = None,
+) -> Partida:
+    """Guarda lo que le queda a cada lado en el reloj, o cambia el control de tiempo antes de empezar.
+
+    La pantalla lo llama cada pocos segundos mientras corre el reloj y al cerrar la pestaña, para que al
+    reanudar la partida el reloj siga donde se quedó (y no corra mientras el jugador estuvo fuera). El
+    tiempo solo puede bajar: un valor mayor al que ya había se ignora.
+
+    `control_tiempo_ms` solo se acepta mientras no se jugó ninguna jugada, y reinicia ambos relojes.
+
+    Raises:
+        KeyError: si no existe la partida.
+        ValueError: si ya terminó, si la partida no tiene reloj o si el control de tiempo es inválido o
+            se quiere cambiar con la partida empezada.
+    """
+    partida = obtener_partida(partida_id)
+    if partida.terminada:
+        raise ValueError("La partida ya terminó")
+    if control_tiempo_ms is not None:
+        if partida.tablero.move_stack:
+            raise ValueError("El control de tiempo no se puede cambiar con la partida empezada")
+        _validar_control_tiempo(control_tiempo_ms)
+        partida.control_tiempo_ms = control_tiempo_ms
+        partida.tiempo_blancas_ms = None
+        partida.tiempo_negras_ms = None
+    elif partida.control_tiempo_ms == 0:
+        raise ValueError("La partida no tiene reloj")
+    if partida.control_tiempo_ms:
+        if blancas_ms is not None:
+            partida.tiempo_blancas_ms = max(0, min(int(blancas_ms), partida.restante_blancas_ms))
+        if negras_ms is not None:
+            partida.tiempo_negras_ms = max(0, min(int(negras_ms), partida.restante_negras_ms))
+    _repositorio.guardar(partida)
+    return partida
+
+
+def terminar_por_tiempo(partida_id: str, lado: str) -> Partida:
+    """Termina la partida porque al `lado` (`"blancas"` o `"negras"`) se le acabó el tiempo del reloj.
+
+    Pierde ese lado: `"0-1"` si fueron las blancas (el humano) y `"1-0"` si fueron las negras. El servidor
+    no lleva reloj (lo hace la pantalla), así que confía en lo que le informa el dueño de la partida; es
+    equivalente a abandonar, que ya era posible. Una partida terminada así cuenta como terminada para el
+    historial, las estadísticas y la calibración del nivel.
+
+    Raises:
+        KeyError: si no existe la partida.
+        ValueError: si ya terminó, si `lado` es inválido o si todavía no se jugó ninguna jugada.
+    """
+    if lado not in ("blancas", "negras"):
+        raise ValueError(f"Lado inválido: {lado!r} (debe ser 'blancas' o 'negras')")
+    partida = obtener_partida(partida_id)
+    if partida.terminada:
+        raise ValueError("La partida ya terminó")
+    if not partida.tablero.move_stack:
+        raise ValueError("Una partida sin jugadas no puede terminar por tiempo")
+    partida.resultado_por_tiempo = "0-1" if lado == "blancas" else "1-0"
+    if partida.control_tiempo_ms:
+        if lado == "blancas":
+            partida.tiempo_blancas_ms = 0
+        else:
+            partida.tiempo_negras_ms = 0
+    partida.estado = "terminada"
+    partida.actualizada_en = datetime.now(timezone.utc).isoformat()
+    _repositorio.guardar(partida)
+    return partida
+
+
+def mover(
+    partida_id: str,
+    jugada_uci: str,
+    tiempo_jugada_ms: int | None = None,
+    reloj_blancas_ms: int | None = None,
+) -> dict:
     """Aplica la jugada del humano (UCI) y responde con la jugada de la estrategia activa.
 
     Las dos jugadas (humano + respuesta) se prueban sobre una copia del
@@ -304,6 +403,11 @@ def mover(partida_id: str, jugada_uci: str) -> dict:
     pisa `actualizada_en` en cada llamada, y pasa `estado` a `"terminada"`
     si esta jugada termina la partida.
 
+    Tiempos: `tiempo_jugada_ms` es cuánto tardó el humano en decidir esta jugada (lo mide la pantalla) y
+    `reloj_blancas_ms` lo que le queda en el reloj; ambos son opcionales. El tiempo de la respuesta del
+    rival lo mide acá el servidor (cuánto tardó en decidirla) y se descuenta de su reloj. Cada jugada
+    deja su tiempo en `partida.tiempos_jugadas_ms` y el resultado trae el estado del reloj en `reloj`.
+
     Raises:
         KeyError: si no existe una partida con ese id.
         ValueError: si la partida ya terminó o la jugada es inválida/ilegal.
@@ -327,11 +431,14 @@ def mover(partida_id: str, jugada_uci: str) -> dict:
     ]
 
     jugada_motor_san = None
+    tiempo_rival_ms: int | None = None
     error_brazo: str | None = None
     if not tablero_intento.is_game_over():
         estrategia = crear_estrategia_jugada(partida.tipo_oponente, nivel=partida.nivel)
         fen_antes_motor = tablero_intento.fen()
+        inicio_decision = time.perf_counter()
         jugada_motor_san = estrategia.decidir_jugada(fen_antes_motor)
+        tiempo_rival_ms = int((time.perf_counter() - inicio_decision) * 1000)
         tablero_antes_motor = tablero_intento.copy()
         jugada_motor_move = tablero_intento.parse_san(jugada_motor_san)
         tablero_intento.push(jugada_motor_move)
@@ -347,6 +454,17 @@ def mover(partida_id: str, jugada_uci: str) -> dict:
     if partida.iniciada_en is None:
         partida.iniciada_en = ahora
     partida.actualizada_en = ahora
+    # Tiempos: se alinean con las jugadas ya jugadas (partidas anteriores a esta columna) y se suman las nuevas.
+    jugadas_previas = len(partida.tablero.move_stack)
+    partida.tiempos_jugadas_ms = (partida.tiempos_jugadas_ms + [None] * jugadas_previas)[:jugadas_previas]
+    partida.tiempos_jugadas_ms.append(None if tiempo_jugada_ms is None else max(0, int(tiempo_jugada_ms)))
+    if tiempo_rival_ms is not None:
+        partida.tiempos_jugadas_ms.append(tiempo_rival_ms)
+    if partida.control_tiempo_ms:
+        if reloj_blancas_ms is not None:
+            partida.tiempo_blancas_ms = max(0, min(int(reloj_blancas_ms), partida.restante_blancas_ms))
+        if tiempo_rival_ms is not None:
+            partida.tiempo_negras_ms = max(0, partida.restante_negras_ms - tiempo_rival_ms)
     partida.tablero = tablero_intento
     if partida.terminada:
         partida.estado = "terminada"
@@ -359,7 +477,7 @@ def mover(partida_id: str, jugada_uci: str) -> dict:
     variantes_candidatas: list[dict] = []
     retroalimentacion_en_vivo: dict | None = None
     if not partida.terminada and jugada_motor_san is not None:
-        analisis = analizar_posicion(partida.fen, NIVEL_MAX)  # fuerza máxima: el nivel de la partida solo regula al rival
+        analisis = analizar_posicion(partida.fen, NIVEL_MAX, TIEMPO_ANALISIS_EN_VIVO)  # fuerza máxima: el nivel de la partida solo regula al rival
         variantes_candidatas = analisis.get("variantes_candidatas", [])
 
         retroalimentacion_en_vivo = _calidad_de_la_jugada_humana(
@@ -368,6 +486,7 @@ def mover(partida_id: str, jugada_uci: str) -> dict:
 
     return {
         "fen": partida.fen,
+        "fen_tras_jugada": fen_despues_humano,
         "jugada_motor": jugada_motor_san,
         "terminada": partida.terminada,
         "resultado": partida.resultado,
@@ -375,6 +494,18 @@ def mover(partida_id: str, jugada_uci: str) -> dict:
         "variantes_candidatas": variantes_candidatas,
         "retroalimentacion_en_vivo": retroalimentacion_en_vivo,
         "error_brazo": error_brazo,
+        "reloj": _estado_del_reloj(partida),
+    }
+
+
+def _estado_del_reloj(partida: Partida) -> dict | None:
+    """Lo que le queda a cada lado, o `None` si la partida no tiene reloj."""
+    if not partida.control_tiempo_ms:
+        return None
+    return {
+        "control_tiempo_ms": partida.control_tiempo_ms,
+        "blancas_ms": partida.restante_blancas_ms,
+        "negras_ms": partida.restante_negras_ms,
     }
 
 
@@ -416,6 +547,16 @@ def mover_desde_foto(partida_id: str) -> dict:
         )
     jugada_uci = tablero_antes.parse_san(jugada_san).uci()
     return mover(partida_id, jugada_uci)
+
+
+def _resumen_de_tiempos(partida: Partida) -> dict:
+    """Cuánto duró la partida y cuánto tardó el estudiante por jugada (solo jugadas medidas)."""
+    del_estudiante = [t for t in partida.tiempos_jugadas_ms[::2] if t is not None]
+    return {
+        "control_tiempo_ms": partida.control_tiempo_ms,
+        "duracion_ms": partida.duracion_ms or None,
+        "tiempo_medio_jugador_ms": round(sum(del_estudiante) / len(del_estudiante)) if del_estudiante else None,
+    }
 
 
 def analisis_completo(partida_id: str, tiempo_limite: float = 0.3, rango: str = "Intermedio") -> dict:
@@ -535,8 +676,10 @@ def analisis_completo(partida_id: str, tiempo_limite: float = 0.3, rango: str = 
             "probabilidad_victoria": prob_win,
             "principio_ajedrecistico": principio,
             "explicacion": explicacion,
+            "tiempo_ms": partida.tiempos_jugadas_ms[i] if i < len(partida.tiempos_jugadas_ms) else None,
         })
 
     resumen = generar_resumen_partida(resultado, rango=rango)
     resumen["nivel_partida"] = partida.nivel
+    resumen.update(_resumen_de_tiempos(partida))
     return {"partida_id": partida_id, "jugadas": resultado, "resumen": resumen}

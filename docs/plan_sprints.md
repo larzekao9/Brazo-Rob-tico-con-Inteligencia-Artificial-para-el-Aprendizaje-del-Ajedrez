@@ -219,6 +219,27 @@ Win% y el mate se muestra en palabras. Verificado con tests, contra la API real 
   - Categorías con color e ícono: mejor, buena, inexactitud, error, blunder (el backend manda 7 niveles; "brillante" y "mejor" se agrupan, igual que en Aprendizaje)
   - Muestra la explicación, cuánto perdió y la mejor alternativa cuando hubo pérdida
 - [x] **Sugerencia de mejor jugada:** muestra la jugada óptima calculada
+- [x] **Jugadas en secuencia y reloj de ajedrez (2026-10-10):** primero se mueve tu pieza, una pausa
+      breve mientras "piensa" el rival y recién después su respuesta (el backend devuelve `fen_tras_jugada`
+      para dibujar el tablero entre las dos jugadas). Reloj de dos lados (Sin reloj / 3 / 5 / 10 / 15 min,
+      10 por defecto, recordado en el navegador) que descuenta solo al lado que tiene el turno; si a un lado se
+      le acaba el tiempo, `POST /partida/{id}/tiempo-agotado` termina la partida como derrota por tiempo
+      (resultado guardado en la columna `resultado`, sin cambio de esquema). No corre en la partida de
+      diagnóstico (la presión de tiempo distorsionaría la medición de nivel). Límites: el reloj corre en la
+      pantalla y el servidor confía en el cliente; el tiempo de las negras empieza a descontarse desde la
+      segunda jugada de la partida.
+- [x] **El reloj es parte de la partida (2026-10-10):** el control de tiempo se elige al crear la partida
+      (`control_tiempo_ms`, 0 = sin reloj; solo se puede cambiar antes de la primera jugada) y la partida guarda
+      lo que le queda a cada lado (`tiempo_blancas_ms`/`tiempo_negras_ms`) y cuánto tardó cada jugada
+      (`tiempos_jugadas_ms`), en el servidor (columnas nuevas de `partida`, ver `DICCIONARIO_DE_DATOS.md`). La
+      pantalla guarda el reloj con `PUT /partida/{id}/reloj` cada 5 s, al ocultar o cerrar la pestaña y al salir de
+      la Sala de Control; el rival descuenta lo que tardó en decidir, medido por el servidor. Al reanudar una
+      partida el reloj vuelve a donde se quedó y no corre mientras se está fuera (el modal "Retomar" muestra el
+      tiempo de cada lado). El análisis jugada a jugada, el repaso y el resumen muestran cuánto tardó cada jugada, la
+      duración de la partida y el tiempo medio por jugada, con una pista cuando una jugada rápida fue un error. La
+      duración de una partida se determina por su control de tiempo (p. ej. 10 min por lado) y termina por
+      jaque mate, tablas, abandono o tiempo agotado. Límite: la primera jugada de la partida no se mide (el reloj
+      todavía no empezó) y las partidas anteriores a este cambio no tienen tiempos.
 - [x] **Mate forzado:** si hay mate en N, muestra "MATE en N" en el panel de Stockfish (la etiqueta de la barra, que es chica, dice "M3")
 - [x] **Integración con EstrategiaModelo:** el modelo v5 propio (SE-ResNet-8) decide jugadas maestras de forma autónoma con poda táctica.
 - [x] **Ampliación (Hebert, esta semana):** el modelo propio ahora se autoidentifica en toda la

@@ -104,13 +104,58 @@ class Partida:
     def fen(self) -> str:
         return self.tablero.fen()
 
+    control_tiempo_ms: int = 0
+    """Control de tiempo de la partida: milisegundos que tiene CADA lado para toda la partida
+    (`0` = sin reloj). Se elige al crear la partida y no cambia después de la primera jugada."""
+    tiempo_blancas_ms: int | None = None
+    tiempo_negras_ms: int | None = None
+    """Tiempo que le queda a cada lado. `None` mientras nadie jugó: vale el control completo (ver
+    `restante_blancas_ms`). Lo actualiza la pantalla (`servicio_partida.actualizar_reloj`) y, para el
+    rival, el servidor mismo al medir cuánto tardó en decidir su jugada. Así, al reanudar una partida
+    el reloj sigue donde se quedó y no corre mientras el jugador estuvo fuera."""
+    tiempos_jugadas_ms: list[int | None] = field(default_factory=list)
+    """Cuánto tardó en jugarse cada jugada (una entrada por media jugada, en el mismo orden que
+    `jugadas_san`): para el humano lo mide la pantalla, para el rival el servidor. `None` cuando no se
+    midió (primera jugada de la partida, jugadas leídas de una foto o partidas anteriores a esta columna)."""
+
+    @property
+    def restante_blancas_ms(self) -> int:
+        """Milisegundos que le quedan al humano (blancas); `0` si la partida no tiene reloj."""
+        if self.tiempo_blancas_ms is not None:
+            return self.tiempo_blancas_ms
+        return self.control_tiempo_ms
+
+    @property
+    def restante_negras_ms(self) -> int:
+        """Milisegundos que le quedan al rival (negras); `0` si la partida no tiene reloj."""
+        if self.tiempo_negras_ms is not None:
+            return self.tiempo_negras_ms
+        return self.control_tiempo_ms
+
+    @property
+    def duracion_ms(self) -> int:
+        """Tiempo total jugado. Con reloj es lo que se gastó de él entre los dos lados (incluye lo que se
+        estaba pensando al cortar la partida); sin reloj, la suma de lo que tardó cada jugada medida."""
+        de_jugadas = sum(t for t in self.tiempos_jugadas_ms if t is not None)
+        if not self.control_tiempo_ms:
+            return de_jugadas
+        gastado = 2 * self.control_tiempo_ms - self.restante_blancas_ms - self.restante_negras_ms
+        return max(de_jugadas, gastado)
+
+    resultado_por_tiempo: str | None = None
+    """Resultado fijado cuando a un jugador se le acabó el tiempo del reloj (`"0-1"` si se le acabó
+    al humano, que juega blancas; `"1-0"` si se le acabó al rival). El tablero no está terminado en
+    ese caso, así que esto manda sobre `tablero.result()`. Lo fija `servicio_partida.terminar_por_tiempo`."""
+
     @property
     def terminada(self) -> bool:
-        return self.tablero.is_game_over()
+        return self.resultado_por_tiempo is not None or self.tablero.is_game_over()
 
     @property
     def resultado(self) -> str | None:
-        return self.tablero.result() if self.terminada else None
+        if self.resultado_por_tiempo is not None:
+            return self.resultado_por_tiempo
+        return self.tablero.result() if self.tablero.is_game_over() else None
 
     @property
     def jugadas_san(self) -> list[str]:

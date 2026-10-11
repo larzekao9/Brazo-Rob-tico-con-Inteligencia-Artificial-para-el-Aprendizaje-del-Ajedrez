@@ -127,6 +127,14 @@ class PartidaORM(Base):
     # Momento de la última jugada aplicada (humano o estrategia). Nulo hasta
     # la primera jugada (ver `Partida.actualizada_en`).
     actualizada_en: Mapped[datetime | None] = mapped_column(nullable=True)
+    # Reloj de la partida (ver `modelos/partida.py`, `Partida.control_tiempo_ms`): tiempo por lado en
+    # milisegundos (0 = sin reloj) y lo que le queda a cada uno. Nulo en los restantes = control completo.
+    control_tiempo_ms: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
+    tiempo_blancas_ms: Mapped[int | None] = mapped_column(nullable=True)
+    tiempo_negras_ms: Mapped[int | None] = mapped_column(nullable=True)
+    # Milisegundos que tardó cada jugada, separados por espacio y en el mismo orden que `jugadas_uci`;
+    # "-" cuando no se midió (ver `Partida.tiempos_jugadas_ms`).
+    tiempos_jugadas_ms: Mapped[str] = mapped_column(nullable=False, default="", server_default="")
 
     jugadas: Mapped[list["JugadaORM"]] = relationship(back_populates="partida", cascade="all, delete-orphan")
     usuario: Mapped["UsuarioORM"] = relationship(back_populates="partidas")
