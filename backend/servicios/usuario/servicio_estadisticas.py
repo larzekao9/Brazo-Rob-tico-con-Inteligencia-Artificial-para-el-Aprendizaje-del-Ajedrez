@@ -9,6 +9,8 @@ estadísticas queden desactualizadas.
 """
 from __future__ import annotations
 
+from datetime import date, datetime, timedelta
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -163,6 +165,218 @@ def _calcular_precision_promedio(db: Session, usuario_id: int) -> float:
     return round(aciertos / len(perdidas) * 100, 2)
 
 
+SEMANAS_DEL_PROGRESO = 8
+"""Cuántas semanas (la actual incluida) muestra el gráfico de progreso."""
+
+
+def _inicio_de_semana(dia: date) -> date:
+    """El lunes de la semana de `dia`."""
+    return dia - timedelta(days=dia.weekday())
+
+
+def _a_fecha(valor: object) -> date | None:
+    """Pasa lo que guarda `PartidaORM.fecha` (datetime, o texto en SQLite) a una fecha."""
+    if isinstance(valor, datetime):
+        return valor.date()
+    if isinstance(valor, date):
+        return valor
+    if isinstance(valor, str):
+        try:
+            return datetime.fromisoformat(valor[:19]).date()
+        except ValueError:
+            return None
+    return None
+
+
+def armar_progreso_semanal(
+    partidas: list[tuple[date, str | None]],
+    jugadas: list[tuple[date, int]],
+    hoy: date,
+    semanas: int = SEMANAS_DEL_PROGRESO,
+) -> list[dict]:
+    """Agrupa por semana (lunes a domingo) las partidas jugadas y la precisión del jugador.
+
+    `partidas` son `(fecha, resultado)` de partidas con jugadas del jugador; `jugadas` son
+    `(fecha de su partida, pérdida en cp)` de jugadas ya analizadas. Devuelve siempre
+    `semanas` filas, de la más vieja a la actual, incluso las vacías (así el gráfico no
+    se "salta" semanas). `precision` es `None` si esa semana no tiene jugadas analizadas:
+    mostrar 0 % sería inventar un dato.
+    """
+    lunes_actual = _inicio_de_semana(hoy)
+    inicios = [lunes_actual - timedelta(weeks=n) for n in range(semanas - 1, -1, -1)]
+    por_semana = {
+        inicio: {"partidas": 0, "victorias": 0, "aciertos": 0, "analizadas": 0} for inicio in inicios
+    }
+
+    for fecha, resultado in partidas:
+        semana = por_semana.get(_inicio_de_semana(fecha))
+        if semana is None:
+            continue
+        semana["partidas"] += 1
+        if resultado == RESULTADO_HUMANO_GANA:
+            semana["victorias"] += 1
+
+    for fecha, perdida in jugadas:
+        semana = por_semana.get(_inicio_de_semana(fecha))
+        if semana is None:
+            continue
+        semana["analizadas"] += 1
+        if perdida <= UMBRAL_INEXACTITUD:
+            semana["aciertos"] += 1
+
+    return [
+        {
+            "semana_inicio": inicio.isoformat(),
+            "partidas": datos["partidas"],
+            "victorias": datos["victorias"],
+            "precision": round(datos["aciertos"] / datos["analizadas"] * 100, 1) if datos["analizadas"] else None,
+        }
+        for inicio, datos in por_semana.items()
+    ]
+
+
+def _partidas_con_jugadas_del_jugador():
+    """Condición de "partida realmente jugada": tiene al menos una jugada registrada.
+
+    El humano mueve primero, así que `jugadas_uci` no vacío implica jugada del jugador. Deja
+    afuera las que la Sala de Control crea sola al abrirse y nadie juega (ver
+    `obtener_historial_partidas`).
+    """
+    return (PartidaORM.jugadas_uci.is_not(None), PartidaORM.jugadas_uci != "")
+
+
+def _calcular_partidas_por_oponente(db: Session, usuario_id: int) -> dict[str, int]:
+    """Cuántas partidas realmente jugadas contra cada rival (`motor` = Stockfish, `modelo` = Turing)."""
+    filas = db.execute(
+        select(PartidaORM.tipo_oponente, func.count())
+        .where(PartidaORM.usuario_id == usuario_id, *_partidas_con_jugadas_del_jugador())
+        .group_by(PartidaORM.tipo_oponente)
+    ).all()
+    conteo = {"motor": 0, "modelo": 0}
+    for tipo, cantidad in filas:
+        conteo[tipo] = cantidad
+    return conteo
+
+
+def _calcular_progreso_semanal(db: Session, usuario_id: int, hoy: date | None = None) -> list[dict]:
+    """Progreso de las últimas `SEMANAS_DEL_PROGRESO` semanas, desde la base (ver `armar_progreso_semanal`)."""
+    hoy = hoy or date.today()
+    desde = _inicio_de_semana(hoy) - timedelta(weeks=SEMANAS_DEL_PROGRESO - 1)
+
+    partidas = []
+    for fecha_bruta, resultado in db.execute(
+        select(PartidaORM.fecha, PartidaORM.resultado).where(
+            PartidaORM.usuario_id == usuario_id, *_partidas_con_jugadas_del_jugador()
+        )
+    ).all():
+        fecha = _a_fecha(fecha_bruta)
+        if fecha is not None and fecha >= desde:
+            partidas.append((fecha, resultado))
+
+    jugadas = []
+    for fecha_bruta, cp, cp_mejor, mate, mate_mejor in db.execute(
+        select(
+            PartidaORM.fecha,
+            JugadaORM.evaluacion_cp,
+            JugadaORM.evaluacion_mejor_cp,
+            JugadaORM.mate_en,
+            JugadaORM.mate_en_mejor,
+        )
+        .join(PartidaORM, JugadaORM.partida_id == PartidaORM.id)
+        .where(
+            PartidaORM.usuario_id == usuario_id,
+            PartidaORM.resultado.is_not(None),
+            JugadaORM.decidido_por == "jugador",
+        )
+    ).all():
+        fecha = _a_fecha(fecha_bruta)
+        perdida = _perdida(cp, cp_mejor, mate, mate_mejor)
+        if fecha is not None and fecha >= desde and perdida is not None:
+            jugadas.append((fecha, perdida))
+
+    return armar_progreso_semanal(partidas, jugadas, hoy)
+
+
+FASES = ("apertura", "medio", "final")
+PLY_FIN_APERTURA = 20
+PLY_FIN_MEDIO_JUEGO = 60
+
+
+def clasificar_fase(ply: int) -> str:
+    """Fase de la partida según el número de jugada (ply): apertura hasta la 10.ª jugada de cada
+    bando, medio juego hasta la 30.ª, y final desde ahí. Es una regla simple y fija, no una
+    detección de material en el tablero: sirve para orientar, no para pretender exactitud."""
+    if ply <= PLY_FIN_APERTURA:
+        return "apertura"
+    if ply <= PLY_FIN_MEDIO_JUEGO:
+        return "medio"
+    return "final"
+
+
+def armar_precision_por_fase(perdidas: list[tuple[int, int]]) -> list[dict]:
+    """Agrupa `(ply, pérdida en cp)` por fase. `precision` es `None` si la fase no tiene jugadas
+    analizadas (no se inventa 0 %)."""
+    jugadas = {fase: 0 for fase in FASES}
+    aciertos = {fase: 0 for fase in FASES}
+    for ply, perdida in perdidas:
+        fase = clasificar_fase(ply)
+        jugadas[fase] += 1
+        if perdida <= UMBRAL_INEXACTITUD:
+            aciertos[fase] += 1
+    return [
+        {
+            "fase": fase,
+            "jugadas": jugadas[fase],
+            "precision": round(aciertos[fase] / jugadas[fase] * 100, 1) if jugadas[fase] else None,
+        }
+        for fase in FASES
+    ]
+
+
+def _calcular_precision_por_fase(db: Session, usuario_id: int) -> list[dict]:
+    """Precisión del jugador en apertura, medio juego y final (jugadas analizadas de partidas terminadas)."""
+    filas = db.execute(
+        select(
+            JugadaORM.numero,
+            JugadaORM.evaluacion_cp,
+            JugadaORM.evaluacion_mejor_cp,
+            JugadaORM.mate_en,
+            JugadaORM.mate_en_mejor,
+        )
+        .join(PartidaORM, JugadaORM.partida_id == PartidaORM.id)
+        .where(
+            PartidaORM.usuario_id == usuario_id,
+            PartidaORM.resultado.is_not(None),
+            JugadaORM.decidido_por == "jugador",
+        )
+    ).all()
+    perdidas = []
+    for ply, cp, cp_mejor, mate, mate_mejor in filas:
+        perdida = _perdida(cp, cp_mejor, mate, mate_mejor)
+        if perdida is not None:
+            perdidas.append((ply, perdida))
+    return armar_precision_por_fase(perdidas)
+
+
+def _calcular_resultados_por_oponente(db: Session, usuario_id: int) -> dict[str, dict[str, int]]:
+    """Ganadas, perdidas y tablas contra cada rival, solo de partidas terminadas y realmente jugadas."""
+    filas = db.execute(
+        select(PartidaORM.tipo_oponente, PartidaORM.resultado, func.count())
+        .where(
+            PartidaORM.usuario_id == usuario_id,
+            PartidaORM.resultado.is_not(None),
+            *_partidas_con_jugadas_del_jugador(),
+        )
+        .group_by(PartidaORM.tipo_oponente, PartidaORM.resultado)
+    ).all()
+    claves = {RESULTADO_HUMANO_GANA: "ganadas", RESULTADO_HUMANO_PIERDE: "perdidas", RESULTADO_TABLAS: "tablas"}
+    resultado = {"motor": {"ganadas": 0, "perdidas": 0, "tablas": 0}, "modelo": {"ganadas": 0, "perdidas": 0, "tablas": 0}}
+    for tipo, res, cantidad in filas:
+        if tipo in resultado and res in claves:
+            resultado[tipo][claves[res]] += cantidad
+    return resultado
+
+
 def calcular_estadisticas(db: Session, usuario_id: int) -> dict:
     """Cuenta partidas por resultado, la racha de victorias actual, la
     precisión promedio y `top_errores`.
@@ -197,6 +411,10 @@ def calcular_estadisticas(db: Session, usuario_id: int) -> dict:
         "racha_victoria_actual": racha_victoria_actual,
         "precision_promedio": _calcular_precision_promedio(db, usuario_id),
         "top_errores": _calcular_top_errores(db, usuario_id),
+        "partidas_por_oponente": _calcular_partidas_por_oponente(db, usuario_id),
+        "progreso_semanal": _calcular_progreso_semanal(db, usuario_id),
+        "resultados_por_oponente": _calcular_resultados_por_oponente(db, usuario_id),
+        "precision_por_fase": _calcular_precision_por_fase(db, usuario_id),
     }
 
 

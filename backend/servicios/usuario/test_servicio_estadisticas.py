@@ -89,3 +89,74 @@ def test_resumir_turing_por_nivel_no_deja_que_un_mate_distorsione_la_perdida_med
     ]
     nivel = resumir_turing_por_nivel(filas)[0]
     assert nivel["perdida_media_cp"] <= 1000
+
+
+def test_progreso_semanal_devuelve_siempre_ocho_semanas_de_la_mas_vieja_a_la_actual() -> None:
+    from datetime import date
+
+    from backend.servicios.usuario.servicio_estadisticas import armar_progreso_semanal
+
+    hoy = date(2026, 10, 14)  # miércoles; su semana arranca el lunes 12
+    semanas = armar_progreso_semanal([], [], hoy)
+
+    assert len(semanas) == 8
+    assert semanas[-1]["semana_inicio"] == "2026-10-12"
+    assert semanas[0]["semana_inicio"] == "2026-08-24"
+    # Sin datos no se inventa precisión: queda vacía, no en 0 %.
+    assert all(s["partidas"] == 0 and s["precision"] is None for s in semanas)
+
+
+def test_progreso_semanal_agrupa_partidas_victorias_y_precision_por_semana() -> None:
+    from datetime import date
+
+    from backend.servicios.usuario.servicio_estadisticas import armar_progreso_semanal
+
+    hoy = date(2026, 10, 14)
+    partidas = [
+        (date(2026, 10, 12), "1-0"),  # esta semana, victoria
+        (date(2026, 10, 14), "0-1"),  # esta semana, derrota
+        (date(2026, 10, 5), "1-0"),  # semana anterior
+    ]
+    jugadas = [
+        (date(2026, 10, 13), 10),  # acierto (pérdida <= 50)
+        (date(2026, 10, 13), 40),  # acierto
+        (date(2026, 10, 14), 120),  # error
+    ]
+
+    semanas = {s["semana_inicio"]: s for s in armar_progreso_semanal(partidas, jugadas, hoy)}
+
+    actual = semanas["2026-10-12"]
+    assert (actual["partidas"], actual["victorias"]) == (2, 1)
+    assert actual["precision"] == 66.7
+    anterior = semanas["2026-10-05"]
+    assert (anterior["partidas"], anterior["victorias"], anterior["precision"]) == (1, 1, None)
+
+
+def test_progreso_semanal_ignora_lo_que_cae_fuera_de_las_ocho_semanas() -> None:
+    from datetime import date
+
+    from backend.servicios.usuario.servicio_estadisticas import armar_progreso_semanal
+
+    semanas = armar_progreso_semanal([(date(2026, 1, 5), "1-0")], [(date(2026, 1, 5), 0)], date(2026, 10, 14))
+
+    assert sum(s["partidas"] for s in semanas) == 0
+
+
+def test_clasificar_fase_separa_apertura_medio_juego_y_final() -> None:
+    from backend.servicios.usuario.servicio_estadisticas import clasificar_fase
+
+    assert clasificar_fase(1) == "apertura"
+    assert clasificar_fase(20) == "apertura"
+    assert clasificar_fase(21) == "medio"
+    assert clasificar_fase(60) == "medio"
+    assert clasificar_fase(61) == "final"
+
+
+def test_precision_por_fase_calcula_cada_fase_y_deja_vacia_la_que_no_tiene_jugadas() -> None:
+    from backend.servicios.usuario.servicio_estadisticas import armar_precision_por_fase
+
+    fases = {f["fase"]: f for f in armar_precision_por_fase([(1, 0), (3, 30), (5, 200), (30, 10)])}
+
+    assert (fases["apertura"]["jugadas"], fases["apertura"]["precision"]) == (3, 66.7)
+    assert (fases["medio"]["jugadas"], fases["medio"]["precision"]) == (1, 100.0)
+    assert (fases["final"]["jugadas"], fases["final"]["precision"]) == (0, None)

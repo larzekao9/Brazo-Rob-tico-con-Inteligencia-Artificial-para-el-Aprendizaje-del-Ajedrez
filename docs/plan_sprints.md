@@ -124,7 +124,7 @@ aprendizaje, análisis y estadísticas) vive en la web.
 | HU10 | Configuración de Partida (web)              | 3      | Luis Ángel  | ✅ Hecho (web) |
 | HU6  | Análisis en Tiempo Real Durante la Partida  | 5      | Hebert      | ✅ Hecho |
 | HU5  | Retroalimentación Técnica Post-Partida      | 5      | Luis Ángel  | ✅ Hecho |
-| HU14 | Estadísticas Personales y Progreso          | 3      | Luis Ángel  | ◐ Parcial  |
+| HU14 | Estadísticas Personales y Progreso          | 3      | Luis Ángel  | ✅ Hecho (web) |
 | HU4  | Reentrenamiento y Evaluación del Modelo     | 5      | Luis Ángel  | ◐ Base (falta el ciclo) |
 
 **Total Sprint 2: 29 puntos.**
@@ -279,18 +279,22 @@ mate permitido aparece como blunder.
 
 ### **HU14 — Estadísticas Personales y Progreso** (3 pts, Luis Ángel)
 
-◐ **Parcial.** Ya están: racha de días, camino de capítulos, precisión por partida y curva de efectividad.
-Falta el dashboard: total de partidas, promedio, errores más frecuentes (top 3), comparación con la semana
-anterior y gráfico semanal.
+✅ **Hecho en la web** (2026-10-10, lo implementó Hebert). Nueva sección "Tus estadísticas" en el Panel de
+Aprendizaje (`EstadisticasPersonales.jsx`, `GraficosEstadisticas.jsx`), con tarjetas estilo vidrio y gráficas
+interactivas (semana que se resalta al pasar el mouse, tocar o enfocar; dona de resultados; barras animadas
+de errores, rendimiento por rival, precisión por fase de la partida con una recomendación). El backend
+(`GET /usuario/estadisticas`) suma `partidas_por_oponente`, `progreso_semanal`, `resultados_por_oponente` y
+`precision_por_fase` sin tocar los campos que ya existían, así que la app móvil no se ve afectada. La versión móvil (Flutter) queda a
+cargo de Luis Ángel.
 
 Dashboard post-partida con métricas personales:
 
-- [ ] Partidas jugadas (total, por oponente)
-- [ ] Promedio de efectividad (Win% promedio de todas sus partidas)
-- [ ] Errores más frecuentes (si tiene 3+ partidas, muestra top 3 categorías)
-- [ ] Racha de victoria actual
-- [ ] Meta visual: "Mejoraste un 2% respecto a ayer" (si aplica)
-- [ ] Gráfico de progreso semanal (línea simple)
+- [x] Partidas jugadas (total, por oponente; no cuenta las que nadie jugó)
+- [x] Promedio de efectividad: % de victorias y precisión promedio de sus jugadas
+- [x] Errores más frecuentes (si tiene 3+ partidas, muestra top 3 categorías)
+- [x] Racha de victoria actual
+- [x] Meta visual: "Mejoraste X puntos de precisión respecto a la semana pasada" (comparación semanal, no diaria)
+- [x] Gráfico de progreso semanal (línea de precisión y barras de partidas, interactivo)
 
 **Dependencias:** HU5 (necesita datos de análisis).
 

@@ -334,3 +334,35 @@ def test_historial_partidas_respeta_limit_y_offset(contexto) -> None:
     cuerpo = respuesta.json()
     assert cuerpo["total"] == 3
     assert len(cuerpo["partidas"]) == 1
+
+
+def test_estadisticas_cuenta_solo_partidas_jugadas_y_las_separa_por_oponente(contexto) -> None:
+    cliente, headers, usuario_id, fabrica = contexto
+    _agregar_partida(fabrica, usuario_id, "1-0", tipo_oponente="motor", jugadas_uci="e2e4 e7e5")
+    _agregar_partida(fabrica, usuario_id, "0-1", tipo_oponente="motor", jugadas_uci="d2d4 d7d5")
+    _agregar_partida(fabrica, usuario_id, "0-1", tipo_oponente="modelo", jugadas_uci="c2c4 c7c5")
+    _agregar_partida(fabrica, usuario_id, None, tipo_oponente="modelo", jugadas_uci="")  # nadie la jugó
+
+    cuerpo = cliente.get("/usuario/estadisticas", headers=headers).json()
+
+    assert cuerpo["total_partidas"] == 4  # el contador de siempre cuenta todas
+    assert cuerpo["partidas_por_oponente"] == {"motor": 2, "modelo": 1}  # estas, solo las jugadas
+    assert len(cuerpo["progreso_semanal"]) == 8
+    esta_semana = cuerpo["progreso_semanal"][-1]
+    assert (esta_semana["partidas"], esta_semana["victorias"]) == (3, 1)
+    assert esta_semana["precision"] is None  # ninguna jugada analizada todavía
+
+
+def test_estadisticas_resultados_por_oponente_cuenta_solo_terminadas_y_jugadas(contexto) -> None:
+    cliente, headers, usuario_id, fabrica = contexto
+    _agregar_partida(fabrica, usuario_id, "1-0", tipo_oponente="motor", jugadas_uci="e2e4 e7e5")
+    _agregar_partida(fabrica, usuario_id, "0-1", tipo_oponente="modelo", jugadas_uci="d2d4 d7d5")
+    _agregar_partida(fabrica, usuario_id, "1/2-1/2", tipo_oponente="modelo", jugadas_uci="c2c4 c7c5")
+    _agregar_partida(fabrica, usuario_id, None, tipo_oponente="modelo", jugadas_uci="b2b3 b7b6")  # en curso
+    _agregar_partida(fabrica, usuario_id, "0-1", tipo_oponente="modelo", jugadas_uci="")  # nadie la jugó
+
+    cuerpo = cliente.get("/usuario/estadisticas", headers=headers).json()
+
+    assert cuerpo["resultados_por_oponente"]["motor"] == {"ganadas": 1, "perdidas": 0, "tablas": 0}
+    assert cuerpo["resultados_por_oponente"]["modelo"] == {"ganadas": 0, "perdidas": 1, "tablas": 1}
+    assert [f["fase"] for f in cuerpo["precision_por_fase"]] == ["apertura", "medio", "final"]

@@ -11,6 +11,31 @@ class TopErrorItem(BaseModel):
     cantidad: int
 
 
+class SemanaProgresoItem(BaseModel):
+    """Una semana (lunes a domingo) del gráfico de progreso. `precision` es `None` sin jugadas analizadas."""
+
+    semana_inicio: str
+    partidas: int
+    victorias: int
+    precision: float | None = None
+
+
+class ResultadosRivalItem(BaseModel):
+    """Resultados del jugador contra un rival (partidas terminadas y jugadas)."""
+
+    ganadas: int = 0
+    perdidas: int = 0
+    tablas: int = 0
+
+
+class FasePrecisionItem(BaseModel):
+    """Precisión en una fase de la partida (`apertura`, `medio` o `final`); `None` sin jugadas analizadas."""
+
+    fase: str
+    jugadas: int
+    precision: float | None = None
+
+
 class EstadisticasUsuarioResponse(BaseModel):
     """Cuerpo de salida para GET /usuario/estadisticas."""
 
@@ -22,6 +47,11 @@ class EstadisticasUsuarioResponse(BaseModel):
     racha_victoria_actual: int
     precision_promedio: float
     top_errores: list[TopErrorItem] = Field(default_factory=list)
+    # Partidas por rival entre las realmente jugadas (`total_partidas` incluye las que nadie jugó).
+    partidas_por_oponente: dict[str, int] = Field(default_factory=dict)
+    progreso_semanal: list[SemanaProgresoItem] = Field(default_factory=list)
+    resultados_por_oponente: dict[str, ResultadosRivalItem] = Field(default_factory=dict)
+    precision_por_fase: list[FasePrecisionItem] = Field(default_factory=list)
 
 
 class PartidaHistorialItem(BaseModel):
