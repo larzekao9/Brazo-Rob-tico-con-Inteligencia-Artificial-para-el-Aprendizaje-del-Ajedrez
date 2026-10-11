@@ -162,7 +162,10 @@ cuestionario es una autoevaluación y viene sesgado (un principiante optimista s
    completar las 3 queda **confirmado**. Es el mismo criterio que usan las plataformas de ajedrez con el rating
    provisional de las primeras partidas.
 2. **Medición.** Al terminar una partida (mínimo 5 jugadas del jugador) se compara cada jugada suya con la mejor
-   de Stockfish. La **precisión** es el porcentaje de jugadas a menos de medio peón de la mejor.
+   de Stockfish y se califica (mejor, excelente, buena, inexactitud, error, blunder) según cuánto valor pierde
+   frente a la mejor. La **precisión** es el promedio de puntos por jugada: mejor 100, excelente 95, buena 80,
+   inexactitud 50, error 20, blunder 0. (Ojo: el tablero de estadísticas calcula otra "precisión", el porcentaje
+   de jugadas que pierden menos de medio peón; son dos métricas distintas con el mismo nombre.)
 3. **Nivel y rango.** Precisión de 80 % o más: Avanzado; de 55 % o más: Intermedio; menos: Principiante. El
    nivel numérico (0-20) se ubica dentro de la banda de su rango (Principiante 0-6, Intermedio 7-13,
    Avanzado 14-20).
