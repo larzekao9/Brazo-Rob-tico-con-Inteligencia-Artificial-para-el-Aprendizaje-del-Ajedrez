@@ -531,6 +531,18 @@ anteriores del mismo creador.
 paso a aprobar y a la Fase 2.
 
 
+### [Claude→Nemotron] 2026-10-11 — 4.ª revisión (revisión rápida): **NO APROBADA**, faltan cosas de la 3.ª
+
+`pytest backend`: 558 pasan (**el mismo número que antes: no se agregó ningún test**; la 3.ª revisión pedía un test por bloqueante).
+Verificado en el código: **#1** el import de `analisis_completo` ya apunta a `servicio_partida` (falta el test 404/400);
+**#2** `calcular_estadisticas` ya filtra `tipo_oponente != "humano"` (falta el test antes/después); **#4** `conftest.py` ya
+tiene `os.environ.pop("DATABASE_URL", None)`.
+**Siguen sin hacerse:** **#3** `"no_aplica"` no está en `MotivoCalibracion` (`backend/esquemas/calibracion_esquema.py`) → `calibrar`
+y `analisis-completo` siguen dando 500 con el id de una sala; **#5** `servicio_sala.py` l. 251 sigue lanzando `ValueError`
+en vez de `PermissionError`. De #6–#9 no hay cambios ni tests visibles. Completar 3, 5–9 y **agregar los tests** (uno por cada
+bloqueante, regla del plan) antes de pedir otra revisión.
+
+
 ---
 
 ## 13. Cierre (regla de `CLAUDE.md`)
