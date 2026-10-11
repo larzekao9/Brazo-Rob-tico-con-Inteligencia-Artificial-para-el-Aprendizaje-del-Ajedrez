@@ -39,6 +39,7 @@ from backend.servicios.auth import (
     verificar_token_google,
 )
 from backend.servicios.calibracion import (
+    PARTIDAS_DIAGNOSTICO,
     contar_calibraciones,
     contar_calibraciones_por_usuario,
     estado_nivel_jugador,
@@ -81,8 +82,9 @@ def _a_respuesta(user, partidas_calibradas: int) -> UsuarioResponse:
         edad=user.edad,
         descripcion=user.descripcion,
         preset_ensenanza=user.preset_ensenanza,
-        diagnostico_completado=partidas_calibradas > 0,
+        diagnostico_completado=partidas_calibradas >= PARTIDAS_DIAGNOSTICO,
         partidas_calibradas=partidas_calibradas,
+        partidas_diagnostico=PARTIDAS_DIAGNOSTICO,
     )
 
 

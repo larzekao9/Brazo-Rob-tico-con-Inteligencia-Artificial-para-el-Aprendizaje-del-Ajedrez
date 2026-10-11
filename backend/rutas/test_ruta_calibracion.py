@@ -26,8 +26,8 @@ OTRO_JUGADOR = {"email": "beto@test.com", "nombre": "Beto", "password": "secreto
 FACILITADOR = {"email": "prof@test.com", "nombre": "Profe", "password": "secreto1", "rol": "facilitador"}
 
 CAMPOS_CALIBRACION = {
-    "registrada", "motivo", "es_diagnostico", "precision_partida", "precision_promedio",
-    "partidas_consideradas", "nivel_anterior", "rango_anterior", "nivel", "rango",
+    "registrada", "motivo", "es_diagnostico", "partida_diagnostico", "partidas_diagnostico",
+    "precision_partida", "precision_promedio", "partidas_consideradas", "nivel_anterior", "rango_anterior", "nivel", "rango",
     "cambio_de_rango", "cambio_de_nivel",
 }
 
@@ -166,6 +166,7 @@ def test_calibrar_una_partida_terminada_fija_el_nivel_del_diagnostico(contexto) 
     assert cuerpo["registrada"] is True
     assert cuerpo["motivo"] is None
     assert cuerpo["es_diagnostico"] is True
+    assert (cuerpo["partida_diagnostico"], cuerpo["partidas_diagnostico"]) == (1, 3)
     assert cuerpo["precision_partida"] == 30.0
     assert cuerpo["partidas_consideradas"] == 1
     assert (cuerpo["nivel"], cuerpo["rango"]) == (nivel, rango)
@@ -173,7 +174,8 @@ def test_calibrar_una_partida_terminada_fija_el_nivel_del_diagnostico(contexto) 
     assert cuerpo["cambio_de_nivel"] == 0
     me = contexto.cliente.get("/auth/me", headers=headers).json()
     assert (me["nivel_estimado"], me["rango_estimado"]) == (nivel, rango)
-    assert me["diagnostico_completado"] is True
+    # Una partida da un nivel provisional: el diagnóstico se completa con tres.
+    assert me["diagnostico_completado"] is False
     assert me["partidas_calibradas"] == 1
 
 
@@ -291,6 +293,7 @@ def test_nivel_de_un_jugador_sin_partidas_calibradas(contexto) -> None:
         "rango_estimado": None,
         "diagnostico_completado": False,
         "partidas_calibradas": 0,
+        "partidas_diagnostico": 3,
         "precision_promedio": None,
         "progreso_siguiente_nivel": None,
         "precision_siguiente_nivel": None,
@@ -344,8 +347,13 @@ def test_registro_y_login_informan_el_diagnostico_del_jugador(contexto) -> None:
     for usuario in (
         login.json()["usuario"], me.json(), perfil.json(), nivel_manual.json(),
     ):
-        assert usuario["diagnostico_completado"] is True
+        assert usuario["diagnostico_completado"] is False  # con una partida el nivel es provisional
         assert usuario["partidas_calibradas"] == 1
+        assert usuario["partidas_diagnostico"] == 3
+
+    for _ in range(2):
+        cliente.post(f"/partida/{_partida(contexto, headers)}/calibrar", headers=headers)
+    assert cliente.get("/auth/me", headers=headers).json()["diagnostico_completado"] is True
 
 
 def test_listar_usuarios_informa_las_partidas_calibradas_de_cada_uno(contexto) -> None:
@@ -358,6 +366,6 @@ def test_listar_usuarios_informa_las_partidas_calibradas_de_cada_uno(contexto) -
     usuarios = {u["email"]: u for u in cliente.get("/auth/usuarios", headers=facilitador).json()}
 
     assert usuarios[JUGADOR["email"]]["partidas_calibradas"] == 1
-    assert usuarios[JUGADOR["email"]]["diagnostico_completado"] is True
+    assert usuarios[JUGADOR["email"]]["diagnostico_completado"] is False
     assert usuarios[OTRO_JUGADOR["email"]]["partidas_calibradas"] == 0
     assert usuarios[OTRO_JUGADOR["email"]]["diagnostico_completado"] is False

@@ -154,9 +154,13 @@ cuestionario es una autoevaluación y viene sesgado (un principiante optimista s
 
 **Cómo funciona:**
 
-1. **Primera partida = diagnóstico.** Mientras el jugador no tenga ninguna partida calibrada
-   (`diagnostico_completado = false`), Sala de Control lo hace jugar contra Stockfish a nivel fijo (8), sin
-   elegir rival ni nivel.
+1. **Las 3 primeras partidas = diagnóstico.** Mientras el jugador no tenga 3 partidas calibradas
+   (`diagnostico_completado = false`, constante `PARTIDAS_DIAGNOSTICO = 3`), Sala de Control lo hace jugar contra
+   Stockfish a nivel fijo (8), sin reloj y sin elegir rival ni nivel, para que todos se midan con la misma vara.
+   El criterio es el de un docente: una partida sola no alcanza para juzgar a un alumno, porque pesan demasiado el
+   azar y el día que tuvo. Tras cada partida el nivel se muestra como **provisional** ("diagnóstico 1 de 3"); al
+   completar las 3 queda **confirmado**. Es el mismo criterio que usan las plataformas de ajedrez con el rating
+   provisional de las primeras partidas.
 2. **Medición.** Al terminar una partida (mínimo 5 jugadas del jugador) se compara cada jugada suya con la mejor
    de Stockfish. La **precisión** es el porcentaje de jugadas a menos de medio peón de la mejor.
 3. **Nivel y rango.** Precisión de 80 % o más: Avanzado; de 55 % o más: Intermedio; menos: Principiante. El
@@ -169,7 +173,7 @@ cuestionario es una autoevaluación y viene sesgado (un principiante optimista s
 6. **Punto de partida opcional.** En Mi Perfil el jugador puede elegir un nivel inicial, que sirve solo hasta
    que se lo mide.
 
-- [x] Primera partida de diagnóstico contra Stockfish a nivel fijo
+- [x] Tres partidas de diagnóstico contra Stockfish a nivel fijo; el nivel es provisional hasta la tercera
 - [x] El backend calcula la precisión y asigna nivel (0-20) y rango
 - [x] Se guarda `nivel_estimado` y `rango_estimado` en el perfil del usuario
 - [x] Sala de Control precarga ese nivel (ver HU10)

@@ -59,7 +59,7 @@ class UsuarioResponse(BaseModel):
     """Datos públicos del usuario autenticado.
 
     `partidas_calibradas` es la cantidad de partidas que ya calibraron su nivel
-    (`CalibracionORM`); `diagnostico_completado` es `partidas_calibradas > 0`.
+    (`CalibracionORM`); `diagnostico_completado` es `partidas_calibradas >= partidas_diagnostico` (hoy 3).
     """
 
     id: int
@@ -76,6 +76,7 @@ class UsuarioResponse(BaseModel):
     preset_ensenanza: str | None = None
     diagnostico_completado: bool = False
     partidas_calibradas: int = 0
+    partidas_diagnostico: int = 3
 
     class Config:
         from_attributes = True

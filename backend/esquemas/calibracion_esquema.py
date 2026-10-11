@@ -23,8 +23,10 @@ class CalibracionResponse(BaseModel):
     `registrada` es `True` solo si esta llamada guardó la calibración de la
     partida; si es `False`, `motivo` dice por qué y el nivel del jugador no se
     tocó (`nivel`/`rango` son los vigentes, iguales a `nivel_anterior`/
-    `rango_anterior`). `es_diagnostico` es `True` cuando fue la primera
-    calibración del jugador (su diagnóstico inicial).
+    `rango_anterior`). `es_diagnostico` es `True` cuando la partida fue una de
+    las de diagnóstico (las primeras `partidas_diagnostico`, hoy 3): `partida_diagnostico`
+    dice cuál era (1, 2 o 3) y `null` si ya pasó el diagnóstico. Mientras el diagnóstico no
+    está completo el nivel es provisional.
 
     `precision_partida` es la precisión de las jugadas del jugador en esa
     partida; `precision_promedio` es el promedio de sus últimas
@@ -36,6 +38,8 @@ class CalibracionResponse(BaseModel):
     registrada: bool
     motivo: MotivoCalibracion | None = None
     es_diagnostico: bool = False
+    partida_diagnostico: int | None = None
+    partidas_diagnostico: int = 3
     precision_partida: float | None = None
     precision_promedio: float | None = None
     partidas_consideradas: int = 0
@@ -86,6 +90,7 @@ class NivelJugadorResponse(BaseModel):
     rango_estimado: str | None = None
     diagnostico_completado: bool = False
     partidas_calibradas: int = 0
+    partidas_diagnostico: int = 3
     precision_promedio: float | None = None
     progreso_siguiente_nivel: float | None = None
     precision_siguiente_nivel: float | None = None

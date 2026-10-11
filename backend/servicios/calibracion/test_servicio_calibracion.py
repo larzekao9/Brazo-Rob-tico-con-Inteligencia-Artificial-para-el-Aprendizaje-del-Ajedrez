@@ -13,6 +13,7 @@ from backend.servicios.calibracion import (
     MAX_CALIBRACIONES_HISTORIAL,
     MIN_JUGADAS_CALIBRACION,
     NIVEL_DIAGNOSTICO,
+    PARTIDAS_DIAGNOSTICO,
     VENTANA_CALIBRACION,
     contar_calibraciones,
     contar_calibraciones_por_usuario,
@@ -84,12 +85,25 @@ def test_primera_calibracion_es_el_diagnostico_y_fija_el_nivel(db) -> None:
     assert (fila.nivel_partida, fila.rango_partida) == (nivel, rango)
 
 
+def test_el_diagnostico_se_completa_con_tres_partidas_calibradas(db) -> None:
+    usuario = _usuario(db)
+    completado = []
+    for i, precision in enumerate([40.0, 50.0, 60.0]):
+        registrar_calibracion(db, usuario, f"p{i}", _resumen(precision))
+        completado.append(estado_nivel_jugador(db, usuario)["diagnostico_completado"])
+
+    assert PARTIDAS_DIAGNOSTICO == 3
+    assert completado == [False, False, True]
+    # Mientras no se completa, el jugador igual tiene un nivel (provisional) desde la primera partida.
+    assert estado_nivel_jugador(db, usuario)["partidas_diagnostico"] == 3
+
+
 def test_la_respuesta_tiene_exactamente_los_campos_del_contrato(db) -> None:
     respuesta = registrar_calibracion(db, _usuario(db), "p1", _resumen(60.0))
 
     assert set(respuesta) == {
-        "registrada", "motivo", "es_diagnostico", "precision_partida", "precision_promedio",
-        "partidas_consideradas", "nivel_anterior", "rango_anterior", "nivel", "rango",
+        "registrada", "motivo", "es_diagnostico", "partida_diagnostico", "partidas_diagnostico",
+        "precision_partida", "precision_promedio", "partidas_consideradas", "nivel_anterior", "rango_anterior", "nivel", "rango",
         "cambio_de_rango", "cambio_de_nivel",
     }
 
@@ -127,7 +141,9 @@ def test_el_nivel_es_el_promedio_de_las_ultimas_tres_calibraciones(db) -> None:
     assert [r["partidas_consideradas"] for r in respuestas] == [1, 2, 3, 3]
     assert respuestas[3]["nivel_anterior"] == respuestas[2]["nivel"]
     assert respuestas[3]["cambio_de_nivel"] == respuestas[3]["nivel"] - respuestas[2]["nivel"]
-    assert [r["es_diagnostico"] for r in respuestas] == [True, False, False, False]
+    # Las tres primeras partidas son de diagnóstico; la cuarta ya es una recalibración.
+    assert [r["es_diagnostico"] for r in respuestas] == [True, True, True, False]
+    assert [r["partida_diagnostico"] for r in respuestas] == [1, 2, 3, None]
     db.refresh(usuario)
     assert usuario.nivel_estimado == respuestas[3]["nivel"]
 

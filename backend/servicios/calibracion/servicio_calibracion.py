@@ -45,6 +45,12 @@ MIN_JUGADAS_CALIBRACION = MIN_JUGADAS_PARTIDA_VALIDA
 """Alias histórico de `MIN_JUGADAS_PARTIDA_VALIDA`, mantenido porque ya lo
 importan `servicio_calibracion` y sus tests con este nombre."""
 
+PARTIDAS_DIAGNOSTICO = 3
+"""Cuántas partidas calibradas hacen falta para dar el diagnóstico por completo. Una partida sola es una
+medición muy ruidosa (el azar y el día que tuvo el jugador pesan demasiado), así que un docente no
+juzgaría a un alumno por una; con tres el promedio ya se estabiliza. Hasta completarlas el nivel se
+informa como provisional. Coincide con `VENTANA_CALIBRACION`: al completarse, la ventana está llena."""
+
 NIVEL_DIAGNOSTICO = 8
 """Nivel de Stockfish con el que el cliente crea la primera partida (el
 diagnóstico). Solo se exporta como referencia: el servidor no lo impone."""
@@ -150,6 +156,7 @@ def _respuesta(
     registrada: bool,
     motivo: str | None = None,
     es_diagnostico: bool = False,
+    partida_diagnostico: int | None = None,
     precision_partida: float | None = None,
     precision_promedio: float | None = None,
     partidas_consideradas: int = 0,
@@ -164,6 +171,8 @@ def _respuesta(
         "registrada": registrada,
         "motivo": motivo,
         "es_diagnostico": es_diagnostico,
+        "partida_diagnostico": partida_diagnostico,
+        "partidas_diagnostico": PARTIDAS_DIAGNOSTICO,
         "precision_partida": precision_partida,
         "precision_promedio": _redondear(precision_promedio),
         "partidas_consideradas": partidas_consideradas,
@@ -271,7 +280,9 @@ def registrar_calibracion(
         return respuesta_no_registrada(db, dueno, "partida_incompleta")
 
     nivel_anterior, rango_anterior = dueno.nivel_estimado, dueno.rango_estimado
-    es_diagnostico = contar_calibraciones(db, dueno.id) == 0
+    calibraciones_previas = contar_calibraciones(db, dueno.id)
+    es_diagnostico = calibraciones_previas < PARTIDAS_DIAGNOSTICO
+    partida_diagnostico = calibraciones_previas + 1 if es_diagnostico else None
     nivel_partida, rango_partida = calcular_rango_desde_precision(precision_partida)
 
     db.add(
@@ -299,6 +310,7 @@ def registrar_calibracion(
     return _respuesta(
         registrada=True,
         es_diagnostico=es_diagnostico,
+        partida_diagnostico=partida_diagnostico,
         precision_partida=precision_partida,
         precision_promedio=precision_promedio,
         partidas_consideradas=len(ventana),
@@ -338,8 +350,9 @@ def estado_nivel_jugador(db: Session, usuario: UsuarioORM) -> dict[str, Any]:
     return {
         "nivel_estimado": nivel,
         "rango_estimado": usuario.rango_estimado,
-        "diagnostico_completado": partidas_calibradas > 0,
+        "diagnostico_completado": partidas_calibradas >= PARTIDAS_DIAGNOSTICO,
         "partidas_calibradas": partidas_calibradas,
+        "partidas_diagnostico": PARTIDAS_DIAGNOSTICO,
         "precision_promedio": _redondear(precision_promedio),
         "progreso_siguiente_nivel": progreso,
         "precision_siguiente_nivel": precision_siguiente,
