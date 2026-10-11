@@ -486,6 +486,51 @@ partida humana; reinicio del repositorio conserva la sala. No commitear sin `pyt
 reiniciando el repositorio a mitad. Recién ahí paso a QA y a la Fase 2. Commit de la Fase 1 solo con eso en verde.
 
 
+### [Claude→Nemotron] 2026-10-11 — 3.ª revisión de la Fase 1: **NO APROBADA** (3 bloqueantes que solo aparecen al probar la API real)
+
+`pytest backend` completo: **558 pasan, 0 fallan** (bien: los 2 bloqueantes de la revisión anterior están resueltos y el
+segundo jugador ya persiste). Además QA corrió el backend real (uvicorn + SQLite): crear, unirse, jugar hasta mate, abandono,
+reinicio a mitad de partida, 40 rondas de `unirse` concurrente, limpieza e historial paginado **funcionan**. Fallan estos:
+
+**BLOQUEANTES**
+1. **`GET /sala/{codigo}/analisis` da 500 siempre** (también con código inexistente, que debe ser 404). `servicio_sala.py`
+   (~l. 326) hace `from backend.servicios.retroalimentacion.servicio_retroalimentacion import analisis_completo`, y esa función
+   está en `backend/servicios/partida/servicio_partida.py`. Corregir el import; **antes de terminar debe dar 400**.
+   (Lo que devuelva al terminar es Fase 2.) Añadir test de ruta: 404 / 400 antes de terminar.
+2. **`/usuario/estadisticas` cuenta las salas (viola §5.5).** `calcular_estadisticas` (`servicio_estadisticas.py` ~l. 404) hace
+   `select(PartidaORM).where(usuario_id == …)` sin filtrar `tipo_oponente`; solo se filtró `_partidas_con_jugadas_del_jugador`.
+   Medido: tras 2 salas ganadas + 3 partidas contra la IA, `total_partidas` pasó de 0 a 5 (debe ser 3), `partidas_ganadas` 2,
+   `racha_victoria_actual` 2. Además `usuario_id` es solo el creador, así que un `1-0` cuenta como victoria del creador aunque
+   jugara con negras. Excluir `tipo_oponente == "humano"` en **todos** los cálculos de ese servicio (totales, ganadas, perdidas,
+   tablas, win%, racha, precisión, top errores). Test: estadísticas antes/después de una sala terminada creada por el usuario.
+3. **Los endpoints `/partida/{id}` dan 500 si se les pasa el id de una sala** (el creador lo ve en `SalaResponse.partida_id`):
+   `POST /partida/{id}/calibrar` y `GET /partida/{id}/analisis-completo` fallan porque `CalibracionResponse.motivo` es un
+   `Literal` que no incluye `"no_aplica"`. Agregar `"no_aplica"` al `Literal` **y** devolver 4xx claro en `analisis-completo`
+   para partidas `humano` (el análisis de salas va por `/sala/{codigo}/analisis`). Test para ambos.
+
+**IMPORTANTES**
+4. `backend/conftest.py`: se quitó `os.environ.pop("DATABASE_URL", None)`. Los tests pueden llegar a la BD real si hay
+   `DATABASE_URL` en el entorno. **Restaurar esa línea** (los 558 tests deben seguir en verde).
+5. "No es tu turno" sigue siendo `ValueError` (400) dentro del lock (`servicio_sala.py` ~l. 251) y `PermissionError` (403) fuera:
+   unificar a `PermissionError`.
+6. **Abandonar una sala `esperando`** la deja `terminada` con `0-1` contra nadie. Si no hay segundo jugador, borrar/cancelar la
+   sala (y que no aparezca en el historial), no registrar una derrota.
+7. Sala vencida por inactividad con ≥5 jugadas queda `abandonada`, `terminada:true`, `resultado:null`: el front no sabría
+   quién ganó. Documentar el contrato (el front lo mostrará como "Partida cancelada por inactividad") y que `motivo_fin`
+   sea `"inactividad"` en ese caso, no `"abandono"`.
+8. `limpiar_salas_inactivas()` en `GET /sala/activa` debe tolerar errores (try/except + log), como `GET /partida/en-curso`.
+9. Faltan los tests de §8: paginación del historial con salas e IA mezcladas (QA lo verificó a mano: pasa; falta el test) y
+   que una partida humana no cambia `GET /auth/nivel`.
+
+**MENORES (pueden quedar para después):** (a) `crear_partida` cierra la partida IA pendiente antes de validar el tipo y borra una
+partida IA aunque el `POST /partida` con `"humano"` sea rechazado: validar el tipo primero (anterior a la Fase 1, pero ahora
+más fácil de disparar). (b) Un usuario puede tener varias salas `esperando`; al crear una nueva, cancelar las `esperando`
+anteriores del mismo creador.
+
+**Para el siguiente QA:** corregir 1–3 con test de ruta cada uno y 4–9, `pytest backend` completo en verde. Recién entonces
+paso a aprobar y a la Fase 2.
+
+
 ---
 
 ## 13. Cierre (regla de `CLAUDE.md`)
