@@ -75,6 +75,24 @@ CREATE TABLE IF NOT EXISTS calibracion (
 );
 CREATE INDEX IF NOT EXISTS ix_calibracion_usuario_id ON calibracion (usuario_id);
 
+-- codigo_invitacion: Códigos de un solo uso, con vencimiento, que un facilitador genera para que otra persona pueda registrarse como facilitador. Solo se guarda su hash.
+CREATE TABLE IF NOT EXISTS codigo_invitacion (
+	id SERIAL NOT NULL, 
+	codigo_hash VARCHAR NOT NULL, 
+	creado_por INTEGER, 
+	para VARCHAR, 
+	creado_en TIMESTAMP WITHOUT TIME ZONE DEFAULT now() NOT NULL, 
+	expira_en TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
+	usado_en TIMESTAMP WITHOUT TIME ZONE, 
+	usado_por INTEGER, 
+	PRIMARY KEY (id), 
+	FOREIGN KEY(creado_por) REFERENCES usuario (id), 
+	FOREIGN KEY(usado_por) REFERENCES usuario (id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_codigo_invitacion_codigo_hash ON codigo_invitacion (codigo_hash);
+CREATE INDEX IF NOT EXISTS ix_codigo_invitacion_creado_por ON codigo_invitacion (creado_por);
+CREATE INDEX IF NOT EXISTS ix_codigo_invitacion_usado_por ON codigo_invitacion (usado_por);
+
 -- exportacion_dataset: Una fila por cada vez que un facilitador descargó el dataset de partidas para reentrenar el modelo propio (HU4, todavía pendiente de construir).
 CREATE TABLE IF NOT EXISTS exportacion_dataset (
 	id SERIAL NOT NULL, 
@@ -188,6 +206,15 @@ COMMENT ON COLUMN calibracion.nivel_partida IS 'Nivel (0-20) que saldría mirand
 COMMENT ON COLUMN calibracion.rango_partida IS 'Rango que saldría mirando solamente esa partida.';
 COMMENT ON COLUMN calibracion.total_jugadas IS 'Cantidad de jugadas del jugador que se evaluaron (mínimo 5 para registrarla).';
 COMMENT ON COLUMN calibracion.creado_en IS 'Fecha y hora en que se registró.';
+COMMENT ON TABLE codigo_invitacion IS 'Códigos de un solo uso, con vencimiento, que un facilitador genera para que otra persona pueda registrarse como facilitador. Solo se guarda su hash.';
+COMMENT ON COLUMN codigo_invitacion.id IS 'Identificador del código.';
+COMMENT ON COLUMN codigo_invitacion.codigo_hash IS 'Huella SHA-256 del código. El código en claro no se guarda: solo se ve al generarlo.';
+COMMENT ON COLUMN codigo_invitacion.creado_por IS 'Facilitador que lo generó.';
+COMMENT ON COLUMN codigo_invitacion.para IS 'A quién se lo dio (texto libre, opcional), solo para acordarse.';
+COMMENT ON COLUMN codigo_invitacion.creado_en IS 'Fecha y hora en que se generó.';
+COMMENT ON COLUMN codigo_invitacion.expira_en IS 'Fecha y hora a partir de la cual el código ya no sirve.';
+COMMENT ON COLUMN codigo_invitacion.usado_en IS 'Fecha y hora en que se usó. Nulo mientras no se haya usado: sirve una sola vez.';
+COMMENT ON COLUMN codigo_invitacion.usado_por IS 'Usuario que se registró con este código.';
 COMMENT ON TABLE exportacion_dataset IS 'Una fila por cada vez que un facilitador descargó el dataset de partidas para reentrenar el modelo propio (HU4, todavía pendiente de construir).';
 COMMENT ON COLUMN exportacion_dataset.id IS 'Identificador de la descarga.';
 COMMENT ON COLUMN exportacion_dataset.usuario_id IS 'Facilitador que descargó el dataset.';
@@ -246,7 +273,7 @@ DECLARE
     tabla text;
     rol text;
 BEGIN
-    FOREACH tabla IN ARRAY ARRAY['participante', 'sesion', 'usuario', 'calibracion', 'exportacion_dataset', 'mensaje_tutor', 'partida', 'jugada'] LOOP
+    FOREACH tabla IN ARRAY ARRAY['participante', 'sesion', 'usuario', 'calibracion', 'codigo_invitacion', 'exportacion_dataset', 'mensaje_tutor', 'partida', 'jugada'] LOOP
         EXECUTE format('ALTER TABLE %I.%I ENABLE ROW LEVEL SECURITY', current_schema(), tabla);
     END LOOP;
     FOREACH rol IN ARRAY ARRAY['anon', 'authenticated'] LOOP
@@ -261,5 +288,5 @@ COMMIT;
 
 -- Verificación: las 7 tablas deben aparecer con rowsecurity = true.
 SELECT tablename, rowsecurity FROM pg_tables
-WHERE schemaname = current_schema() AND tablename IN ('participante', 'sesion', 'usuario', 'calibracion', 'exportacion_dataset', 'mensaje_tutor', 'partida', 'jugada')
+WHERE schemaname = current_schema() AND tablename IN ('participante', 'sesion', 'usuario', 'calibracion', 'codigo_invitacion', 'exportacion_dataset', 'mensaje_tutor', 'partida', 'jugada')
 ORDER BY tablename;

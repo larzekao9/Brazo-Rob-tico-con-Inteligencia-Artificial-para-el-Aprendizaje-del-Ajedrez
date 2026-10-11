@@ -63,6 +63,11 @@ TABLAS: dict[str, tuple[str, str]] = {
         "modelo propio (HU4, todavía pendiente de construir).",
         "En uso",
     ),
+    "codigo_invitacion": (
+        "Códigos de un solo uso, con vencimiento, que un facilitador genera para que otra persona pueda registrarse "
+        "como facilitador. Solo se guarda su hash.",
+        "En uso",
+    ),
     "participante": (
         "Estudiantes de un curso, para sesiones del facilitador.",
         "Reservada: el modelo existe pero ningún flujo la usa todavía",
@@ -160,6 +165,15 @@ COLUMNAS: dict[tuple[str, str], str] = {
     ("calibracion", "rango_partida"): "Rango que saldría mirando solamente esa partida.",
     ("calibracion", "total_jugadas"): "Cantidad de jugadas del jugador que se evaluaron (mínimo 5 para registrarla).",
     ("calibracion", "creado_en"): "Fecha y hora en que se registró.",
+    # codigo_invitacion
+    ("codigo_invitacion", "id"): "Identificador del código.",
+    ("codigo_invitacion", "codigo_hash"): "Huella SHA-256 del código. El código en claro no se guarda: solo se ve al generarlo.",
+    ("codigo_invitacion", "creado_por"): "Facilitador que lo generó.",
+    ("codigo_invitacion", "para"): "A quién se lo dio (texto libre, opcional), solo para acordarse.",
+    ("codigo_invitacion", "creado_en"): "Fecha y hora en que se generó.",
+    ("codigo_invitacion", "expira_en"): "Fecha y hora a partir de la cual el código ya no sirve.",
+    ("codigo_invitacion", "usado_en"): "Fecha y hora en que se usó. Nulo mientras no se haya usado: sirve una sola vez.",
+    ("codigo_invitacion", "usado_por"): "Usuario que se registró con este código.",
     # exportacion_dataset
     ("exportacion_dataset", "id"): "Identificador de la descarga.",
     ("exportacion_dataset", "usuario_id"): "Facilitador que descargó el dataset.",
@@ -179,6 +193,7 @@ RELACIONES = [
     ("usuario", "mensaje_tutor", "1 a N", "Un jugador tiene su propio historial de conversación con Turing."),
     ("usuario", "calibracion", "1 a N", "Un jugador acumula una calibración por cada partida que sirvió para medirlo."),
     ("usuario", "exportacion_dataset", "1 a N", "Un facilitador acumula una fila por cada vez que descargó el dataset de partidas."),
+    ("usuario", "codigo_invitacion", "1 a N", "Un facilitador genera muchos códigos de invitación; cada uno lo usa, a lo sumo, una persona."),
     ("participante", "partida", "1 a N", "Opcional y reservada: una partida puede asignarse a un participante."),
     ("sesion", "partida", "1 a N", "Opcional y reservada: una partida puede pertenecer a una sesión de clase."),
 ]

@@ -23,14 +23,16 @@ Si la contraseña tiene caracteres especiales hay que codificarlos (`@` = `%40`,
 | :-- | :-- |
 | `DATABASE_URL` | La de arriba |
 | `JWT_SECRET_KEY` | Cadena aleatoria larga (no la del ejemplo) |
-| `CLAVE_REGISTRO_FACILITADOR` | Clave fuerte. **Si no se define vale `admin123`** y cualquiera podría registrarse como facilitador |
-| `CORREOS_FACILITADORES` | Solo correos reales. Quitar `facilitador@test.com` y `admin@kairos-chess.ai` |
+| `CORREOS_FACILITADORES` | Solo el correo del primer administrador (sin patrones como `*@test.com`). Ya no hay ningún correo autorizado de fábrica ni PIN fijo: los demás facilitadores se crean con códigos de invitación |
 | `SEMBRAR_USUARIOS_PRUEBA` | `false` (en Supabase ya se desactiva solo, pero conviene dejarlo explícito) |
 | `GOOGLE_CLIENT_ID`, `GROQ_API_KEY`, `GROQ_MODEL` | Los reales |
 
 ## 4. Primer facilitador
-La base queda sin usuarios. Crear el primero registrándose en la aplicación con rol Facilitador y la
-`CLAVE_REGISTRO_FACILITADOR`, o entrando con Google con un correo de `CORREOS_FACILITADORES`.
+La base queda sin usuarios. Crear el primero registrándose en la aplicación con rol Facilitador y un
+correo de `CORREOS_FACILITADORES` (con correo y contraseña, o entrando con Google). Después, ese
+facilitador invita a los demás desde **Gestión de Usuarios → Invitar a un nuevo facilitador**: genera un
+código de un solo uso que vence a los pocos minutos y se lo da a la persona nueva. Cuando ya hay
+facilitadores, se puede vaciar `CORREOS_FACILITADORES`.
 
 ## 5. Comprobar
 ```sql

@@ -25,14 +25,18 @@ git) — no son un secreto nuevo, documentarlas acá no expone nada que no estuv
 
 Dos mecanismos, en `backend/servicios/auth/servicio_auth.py`:
 
-- **Lista blanca de correos** (`CORREOS_FACILITADORES` en `.env`, + una lista hardcodeada en el
-  código como respaldo): cualquier cuenta con uno de esos correos se registra como facilitador
-  automáticamente, sea por registro manual o por Google. **Importante:** si vas a entrar con
-  Google, el correo de tu cuenta de Google tiene que estar en esta lista — si no, te registra como
-  jugador sin avisar que había otra opción.
-- **PIN de registro manual** (`CLAVE_REGISTRO_FACILITADOR` en `.env`, hoy `admin123`): para
-  cualquier otro correo que no esté en la lista blanca, se puede pedir rol facilitador igual
-  metiendo este PIN al registrarse a mano (no aplica a Google).
+- **Código de invitación** (la forma normal): un facilitador lo genera en Gestión de Usuarios →
+  "Invitar a un nuevo facilitador" y se lo da a la persona nueva, que lo escribe al registrarse como
+  facilitador, con correo o con Google. Sirve una sola vez y vence a los 15 minutos por defecto. Ya no
+  existe el PIN fijo `admin123` ni hay correos autorizados de fábrica.
+- **Lista blanca de correos** (`CORREOS_FACILITADORES` en `.env`, acepta patrones como
+  `*@miuniversidad.edu`): esos correos se registran como facilitador sin código. Sirve para crear el
+  primer facilitador de una instalación nueva; las cuentas ya creadas no se ven afectadas. Si alguien
+  se registra por primera vez con Google y elige "Facilitador", también necesita código (o estar en
+  esta lista): sin eso el sistema le pide el código en vez de crearla como jugador.
+- Las cuentas de demo de abajo ya existen en la base, así que siguen entrando normalmente. Para
+  crear una cuenta de facilitador nueva en desarrollo, usá un código o agregá el correo a
+  `CORREOS_FACILITADORES`.
 
 ## Login con Google — falta un Client ID real
 

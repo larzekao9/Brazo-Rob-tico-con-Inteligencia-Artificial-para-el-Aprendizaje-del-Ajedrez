@@ -4,7 +4,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Iterator
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -12,6 +12,13 @@ from sqlalchemy.orm import Session, sessionmaker
 from backend.database import DATABASE_URL, crear_fabrica_sesiones, crear_tablas, fecha_a_iso, obtener_engine
 from backend.esquemas.auth_esquema import (
     ActualizarPerfilRequest,
+    CodigoGeneradoResponse,
+    CodigoInvitacionResponse,
+    EditarUsuarioRequest,
+    EliminarUsuarioResponse,
+    GenerarCodigoRequest,
+    VerificarCodigoRequest,
+    VerificarCodigoResponse,
     GoogleAuthRequest,
     LoginRequest,
     NivelEstimadoRequest,
@@ -44,7 +51,23 @@ from backend.servicios.calibracion import (
     contar_calibraciones_por_usuario,
     estado_nivel_jugador,
 )
+from backend.servicios.auth.servicio_invitaciones import (
+    MENSAJE_CODIGO_INVALIDO,
+    generar_codigo,
+    intentos_bloqueados,
+    listar_codigos,
+    registrar_intento_fallido,
+    revocar_codigo,
+    verificar_codigo,
+)
+from backend.servicios.partida.servicio_partida import eliminar_partidas_de_usuario
 from backend.servicios.usuario.servicio_avatar import guardar_avatar
+from backend.servicios.usuario.servicio_gestion_usuarios import (
+    ErrorGestionUsuarios,
+    editar_usuario,
+    eliminar_usuario,
+    validar_eliminacion,
+)
 from backend.servicios.usuario.servicio_estadisticas import obtener_historial_partidas
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -85,7 +108,21 @@ def _a_respuesta(user, partidas_calibradas: int) -> UsuarioResponse:
         diagnostico_completado=partidas_calibradas >= PARTIDAS_DIAGNOSTICO,
         partidas_calibradas=partidas_calibradas,
         partidas_diagnostico=PARTIDAS_DIAGNOSTICO,
+        activo=user.activo,
     )
+
+
+def _cliente_de(solicitud: Request) -> str:
+    """Identifica a quien hace el pedido (su IP) para limitar los intentos con códigos de invitación."""
+    return solicitud.client.host if solicitud.client else "desconocido"
+
+
+def _exigir_intentos_disponibles(cliente: str) -> None:
+    if intentos_bloqueados(cliente):
+        raise HTTPException(
+            status_code=429,
+            detail="Demasiados intentos con códigos incorrectos. Esperá unos minutos y volvé a probar.",
+        )
 
 
 def get_current_user(
@@ -141,10 +178,13 @@ def get_current_facilitador(
     status_code=status.HTTP_201_CREATED,
     summary="Registrar nuevo usuario",
 )
-def registro(data: RegistroRequest, db: Session = Depends(get_db)) -> AuthResponse:
+def registro(data: RegistroRequest, solicitud: Request, db: Session = Depends(get_db)) -> AuthResponse:
     """Registra un nuevo usuario y devuelve tokens de acceso."""
     if get_user_by_email(db, data.email):
         raise HTTPException(status_code=400, detail="Email ya registrado")
+    cliente = _cliente_de(solicitud)
+    if data.rol == "facilitador" and data.clave_facilitador:
+        _exigir_intentos_disponibles(cliente)
 
     try:
         user = create_user(
@@ -156,6 +196,8 @@ def registro(data: RegistroRequest, db: Session = Depends(get_db)) -> AuthRespon
             clave_facilitador=data.clave_facilitador,
         )
     except ValueError as e:
+        if data.clave_facilitador and str(e) == MENSAJE_CODIGO_INVALIDO:
+            registrar_intento_fallido(cliente)
         raise HTTPException(status_code=400, detail=str(e))
 
     access, refresh = create_tokens(user)
@@ -175,8 +217,11 @@ def registro(data: RegistroRequest, db: Session = Depends(get_db)) -> AuthRespon
     response_model=AuthResponse,
     summary="Iniciar sesión o registrarse con Google OAuth",
 )
-def login_google(data: GoogleAuthRequest, db: Session = Depends(get_db)) -> AuthResponse:
+def login_google(data: GoogleAuthRequest, solicitud: Request, db: Session = Depends(get_db)) -> AuthResponse:
     """Verifica el token de Google, vincula cuentas existentes o crea un nuevo usuario seguro."""
+    cliente = _cliente_de(solicitud)
+    if data.rol_seleccionado == "facilitador" and data.clave_facilitador:
+        _exigir_intentos_disponibles(cliente)
     try:
         google_info = verificar_token_google(data.credential)
         user = autenticar_o_vincular_google(
@@ -186,6 +231,8 @@ def login_google(data: GoogleAuthRequest, db: Session = Depends(get_db)) -> Auth
             clave_facilitador=data.clave_facilitador,
         )
     except ValueError as e:
+        if data.clave_facilitador and str(e) == MENSAJE_CODIGO_INVALIDO:
+            registrar_intento_fallido(cliente)
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error en autenticación con Google: {str(e)}")
@@ -378,6 +425,138 @@ def listar_usuarios(
     usuarios = db.scalars(select(UsuarioORM).order_by(UsuarioORM.creado_en.desc())).all()
     calibradas = contar_calibraciones_por_usuario(db, [u.id for u in usuarios])
     return [_a_respuesta(u, calibradas.get(u.id, 0)) for u in usuarios]
+
+
+@router.post(
+    "/codigos-facilitador/verificar",
+    response_model=VerificarCodigoResponse,
+    summary="Comprobar un código de invitación sin gastarlo",
+)
+def verificar_codigo_facilitador(
+    data: VerificarCodigoRequest,
+    solicitud: Request,
+    db: Session = Depends(get_db),
+) -> VerificarCodigoResponse:
+    """La pantalla de registro lo usa para mostrar "código verificado" antes de crear la cuenta. No requiere
+    sesión (la persona todavía no tiene cuenta) y NO gasta el código. Para frenar a quien pruebe códigos al
+    azar, cada cliente tiene un número limitado de intentos fallidos: pasado el límite responde 429."""
+    cliente = _cliente_de(solicitud)
+    _exigir_intentos_disponibles(cliente)
+    segundos = verificar_codigo(db, data.codigo)
+    if segundos is None:
+        registrar_intento_fallido(cliente)
+        return VerificarCodigoResponse(valido=False)
+    return VerificarCodigoResponse(valido=True, segundos_restantes=segundos)
+
+
+@router.post(
+    "/codigos-facilitador",
+    response_model=CodigoGeneradoResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Generar un código de invitación para un nuevo facilitador (solo facilitadores)",
+)
+def generar_codigo_facilitador(
+    data: GenerarCodigoRequest,
+    solicitante_id: int = Depends(get_current_facilitador),
+    db: Session = Depends(get_db),
+) -> CodigoGeneradoResponse:
+    """Genera un código de un solo uso que vence a los `minutos` indicados (15 por defecto). La persona nueva lo
+    escribe al registrarse como facilitador. El código se devuelve una única vez: no se puede volver a ver."""
+    fila, codigo = generar_codigo(db, solicitante_id, data.minutos, data.para)
+    return CodigoGeneradoResponse(
+        id=fila.id, codigo=codigo, minutos=data.minutos, expira_en=fecha_a_iso(fila.expira_en), para=fila.para
+    )
+
+
+@router.get(
+    "/codigos-facilitador",
+    response_model=list[CodigoInvitacionResponse],
+    summary="Códigos de invitación generados, con su estado (solo facilitadores)",
+)
+def listar_codigos_facilitador(
+    _: int = Depends(get_current_facilitador),
+    db: Session = Depends(get_db),
+) -> list[CodigoInvitacionResponse]:
+    """Los últimos códigos con su estado (vigente, usado o vencido) y quién los usó. No incluye su valor."""
+    return [
+        CodigoInvitacionResponse(
+            id=c["id"],
+            para=c["para"],
+            estado=c["estado"],
+            creado_en=fecha_a_iso(c["creado_en"]),
+            expira_en=fecha_a_iso(c["expira_en"]),
+            usado_en=fecha_a_iso(c["usado_en"]) if c["usado_en"] else None,
+            usado_por=c["usado_por"],
+        )
+        for c in listar_codigos(db)
+    ]
+
+
+@router.delete(
+    "/codigos-facilitador/{codigo_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Anular un código que todavía no se usó (solo facilitadores)",
+)
+def anular_codigo_facilitador(
+    codigo_id: int,
+    _: int = Depends(get_current_facilitador),
+    db: Session = Depends(get_db),
+) -> None:
+    """Borra un código sin usar, por ejemplo si se lo dio a la persona equivocada. 404 si no existe o ya se usó."""
+    if not revocar_codigo(db, codigo_id):
+        raise HTTPException(status_code=404, detail="Código no encontrado o ya usado")
+
+
+@router.patch(
+    "/usuarios/{usuario_id}",
+    response_model=UsuarioResponse,
+    summary="Editar un usuario (solo facilitadores)",
+)
+def editar_usuario_ruta(
+    usuario_id: int,
+    data: EditarUsuarioRequest,
+    solicitante_id: int = Depends(get_current_facilitador),
+    db: Session = Depends(get_db),
+) -> UsuarioResponse:
+    """Edita nombre, correo, rol, estado (activo/inactivo), edad, descripción y nivel de un usuario.
+
+    Requiere rol facilitador. 404 si no existe, 409 si el correo ya lo usa otra cuenta y 400 si el
+    cambio dejaría al sistema sin facilitadores activos o le quitaría el acceso al propio facilitador."""
+    objetivo = get_user_by_id(db, usuario_id)
+    if not objetivo:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    try:
+        actualizado = editar_usuario(db, objetivo, solicitante_id, data.model_dump(exclude_unset=True))
+    except ErrorGestionUsuarios as error:
+        raise HTTPException(status_code=error.estado, detail=str(error)) from error
+    return _a_respuesta(actualizado, contar_calibraciones(db, actualizado.id))
+
+
+@router.delete(
+    "/usuarios/{usuario_id}",
+    response_model=EliminarUsuarioResponse,
+    summary="Eliminar un usuario y todos sus datos (solo facilitadores)",
+)
+def eliminar_usuario_ruta(
+    usuario_id: int,
+    solicitante_id: int = Depends(get_current_facilitador),
+    db: Session = Depends(get_db),
+) -> EliminarUsuarioResponse:
+    """Elimina definitivamente la cuenta y todo lo suyo: partidas con sus jugadas, calibraciones, mensajes
+    con el tutor, descargas del dataset y foto de perfil. No se puede deshacer.
+
+    Requiere rol facilitador. 404 si no existe; 400 si es el propio facilitador o el único facilitador activo."""
+    objetivo = get_user_by_id(db, usuario_id)
+    if not objetivo:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    try:
+        # Primero se validan las reglas sin tocar nada; recién después se borran las partidas y la cuenta.
+        validar_eliminacion(db, objetivo, solicitante_id)
+        partidas = eliminar_partidas_de_usuario(usuario_id)
+        borradas = eliminar_usuario(db, objetivo, solicitante_id)
+    except ErrorGestionUsuarios as error:
+        raise HTTPException(status_code=error.estado, detail=str(error)) from error
+    return EliminarUsuarioResponse(partidas=partidas, **borradas)
 
 
 @router.get(

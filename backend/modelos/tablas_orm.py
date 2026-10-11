@@ -244,3 +244,21 @@ class ExportacionDatasetORM(Base):
     cantidad_partidas: Mapped[int] = mapped_column(nullable=False)
     cantidad_jugadas: Mapped[int] = mapped_column(nullable=False)
     formato: Mapped[str] = mapped_column(nullable=False)
+
+
+class CodigoInvitacionORM(Base):
+    """Código de invitación para registrarse como facilitador. Lo genera un facilitador, sirve una sola vez
+    y vence a los pocos minutos. Solo se guarda su hash (SHA-256): el código en claro se muestra una única
+    vez, al generarlo. Tabla nueva: `Base.metadata.create_all` la crea sola, no hace falta tocar
+    `_COLUMNAS_AGREGADAS` en `backend/database.py`."""
+
+    __tablename__ = "codigo_invitacion"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    codigo_hash: Mapped[str] = mapped_column(unique=True, nullable=False, index=True)
+    creado_por: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"), nullable=True, index=True)
+    para: Mapped[str | None] = mapped_column(nullable=True)  # a quién se lo dio, solo para acordarse
+    creado_en: Mapped[datetime] = mapped_column(server_default=func.now())
+    expira_en: Mapped[datetime] = mapped_column(nullable=False)
+    usado_en: Mapped[datetime | None] = mapped_column(nullable=True)
+    usado_por: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"), nullable=True, index=True)

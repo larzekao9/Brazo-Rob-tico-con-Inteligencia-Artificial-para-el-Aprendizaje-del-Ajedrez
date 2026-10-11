@@ -77,9 +77,79 @@ class UsuarioResponse(BaseModel):
     diagnostico_completado: bool = False
     partidas_calibradas: int = 0
     partidas_diagnostico: int = 3
+    activo: bool = True
 
     class Config:
         from_attributes = True
+
+
+class EditarUsuarioRequest(BaseModel):
+    """Cuerpo para PATCH /auth/usuarios/{id} — edición de un usuario por un facilitador.
+
+    Edición parcial: solo se actualizan los campos que vengan. `activo=false` desactiva la cuenta (no puede
+    iniciar sesión) sin borrar nada. `nivel_estimado` y `rango_estimado` permiten corregir el nivel a mano.
+    """
+
+    nombre: str | None = Field(default=None, min_length=2, max_length=100)
+    email: EmailStr | None = None
+    rol: Rol | None = None
+    activo: bool | None = None
+    edad: int | None = Field(default=None, ge=0, le=120)
+    descripcion: str | None = Field(default=None, max_length=1000)
+    nivel_estimado: int | None = Field(default=None, ge=0, le=20)
+    rango_estimado: Literal["Principiante", "Intermedio", "Avanzado"] | None = None
+
+
+class GenerarCodigoRequest(BaseModel):
+    """Cuerpo para POST /auth/codigos-facilitador: cuánto dura el código y, opcional, para quién es."""
+
+    minutos: int = Field(default=15, ge=1, le=24 * 60)
+    para: str | None = Field(default=None, max_length=100)
+
+
+class VerificarCodigoRequest(BaseModel):
+    """Cuerpo para POST /auth/codigos-facilitador/verificar: el código que escribió la persona nueva."""
+
+    codigo: str = Field(max_length=32)
+
+
+class VerificarCodigoResponse(BaseModel):
+    """Si el código sirve (existe, no se usó y no venció) y cuántos segundos le quedan. No lo gasta."""
+
+    valido: bool
+    segundos_restantes: int | None = None
+
+
+class CodigoGeneradoResponse(BaseModel):
+    """El código recién generado. Es la ÚNICA vez que se ve en claro: en la base queda solo su hash."""
+
+    id: int
+    codigo: str
+    minutos: int
+    expira_en: str
+    para: str | None = None
+
+
+class CodigoInvitacionResponse(BaseModel):
+    """Un código ya generado, sin su valor: `estado` es `vigente`, `usado` o `vencido`."""
+
+    id: int
+    para: str | None = None
+    estado: Literal["vigente", "usado", "vencido"]
+    creado_en: str
+    expira_en: str
+    usado_en: str | None = None
+    usado_por: str | None = None
+
+
+class EliminarUsuarioResponse(BaseModel):
+    """Qué se borró al eliminar un usuario (para mostrarlo en pantalla)."""
+
+    eliminado: bool = True
+    partidas: int = 0
+    calibraciones: int = 0
+    mensajes_tutor: int = 0
+    exportaciones: int = 0
 
 
 class NivelEstimadoRequest(BaseModel):

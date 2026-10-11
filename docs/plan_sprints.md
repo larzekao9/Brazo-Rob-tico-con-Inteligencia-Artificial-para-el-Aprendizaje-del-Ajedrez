@@ -129,6 +129,27 @@ aprendizaje, análisis y estadísticas) vive en la web.
 
 **Total Sprint 2: 29 puntos.**
 
+**Trabajo adicional del Sprint 2 (administración y seguridad de accesos):**
+
+- **Gestión de usuarios con CRUD (2026-10-11).** Además de listar, el facilitador puede editar (nombre, correo,
+  rol, estado activo/inactivo, edad, descripción y nivel) y eliminar usuarios. Eliminar borra la cuenta y todo lo
+  suyo (partidas con sus jugadas, calibraciones, conversaciones con el tutor, foto). Un facilitador no puede
+  eliminarse, desactivarse ni quitarse el rol a sí mismo, y siempre queda al menos un facilitador activo.
+  "Inactivo" es la alternativa a eliminar: la cuenta no puede iniciar sesión pero conserva sus datos.
+- **Facilitadores nuevos solo con código de invitación (2026-10-11).** Se quitaron los atajos de registro
+  (cualquier correo `@test.com`, tres correos fijos en el código y el PIN `admin123`). Ahora un facilitador genera
+  en Gestión de Usuarios un **código de un solo uso que vence a los 15 minutos** (se elige 5 min, 15 min, 1 h o
+  24 h) y se lo da a la persona nueva, que lo escribe al registrarse como facilitador, con correo o con Google. El
+  código se guarda hasheado (tabla `codigo_invitacion`): el valor en claro se ve solo al generarlo. El primer
+  facilitador de una instalación nueva se crea con `CORREOS_FACILITADORES` (configuración explícita, acepta
+  patrones). **Verificación al escribirlo:** el campo de registro tiene una casilla por carácter y, al completar
+  los 8, verifica el código contra el servidor sin gastarlo (`POST /auth/codigos-facilitador/verificar`) y
+  muestra "Código verificado · vence en 14:30" o el error; el botón de registrar con correo se habilita solo con
+  un código válido, y el servidor lo vuelve a validar al crear la cuenta. **Límite de intentos:** 8 códigos
+  incorrectos en 10 minutos por IP y después responde 429 (se cuenta en memoria del proceso: se reinicia con el
+  backend y detrás de un proxy habría que leer la IP real). Límite: el código no se envía por correo (no hay
+  servicio de correo en el stack); lo entrega el facilitador en persona.
+
 ### **HU12 — Onboarding Educativo Visual** (5 pts, Luis Ángel)
 
 ✅ **Hecho en la web (React).** Flujo de tarjetas interactivas que enseñan las reglas antes de jugar:

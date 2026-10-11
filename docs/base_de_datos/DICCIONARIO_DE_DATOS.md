@@ -3,7 +3,7 @@
 Generado automáticamente desde `backend/modelos/tablas_orm.py` con `docs/base_de_datos/generar_esquema.py`. No editar a mano.
 
 - Motor: PostgreSQL 16. La aplicación crea las tablas sola al arrancar; el script equivalente está en [base_completa.sql](base_completa.sql); para producción en Supabase, [base_supabase_produccion.sql](base_supabase_produccion.sql).
-- Tablas: 8 (6 en uso, 2 reservadas para sesiones de clase).
+- Tablas: 9 (7 en uso, 2 reservadas para sesiones de clase).
 - Sin `DATABASE_URL` configurada, la aplicación guarda las partidas en memoria y no usa estas tablas para ellas.
 
 ## Relaciones
@@ -15,6 +15,7 @@ Generado automáticamente desde `backend/modelos/tablas_orm.py` con `docs/base_d
 | `usuario` | `mensaje_tutor` | 1 a N | Un jugador tiene su propio historial de conversación con Turing. |
 | `usuario` | `calibracion` | 1 a N | Un jugador acumula una calibración por cada partida que sirvió para medirlo. |
 | `usuario` | `exportacion_dataset` | 1 a N | Un facilitador acumula una fila por cada vez que descargó el dataset de partidas. |
+| `usuario` | `codigo_invitacion` | 1 a N | Un facilitador genera muchos códigos de invitación; cada uno lo usa, a lo sumo, una persona. |
 | `participante` | `partida` | 1 a N | Opcional y reservada: una partida puede asignarse a un participante. |
 | `sesion` | `partida` | 1 a N | Opcional y reservada: una partida puede pertenecer a una sesión de clase. |
 
@@ -84,6 +85,23 @@ Una fila por partida terminada que sirvió para medir el nivel del jugador. Con 
 | `creado_en` | TIMESTAMP WITHOUT TIME ZONE | no |  | now() | Fecha y hora en que se registró. |
 
 **Restricciones:** `uq_calibracion_usuario_partida` único (usuario_id, partida_id).
+
+## `codigo_invitacion`
+
+Códigos de un solo uso, con vencimiento, que un facilitador genera para que otra persona pueda registrarse como facilitador. Solo se guarda su hash.
+
+**Estado:** En uso
+
+| Columna | Tipo | Nulo | Clave | Por defecto | Descripción |
+| :-- | :-- | :-: | :-- | :-- | :-- |
+| `id` | INTEGER | no | PK |  | Identificador del código. |
+| `codigo_hash` | VARCHAR | no | único |  | Huella SHA-256 del código. El código en claro no se guarda: solo se ve al generarlo. |
+| `creado_por` | INTEGER | sí | FK → usuario.id |  | Facilitador que lo generó. |
+| `para` | VARCHAR | sí |  |  | A quién se lo dio (texto libre, opcional), solo para acordarse. |
+| `creado_en` | TIMESTAMP WITHOUT TIME ZONE | no |  | now() | Fecha y hora en que se generó. |
+| `expira_en` | TIMESTAMP WITHOUT TIME ZONE | no |  |  | Fecha y hora a partir de la cual el código ya no sirve. |
+| `usado_en` | TIMESTAMP WITHOUT TIME ZONE | sí |  |  | Fecha y hora en que se usó. Nulo mientras no se haya usado: sirve una sola vez. |
+| `usado_por` | INTEGER | sí | FK → usuario.id |  | Usuario que se registró con este código. |
 
 ## `exportacion_dataset`
 
@@ -177,6 +195,7 @@ erDiagram
     usuario ||--o{ mensaje_tutor : tiene
     usuario ||--o{ calibracion : tiene
     usuario ||--o{ exportacion_dataset : tiene
+    usuario ||--o{ codigo_invitacion : tiene
     participante |o--o{ partida : tiene
     sesion |o--o{ partida : tiene
     participante {
@@ -215,6 +234,16 @@ erDiagram
         VARCHAR rango_partida
         INTEGER total_jugadas
         TIMESTAMP creado_en
+    }
+    codigo_invitacion {
+        INTEGER id PK
+        VARCHAR codigo_hash
+        INTEGER creado_por FK
+        VARCHAR para
+        TIMESTAMP creado_en
+        TIMESTAMP expira_en
+        TIMESTAMP usado_en
+        INTEGER usado_por FK
     }
     exportacion_dataset {
         INTEGER id PK
@@ -316,6 +345,16 @@ classDiagram
         -INTEGER total_jugadas
         -TIMESTAMP creado_en
     }
+    class CodigoInvitacion {
+        -INTEGER id
+        -VARCHAR codigo_hash
+        -INTEGER creado_por
+        -VARCHAR para
+        -TIMESTAMP creado_en
+        -TIMESTAMP expira_en
+        -TIMESTAMP usado_en
+        -INTEGER usado_por
+    }
     class ExportacionDataset {
         -INTEGER id
         -INTEGER usuario_id
@@ -376,6 +415,7 @@ classDiagram
     Usuario "1" --> "0..*" MensajeTutor
     Usuario "1" --> "0..*" Calibracion
     Usuario "1" --> "0..*" ExportacionDataset
+    Usuario "1" --> "0..*" CodigoInvitacion
     Participante "1" --> "0..*" Partida
     Sesion "1" --> "0..*" Partida
 ```

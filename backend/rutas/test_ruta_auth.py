@@ -285,13 +285,18 @@ def test_google_login_intento_facilitador_sin_clave_falla(cliente) -> None:
         json={"credential": "demo_intruso@gmail.com", "rol_seleccionado": "facilitador", "clave_facilitador": "clave_erronea"},
     )
     assert res.status_code == 400
-    assert "incorrecto" in res.json()["detail"].lower()
+    assert "código de invitación" in res.json()["detail"].lower()
 
 
-def test_google_login_facilitador_con_clave_valida_entra(cliente) -> None:
+def test_google_login_facilitador_con_codigo_de_invitacion_valido_entra(cliente) -> None:
+    profe = cliente.post(
+        "/auth/registro", json={"email": "profe-google@test.com", "nombre": "Profe", "password": "secreto1", "rol": "facilitador"}
+    ).json()["tokens"]["access_token"]
+    codigo = cliente.post("/auth/codigos-facilitador", json={}, headers={"Authorization": f"Bearer {profe}"}).json()["codigo"]
+
     res = cliente.post(
         "/auth/google",
-        json={"credential": "demo_docente.nuevo@gmail.com", "rol_seleccionado": "facilitador", "clave_facilitador": "admin123"},
+        json={"credential": "demo_docente.nuevo@gmail.com", "rol_seleccionado": "facilitador", "clave_facilitador": codigo},
     )
     assert res.status_code == 200
     datos = res.json()

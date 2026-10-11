@@ -53,3 +53,11 @@ def guardar_avatar(usuario_id: int, nombre_archivo_original: str, contenido: byt
     nombre_archivo = f"{usuario_id}{extension}"
     (MEDIA_AVATARES_DIR / nombre_archivo).write_bytes(contenido)
     return f"{URL_BASE_AVATARES}/{nombre_archivo}"
+
+
+def eliminar_avatar(usuario_id: int) -> None:
+    """Borra la foto de perfil de `usuario_id`, si tenía una. No hace nada si no tenía."""
+    if not MEDIA_AVATARES_DIR.exists():
+        return
+    for archivo in MEDIA_AVATARES_DIR.glob(f"{usuario_id}.*"):
+        archivo.unlink(missing_ok=True)

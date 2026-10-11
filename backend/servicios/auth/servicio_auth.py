@@ -1,3 +1,4 @@
+import fnmatch
 import json
 import os
 import urllib.error
@@ -11,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.modelos.tablas_orm import UsuarioORM
+from backend.servicios.auth.servicio_invitaciones import consumir_codigo
 
 # Configuración de hashing (bcrypt)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -158,20 +160,9 @@ def autenticar_o_vincular_google(
         db.refresh(user_por_email)
         return user_por_email
 
-    # 3. Usuario nuevo: determinar rol con política de seguridad
-    correos_autorizados = {e.strip().lower() for e in os.environ.get("CORREOS_FACILITADORES", "").split(",") if e.strip()}
-    correos_autorizados.update({"suarezburgoshebert@gmail.com", "facilitador@test.com", "admin@kairos-chess.ai"})
-
-    if email in correos_autorizados or email.endswith("@test.com") and rol_seleccionado == "facilitador":
-        rol_final = "facilitador"
-    elif rol_seleccionado == "facilitador":
-        clave_valida = os.environ.get("CLAVE_REGISTRO_FACILITADOR", "admin123")
-        if clave_facilitador and clave_facilitador.strip() == clave_valida:
-            rol_final = "facilitador"
-        else:
-            raise ValueError("Código de seguridad de Facilitador incorrecto. Solicita la clave al administrador o regístrate como Jugador.")
-    else:
-        rol_final = "jugador"
+    # 3. Usuario nuevo: el rol de facilitador exige correo autorizado o un código de invitación
+    codigo = _exigir_acceso_de_facilitador(db, email, rol_seleccionado, clave_facilitador)
+    rol_final = "facilitador" if rol_seleccionado == "facilitador" else "jugador"
 
     nuevo_usuario = UsuarioORM(
         email=email,
@@ -183,9 +174,50 @@ def autenticar_o_vincular_google(
         activo=True,
     )
     db.add(nuevo_usuario)
-    db.commit()
-    db.refresh(nuevo_usuario)
+    _confirmar_alta(db, nuevo_usuario, codigo)
     return nuevo_usuario
+
+
+def correos_facilitadores_autorizados() -> list[str]:
+    """Correos (o patrones, p. ej. `*@universidad.edu`) que pueden registrarse como facilitador sin código.
+
+    Salen de `CORREOS_FACILITADORES` en el entorno, separados por coma. Sirve para crear el PRIMER facilitador
+    de una instalación nueva; no hay ningún correo ni dominio autorizado "de fábrica".
+    """
+    return [e.strip().lower() for e in os.environ.get("CORREOS_FACILITADORES", "").split(",") if e.strip()]
+
+
+def _correo_autorizado(email: str) -> bool:
+    return any(fnmatch.fnmatchcase(email, patron) for patron in correos_facilitadores_autorizados())
+
+
+def _exigir_acceso_de_facilitador(db: Session, email: str, rol: str, codigo: str | None):
+    """Valida que `email` pueda registrarse con `rol`. Devuelve la fila del código consumido, o `None`.
+
+    Registrarse como jugador es libre. Registrarse como facilitador exige estar en `CORREOS_FACILITADORES` o
+    presentar un código de invitación válido (de un solo uso y con vencimiento, ver `servicio_invitaciones`).
+
+    Raises:
+        ValueError: si pide ser facilitador sin correo autorizado ni código válido.
+    """
+    if rol != "facilitador" or _correo_autorizado(email):
+        return None
+    return consumir_codigo(db, codigo)
+
+
+def _confirmar_alta(db: Session, usuario: UsuarioORM, codigo) -> None:
+    """Guarda al usuario nuevo y, si entró con un código de invitación, lo deja marcado como usado por él.
+
+    Todo en una sola transacción: si algo falla, el código no se gasta."""
+    try:
+        db.flush()
+        if codigo is not None:
+            codigo.usado_por = usuario.id
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    db.refresh(usuario)
 
 
 def create_user(
@@ -196,15 +228,12 @@ def create_user(
     rol: str = "jugador",
     clave_facilitador: str | None = None,
 ) -> UsuarioORM:
-    """Crea un nuevo usuario con contraseña hasheada y verificación de seguridad para Facilitadores."""
-    email = email.lower().strip()
-    correos_autorizados = {e.strip().lower() for e in os.environ.get("CORREOS_FACILITADORES", "").split(",") if e.strip()}
-    correos_autorizados.update({"suarezburgoshebert@gmail.com", "facilitador@test.com", "admin@kairos-chess.ai"})
+    """Crea un nuevo usuario con contraseña hasheada.
 
-    if rol == "facilitador" and email not in correos_autorizados and not email.endswith("@test.com"):
-        clave_valida = os.environ.get("CLAVE_REGISTRO_FACILITADOR", "admin123")
-        if not clave_facilitador or clave_facilitador.strip() != clave_valida:
-            raise ValueError("Código de seguridad de Facilitador incorrecto. Solicita la clave al administrador.")
+    Para el rol de facilitador, `clave_facilitador` es el código de invitación que dio otro facilitador (o el
+    correo debe estar en `CORREOS_FACILITADORES`). Ver `servicio_invitaciones`."""
+    email = email.lower().strip()
+    codigo = _exigir_acceso_de_facilitador(db, email, rol, clave_facilitador)
 
     user = UsuarioORM(
         email=email,
@@ -214,8 +243,7 @@ def create_user(
         activo=True,
     )
     db.add(user)
-    db.commit()
-    db.refresh(user)
+    _confirmar_alta(db, user, codigo)
     return user
 
 

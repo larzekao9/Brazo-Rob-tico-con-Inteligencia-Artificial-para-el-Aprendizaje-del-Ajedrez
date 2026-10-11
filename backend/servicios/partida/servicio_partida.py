@@ -157,6 +157,17 @@ def limpiar_partidas_inactivas() -> None:
     ciclo_vida.limpiar_partidas_inactivas(_repositorio)
 
 
+def eliminar_partidas_de_usuario(usuario_id: int) -> int:
+    """Borra todas las partidas (y sus jugadas) de un usuario; devuelve cuántas eran.
+
+    Lo usa Gestión de Usuarios al eliminar una cuenta: las partidas no se pueden dejar huérfanas.
+    """
+    partidas = _repositorio.listar_por_usuario(usuario_id)
+    for partida in partidas:
+        _repositorio.eliminar(partida.id)
+    return len(partidas)
+
+
 def partida_en_curso_de(usuario_id: int) -> Partida | None:
     """Partida `en_curso` que el usuario puede retomar, o `None` (HU
     "retomar", ver `GET /partida/en-curso` y `ciclo_vida.partida_en_curso_de`).
