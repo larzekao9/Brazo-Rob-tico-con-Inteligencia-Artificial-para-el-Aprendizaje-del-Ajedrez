@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useState, type ReactNode} from 'react';
-import {BarChart3, Flame, Play, Quote, Radio, Target, Trophy} from 'lucide-react';
+import {BarChart3, Flame, Play, Quote, Radio, Target, Trophy, Users} from 'lucide-react';
 import {obtenerDemostracionActiva, obtenerNivelJugador} from '../../api/backend';
 import BotonPrimario from '../../componentes/BotonPrimario';
 import Cargando from '../../componentes/Cargando';
@@ -10,6 +10,7 @@ import RadarHabilidades from '../../componentes/RadarHabilidades';
 import {precisionAPorcentaje} from '../../dominio/nivelJugador';
 import {useSesion, type Usuario} from '../../estado/SesionContext';
 import {irA} from '../../router';
+import TarjetaSalaActiva from '../Sala/TarjetaSalaActiva';
 import PartidaPendiente from './PartidaPendiente';
 import {ejesDeRadar, fraseDelDia, textoPorcentaje, type NivelJugador} from './datosInicio';
 
@@ -129,13 +130,19 @@ export default function Inicio() {
       )}
 
       <PartidaPendiente alTerminar={() => void cargar()} />
+      <TarjetaSalaActiva />
 
       <div className="flex flex-col gap-3 rounded-tarjeta bg-linear-to-br from-primary to-on-primary-fixed-variant p-5 text-on-primary shadow-lg shadow-primary/30">
         <h2 className="font-titulo text-2xl font-bold">Es tu turno de jugar</h2>
         <p className="text-sm text-primary-fixed">Enfréntate a la IA y sigue mejorando tu nivel de ajedrez.</p>
-        <BotonPrimario variante="secundario" anchoCompleto={false} className="mt-1 self-start" onClick={() => irA('/jugar')}>
-          <Play size={20} aria-hidden="true" /> Jugar
-        </BotonPrimario>
+        <div className="mt-1 flex flex-wrap gap-2">
+          <BotonPrimario variante="secundario" anchoCompleto={false} onClick={() => irA('/jugar')}>
+            <Play size={20} aria-hidden="true" /> Jugar
+          </BotonPrimario>
+          <BotonPrimario variante="secundario" anchoCompleto={false} onClick={() => irA('/amigo')}>
+            <Users size={20} aria-hidden="true" /> Jugar con un amigo
+          </BotonPrimario>
+        </div>
       </div>
 
       {error && <ErrorReintentar mensaje={error} onReintentar={() => void cargar()} />}
