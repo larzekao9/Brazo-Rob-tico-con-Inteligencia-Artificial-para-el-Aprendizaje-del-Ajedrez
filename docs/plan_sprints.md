@@ -413,6 +413,26 @@ analizadas, precisión (jugadas a 50 cp o menos de la mejor de Stockfish), pérd
 1000 cp para que los mates no distorsionen) y blunders. Solo cuentan partidas ya analizadas. Es la base
 para medir si el reentrenamiento mejora al modelo; el reentrenamiento en sí sigue sin construirse.
 
+**Avance nuevo para HU4 — modelo v6 (2026-10-11):** preparado el entrenamiento de una v6 con más partidas y de
+maestros más fuertes, en `training/colab_entrenamiento_v6_maestria.ipynb` (Colab, porque la GPU local, una RTX 5050
+con arquitectura Blackwell, no es compatible con el PyTorch 2.6.0 instalado: falla con "no kernel image"; usarla
+exigiría PyTorch con CUDA 12.8 en un entorno aparte). **Todavía no se corrió**: falta ejecutarlo en Colab y evaluar.
+
+- **Qué cambia respecto de la v5:** ELO ≥ 2300 en ambos jugadores (configurable, se elige con un conteo previo de
+  partidas por ELO), decenas de miles de partidas en vez de 12.000, posiciones en `uint8` (cuatro veces menos
+  memoria), precisión mixta, guardado y reanudación por época (Drive) y evaluación comparativa v5 contra v6.
+- **Hallazgos sobre la v5 que se corrigen en la v6:** (1) la validación 90/10 mezclaba posiciones sueltas, así que
+  posiciones de una misma partida quedaban de los dos lados y el 42,1 % de precisión reportado es optimista;
+  la v6 separa **partidas enteras**. (2) La evaluación de la v5 usaba partidas de cualquier ELO y sin garantía de
+  que no se hubieran visto en entrenamiento; la v6 evalúa con partidas de maestros posteriores a donde llegó la
+  extracción. Por eso la precisión de la v6 **no es comparable** con la de la v5: se comparan con la evaluación
+  común del notebook (sección 9).
+- **Código nuevo (con tests, `training/test_pipeline_v6.py`):** `contar_partidas_por_elo`,
+  `pgn_a_muestras_divididas` y el filtro `elo_minimo` en `evaluar_modelo`.
+- **Subir el tope de nivel (hoy 18):** no se decide por la precisión de predicción. Hay que medir partidas completas de
+  la v6 contra Stockfish en niveles 19 y 20; si no las supera, el tope queda en 18. Es el siguiente paso de HU4.
+- **Sigue pendiente:** el botón de entrenar/evaluar/promover en el frontend (ciclo de versiones con rollback).
+
 ### **Flujo del Jugador Completo (Ahora)**
 
 ```

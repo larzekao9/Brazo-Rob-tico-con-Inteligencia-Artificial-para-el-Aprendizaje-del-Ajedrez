@@ -14,6 +14,8 @@ deliberada para la primera versión del pipeline.
 from __future__ import annotations
 
 import io
+import random
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import chess
@@ -115,3 +117,134 @@ def pgn_to_samples(
 
     return muestras
 
+
+
+# ---------------------------------------------------------------------------
+# Pipeline v6: conteo por ELO y extracción compacta con validación separada por partida
+# ---------------------------------------------------------------------------
+def _elos_de(headers) -> tuple[int, int] | None:
+    """`(ELO de blancas, ELO de negras)` de los encabezados de una partida, o `None` si faltan o no son números."""
+    try:
+        return int(headers.get("WhiteElo", "0")), int(headers.get("BlackElo", "0"))
+    except (ValueError, TypeError):
+        return None
+
+
+def contar_partidas_por_elo(
+    path: str | Path,
+    umbrales: tuple[int, ...] = (2000, 2200, 2400),
+    limite_leidas: int | None = None,
+) -> dict:
+    """Cuenta cuántas partidas de un `.pgn.zst` tienen a AMBOS jugadores con ELO >= cada umbral.
+
+    Solo lee los encabezados (no interpreta las jugadas), así que es mucho más rápido que extraer
+    muestras. Sirve para decidir con datos cuántas partidas de maestros hay disponibles antes de entrenar.
+
+    Args:
+        path: ruta al archivo `.pgn.zst`.
+        umbrales: ELO mínimos a contar (ambos jugadores).
+        limite_leidas: si se indica, corta tras leer esa cantidad de partidas (conteo aproximado y rápido).
+
+    Returns:
+        `{"leidas": int, "con_elo": int, "por_umbral": {umbral: cantidad}}`.
+    """
+    por_umbral = {umbral: 0 for umbral in umbrales}
+    leidas = 0
+    con_elo = 0
+    descompresor = zstd.ZstdDecompressor()
+    with open(path, "rb") as comprimido, descompresor.stream_reader(comprimido) as flujo_binario:
+        flujo_texto = io.TextIOWrapper(flujo_binario, encoding="utf-8", errors="replace")
+        while limite_leidas is None or leidas < limite_leidas:
+            headers = chess.pgn.read_headers(flujo_texto)
+            if headers is None:
+                break
+            leidas += 1
+            elos = _elos_de(headers)
+            if elos is None or min(elos) <= 0:
+                continue
+            con_elo += 1
+            menor = min(elos)
+            for umbral in umbrales:
+                if menor >= umbral:
+                    por_umbral[umbral] += 1
+    return {"leidas": leidas, "con_elo": con_elo, "por_umbral": por_umbral}
+
+
+@dataclass
+class ExtraccionDividida:
+    """Resultado de `pgn_a_muestras_divididas`.
+
+    `partidas_crudas_leidas` es hasta qué partida del archivo (contando las que se descartaron por ELO)
+    llegó la extracción: una evaluación honesta tiene que saltar al menos esa cantidad para no usar
+    partidas que el modelo ya vio.
+    """
+
+    muestras_train: list = field(default_factory=list)
+    muestras_val: list = field(default_factory=list)
+    partidas_train: int = 0
+    partidas_val: int = 0
+    partidas_crudas_leidas: int = 0
+
+
+def pgn_a_muestras_divididas(
+    path: str | Path,
+    limite_partidas: int,
+    elo_minimo: int | None = None,
+    fraccion_validacion: float = 0.05,
+    semilla: int = 42,
+    saltar_partidas: int = 0,
+) -> ExtraccionDividida:
+    """Como `pgn_to_samples`, pero separa entrenamiento y validación POR PARTIDA y guarda las posiciones en `uint8`.
+
+    Dos diferencias deliberadas respecto de `pgn_to_samples` + mezclar posiciones:
+
+    1. **Split por partida.** Cada partida entera va a entrenamiento o a validación. Si se mezclan
+       posiciones sueltas, posiciones de la misma partida quedan de los dos lados y la precisión de
+       validación sale inflada (el mismo error que ya se documentó en `evaluar_modelo`).
+    2. **`uint8` en vez de `float32`.** Las posiciones son 0/1, así que ocupan 768 bytes en vez de 3072:
+       cuatro veces menos memoria, lo que deja entrenar con millones de posiciones en Colab. Quien las
+       use tiene que pasarlas a `float32` al armar cada lote.
+
+    Args:
+        path: ruta al `.pgn.zst`.
+        limite_partidas: cantidad de partidas aceptadas (por ELO) a extraer, entre train y val.
+        elo_minimo: ambos jugadores con ELO >= este valor.
+        fraccion_validacion: proporción aproximada de partidas que van a validación.
+        semilla: hace reproducible la asignación de cada partida a train o val.
+        saltar_partidas: partidas iniciales del archivo a saltar.
+    """
+    azar = random.Random(semilla)
+    resultado = ExtraccionDividida()
+    descompresor = zstd.ZstdDecompressor()
+    with open(path, "rb") as comprimido, descompresor.stream_reader(comprimido) as flujo_binario:
+        flujo_texto = io.TextIOWrapper(flujo_binario, encoding="utf-8", errors="replace")
+        for _ in range(saltar_partidas):
+            if not chess.pgn.skip_game(flujo_texto):
+                resultado.partidas_crudas_leidas = saltar_partidas
+                return resultado
+        resultado.partidas_crudas_leidas = saltar_partidas
+
+        aceptadas = 0
+        while aceptadas < limite_partidas:
+            partida = chess.pgn.read_game(flujo_texto)
+            if partida is None:
+                break
+            resultado.partidas_crudas_leidas += 1
+
+            if elo_minimo is not None:
+                elos = _elos_de(partida.headers)
+                if elos is None or min(elos) < elo_minimo:
+                    continue
+
+            es_validacion = azar.random() < fraccion_validacion
+            destino = resultado.muestras_val if es_validacion else resultado.muestras_train
+            tablero = partida.board()
+            for jugada in partida.mainline_moves():
+                destino.append((board_to_tensor(tablero).astype(np.uint8), jugada_a_etiqueta(tablero, jugada)))
+                tablero.push(jugada)
+            aceptadas += 1
+            if es_validacion:
+                resultado.partidas_val += 1
+            else:
+                resultado.partidas_train += 1
+    return resultado

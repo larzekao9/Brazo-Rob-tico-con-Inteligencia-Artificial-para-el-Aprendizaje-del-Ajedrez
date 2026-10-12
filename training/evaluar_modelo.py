@@ -28,7 +28,9 @@ BALDES_ERROR = ("aceptable", "imprecision", "error", "blunder")
 DATASET_POR_DEFECTO = Path(__file__).resolve().parent / "data" / "lichess_db_standard_rated_2017-02.pgn.zst"
 
 
-def partidas_desde(ruta_pgn: str | Path, saltar_partidas: int, cantidad_partidas: int):
+def partidas_desde(
+    ruta_pgn: str | Path, saltar_partidas: int, cantidad_partidas: int, elo_minimo: int | None = None
+):
     """Generador de partidas de un `.pgn.zst`, saltando las primeras `saltar_partidas`.
 
     Lee en streaming, igual que `pgn_to_samples` en `data_pipeline.py`. Saltar con
@@ -46,8 +48,18 @@ def partidas_desde(ruta_pgn: str | Path, saltar_partidas: int, cantidad_partidas
             partida = chess.pgn.read_game(flujo_texto)
             if partida is None:
                 return
+            if elo_minimo is not None and not _ambos_con_elo(partida, elo_minimo):
+                continue
             yield partida
             partidas_devueltas += 1
+
+
+def _ambos_con_elo(partida, elo_minimo: int) -> bool:
+    """`True` si los dos jugadores de la partida tienen ELO >= `elo_minimo`."""
+    try:
+        return min(int(partida.headers.get("WhiteElo", "0")), int(partida.headers.get("BlackElo", "0"))) >= elo_minimo
+    except (ValueError, TypeError):
+        return False
 
 
 def clasificar_perdida_cp(perdida_cp: int) -> str:
@@ -115,6 +127,7 @@ def evaluar_modelo(
     ruta_checkpoint: str | Path = RUTA_CHECKPOINT_POR_DEFECTO,
     nivel_stockfish: int = 10,
     tiempo_limite_stockfish: float = 0.1,
+    elo_minimo: int | None = None,
 ) -> ResultadoEvaluacion:
     """Recorre jugadas humanas reales y compara cada una con la predicción del modelo.
 
@@ -126,7 +139,7 @@ def evaluar_modelo(
     aciertos = 0
     distribucion_errores = {balde: 0 for balde in BALDES_ERROR}
 
-    for partida in partidas_desde(ruta_pgn, saltar_partidas, cantidad_partidas):
+    for partida in partidas_desde(ruta_pgn, saltar_partidas, cantidad_partidas, elo_minimo):
         tablero = partida.board()
         for jugada_humana in partida.mainline_moves():
             fen_antes = tablero.fen()
