@@ -170,6 +170,27 @@ def contar_partidas_por_elo(
     return {"leidas": leidas, "con_elo": con_elo, "por_umbral": por_umbral}
 
 
+class _ConstructorSoloMaestros(chess.pgn.GameBuilder):
+    """Construye la partida solo si ambos jugadores tienen ELO >= `elo_minimo`; si no, salta sus jugadas.
+
+    Leer una partida completa con `chess.pgn.read_game` interpreta todas sus jugadas, y en un archivo de
+    Lichess casi todas las partidas se descartan por ELO: en el de febrero 2017, solo ~1 de cada 80 tiene a
+    ambos jugadores arriba de 2200. Devolver `SKIP` al terminar los encabezados evita interpretar las jugadas
+    de las partidas descartadas, lo que acelera mucho la extracción (el resultado es el mismo).
+    """
+
+    def __init__(self, elo_minimo: int | None) -> None:
+        super().__init__()
+        self._elo_minimo = elo_minimo
+
+    def end_headers(self):
+        if self._elo_minimo is not None:
+            elos = _elos_de(self.game.headers)
+            if elos is None or min(elos) < self._elo_minimo:
+                return getattr(chess.pgn, "SKIP", None)
+        return None
+
+
 @dataclass
 class ExtraccionDividida:
     """Resultado de `pgn_a_muestras_divididas`.
@@ -226,11 +247,12 @@ def pgn_a_muestras_divididas(
 
         aceptadas = 0
         while aceptadas < limite_partidas:
-            partida = chess.pgn.read_game(flujo_texto)
+            partida = chess.pgn.read_game(flujo_texto, Visitor=lambda: _ConstructorSoloMaestros(elo_minimo))
             if partida is None:
                 break
             resultado.partidas_crudas_leidas += 1
 
+            # Red de seguridad: si esta versión de python-chess no saltó la partida, se descarta igual.
             if elo_minimo is not None:
                 elos = _elos_de(partida.headers)
                 if elos is None or min(elos) < elo_minimo:
