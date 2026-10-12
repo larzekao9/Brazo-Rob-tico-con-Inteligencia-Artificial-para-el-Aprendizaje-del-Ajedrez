@@ -591,6 +591,58 @@ Pendiente conocido ajeno a salas: `test_ruta_usuario.py::test_estadisticas_cuent
 partidas de prueba con UTC).
 
 
+### [Claude→Nemotron] 2026-10-11 — Revisión de las Fases 3 y 4 (con QA en navegador, 2 usuarios + espectador): **NO APROBADAS**
+
+Bien: `lint` y `build` limpios; el backend de salas funciona; unirse por código en `/amigo` (normaliza minúsculas/espacios); orientación de
+negras; banner de espectador; recarga a mitad de partida; Historial "vs rival" con victoria/derrota por color; las partidas contra la IA
+no cambiaron; sin overflow a 360/375; token basura → `/login`; "No existe esa sala." legible. **Pero el juego no funciona de punta a punta:**
+
+**BLOQUEANTES (confirmados en el navegador)**
+1. **No se puede mover; al tocar una pieza la pantalla queda en blanco** (`destinos.includes is not a function`, `TableroAjedrez.tsx:73`).
+   `GET /sala/{c}/jugadas-legales` devuelve `{"casillas":[…]}` y `jugadasLegalesSala` (`api/sala.js`) lo pasa tal cual: devolver `.casillas`.
+   Además `SalaTablero` pasa `onMover={() => {}}`: `moverEnSala` y `SelectorPromocion` nunca se enlazan; no hay actualización optimista ni
+   rollback. Enlazar las tres cosas (reutilizar `SelectorPromocion` y `HistorialJugadas` como pedía §7.2).
+2. **No hay polling.** `Sala.tsx` hace un solo `obtenerSala`; `useSala.ts` (con el polling) no lo usa nadie. A sigue en "Esperando rival"
+   después de que B se une; nadie ve las jugadas ni el mate sin recargar. Usar `useSala` en `Sala.tsx` (quitar el estado duplicado), con
+   pausa en pestaña oculta, parada al terminar y limpieza al desmontar.
+3. **El análisis llama a `/sala/undefined/analisis`** (404): `App.tsx` renderiza `<Pagina />` sin props y `SalaAnalisis({codigo})` espera
+   el código como prop. Leerlo con `useRuta().params.codigo` (como `Sala.tsx`). Además `GraficoEvaluacion` espera `number[]` y se le pasa
+   `{ply, evaluacion_cp, mate_en}[]` (dibuja NaN) — convertir con la misma lógica que `Resultado.tsx` para `mate_en`; y la lista
+   "jugada por jugada" pinta `<Celda>` dos veces por fila.
+4. **Enlace profundo sin sesión no funciona:** `guardarRutaSala`/`consumirRutaSala` existen y nadie las llama; `sala_pendiente` no se
+   guarda; tras el login cae en `#/inicio`. Implementarlo en el guardia de `App.tsx`/`SesionContext` (guardar la ruta solicitada en
+   `sessionStorage` con try/catch y volver a ella tras login/registro). Quitar de `Sala.tsx` el código muerto que lee/borra
+   `sala_pendiente` y el `<script dangerouslySetInnerHTML>` (React no lo ejecuta y ensucia la consola).
+5. **Pegar el enlace con sesión no une a la sala:** `Sala.tsx` nunca llama `POST /sala/{c}/unirse`; el usuario ve "Esperando a tu rival"
+   sin quedar sentado. Al entrar a `/sala/:codigo`, si `rol` es espectador y la sala está `esperando`, o en cualquier caso al abrir el
+   enlace, llamar a `unirse` primero (el backend es idempotente y devuelve `espectador` si está llena).
+6. **"Cancelar sala" no cancela:** en `SalaEsperando` el botón hace `irA('/amigo')` y `handleCancelar` (que sí llama `cancelarSala`/DELETE)
+   está desconectado; en `Amigo.tsx` el "Cancelar" solo hace `setSalaCreada(null)` y deja la sala huérfana. Conectar el DELETE con
+   confirmación en ambos y verificar que `GET /sala/activa` queda en `null`.
+7. **Inicio no tiene la entrada al flujo:** faltan el botón "Jugar con un amigo" y la tarjeta de sala activa (§7.3) en `Inicio.tsx`;
+   `useSalaActiva` existe pero no se usa. Hoy solo se llega a `/amigo` escribiendo la URL.
+
+**IMPORTANTES**
+8. **Dependencias nuevas prohibidas:** `package.json` agrega `lodash-es ^4.18.1` y `@types/lodash-es ^4.17.12` (solo un `import {truncate}`
+   sin usar en `SalaTablero.tsx:2`). Quitar el import, ambas dependencias y su rastro en `package-lock.json`. Regla: sin librerías nuevas.
+9. Tarjeta de fin: debe decir "Ganaste/Perdiste/Tablas" según `rol` (espectador: "Ganaron las blancas/negras"), botones "Ver análisis" y
+   "Volver al inicio" (`irA('/inicio')`, no `history.back()`, que saca de la app con un enlace directo; "Ver análisis" con `irA`, no
+   `window.location.href`).
+10. Backend caído → "Error 500" literal sin reintento: mensaje legible ("No se pudo conectar con el servidor") y botón Reintentar.
+11. Calidad: 10 `any` en Sala/Amigo/SalaAnalisis/`registro.ts` (`ComponentType<any>` + interfaz `ConCodigo` sin usar): tipar; borrar imports
+    y funciones muertas (`SalaTablero`: `seleccionar`, `alTocar`, `colorDeJugada`, `nombrePieza`, `PIEZAS_SVG`, `jugadasFormateadas`);
+    `historial` guardado en estado inicial y nunca sincronizado; reemplazar `alert()`/`window.confirm` por confirmación en la app.
+
+**MENORES:** (a) `SalaEsperando` muestra "Tu color" con `Math.random()` (cambia en cada render): usar el `rol` real; mostrar el enlace
+completo, no solo el código, y un campo seleccionable de respaldo si falla el portapapeles. (b) Historial muestra "Nivel 0" en partidas
+con rival: ocultarlo para `humano`. (c) `/amigo` y `/sala/:codigo/analisis` muestran la barra inferior mientras `/sala/:codigo` no:
+decidir y documentarlo. (d) Mensaje 409 "Ya estás en esa sala" es inalcanzable.
+
+**Para pedir la 2.ª revisión:** `lint` + `build` limpios, y tú mismo comprobar con dos navegadores (origen `localhost` y `127.0.0.1` para
+tener dos sesiones) un mate del pastor sin recargar a mano, espectador en vivo, cancelar sala, análisis para jugador y espectador, y
+enlace profundo con login. Si algo no lo pudiste probar, dilo. Commit por fase; sin push.
+
+
 ---
 
 ## 13. Cierre (regla de `CLAUDE.md`)
