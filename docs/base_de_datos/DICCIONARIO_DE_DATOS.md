@@ -18,6 +18,8 @@ Generado automáticamente desde `backend/modelos/tablas_orm.py` con `docs/base_d
 | `usuario` | `codigo_invitacion` | 1 a N | Un facilitador genera muchos códigos de invitación; cada uno lo usa, a lo sumo, una persona. |
 | `participante` | `partida` | 1 a N | Opcional y reservada: una partida puede asignarse a un participante. |
 | `sesion` | `partida` | 1 a N | Opcional y reservada: una partida puede pertenecer a una sesión de clase. |
+| `usuario` | `partida` | 1 a N | Un usuario juega muchas salas como blancas; una sala tiene un blanco (opcional). |
+| `usuario` | `partida` | 1 a N | Un usuario juega muchas salas como negras; una sala tiene un negro (opcional). |
 
 ## `participante`
 
@@ -157,13 +159,16 @@ Cada partida jugada: quién la jugó, contra qué oponente, a qué nivel, la pos
 | `permite_camara` | BOOLEAN | no |  | false | El facilitador habilitó la cámara del tablero físico para esta partida. |
 | `es_demostracion` | BOOLEAN | no |  | false | Partida que el facilitador transmite en vivo a la clase. Solo una a la vez en todo el sistema. |
 | `usa_brazo` | BOOLEAN | no |  | false | La respuesta del oponente también se ejecuta en el brazo robótico (o su simulador). |
-| `estado` | VARCHAR | no |  | en_curso | `en_curso`, `terminada` o `abandonada`. Lo administra el ciclo de vida de la partida (Sala de Control sin botón "iniciar"). |
+| `estado` | VARCHAR | no |  | en_curso | `esperando`, `en_curso`, `terminada` o `abandonada`. Lo administra el ciclo de vida de la partida. `esperando` = sala creada, falta segundo jugador (solo `humano`). |
 | `iniciada_en` | TIMESTAMP WITHOUT TIME ZONE | sí |  |  | Momento de la primera jugada del jugador humano. Nulo si todavía no jugó ninguna. |
 | `actualizada_en` | TIMESTAMP WITHOUT TIME ZONE | sí |  |  | Momento de la última jugada aplicada (humano o estrategia). Nulo hasta la primera jugada. |
 | `control_tiempo_ms` | INTEGER | no |  | 0 | Control de tiempo: milisegundos que tiene cada lado para toda la partida. 0 = sin reloj. Se elige al crear la partida. |
 | `tiempo_blancas_ms` | INTEGER | sí |  |  | Tiempo que le queda al jugador humano (blancas), en milisegundos. Nulo = todavía tiene el control completo. Permite reanudar la partida con el reloj donde se quedó. |
 | `tiempo_negras_ms` | INTEGER | sí |  |  | Tiempo que le queda al rival (negras), en milisegundos. Nulo = todavía tiene el control completo. |
 | `tiempos_jugadas_ms` | VARCHAR | no |  |  | Milisegundos que tardó cada jugada, separados por espacio y en el mismo orden que las jugadas; `-` si no se midió. Alimenta el tiempo por jugada del análisis y la retroalimentación. |
+| `codigo_sala` | VARCHAR | sí |  |  | Código corto de 6 caracteres para compartir la sala (alfabeto sin ambiguos). Único donde no es nulo (índice único parcial). Solo partidas `tipo_oponente = 'humano'`. |
+| `usuario_blancas_id` | INTEGER | sí | FK → usuario.id |  | Usuario que juega con blancas en la sala. Nulo si el asiento está libre. FK → usuario.id. |
+| `usuario_negras_id` | INTEGER | sí | FK → usuario.id |  | Usuario que juega con negras en la sala. Nulo si el asiento está libre. FK → usuario.id. |
 
 ## `jugada`
 
@@ -198,6 +203,8 @@ erDiagram
     usuario ||--o{ codigo_invitacion : tiene
     participante |o--o{ partida : tiene
     sesion |o--o{ partida : tiene
+    usuario |o--o{ partida : tiene
+    usuario |o--o{ partida : tiene
     participante {
         INTEGER id PK
         VARCHAR nombre
@@ -285,6 +292,9 @@ erDiagram
         INTEGER tiempo_blancas_ms
         INTEGER tiempo_negras_ms
         VARCHAR tiempos_jugadas_ms
+        VARCHAR codigo_sala
+        INTEGER usuario_blancas_id FK
+        INTEGER usuario_negras_id FK
     }
     jugada {
         INTEGER id PK
@@ -395,6 +405,9 @@ classDiagram
         -INTEGER tiempo_blancas_ms
         -INTEGER tiempo_negras_ms
         -VARCHAR tiempos_jugadas_ms
+        -VARCHAR codigo_sala
+        -INTEGER usuario_blancas_id
+        -INTEGER usuario_negras_id
     }
     class Jugada {
         -INTEGER id
@@ -418,4 +431,6 @@ classDiagram
     Usuario "1" --> "0..*" CodigoInvitacion
     Participante "1" --> "0..*" Partida
     Sesion "1" --> "0..*" Partida
+    Usuario "1" --> "0..*" Partida
+    Usuario "1" --> "0..*" Partida
 ```

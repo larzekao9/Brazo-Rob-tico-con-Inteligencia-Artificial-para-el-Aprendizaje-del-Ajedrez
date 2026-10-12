@@ -238,27 +238,28 @@ def _explicacion_contraparte(
     jugada_san: str,
     clasificacion: str,
     mejor_jugada_san: str | None,
+    sujeto: str = "La contraparte",
 ) -> str:
-    """Texto en tercera persona para una jugada de la contraparte.
+    """Texto en tercera persona para una jugada de la contraparte (o de un bando, con `sujeto`).
 
     Describe qué pasó y qué puede aprender el estudiante de esa jugada. No le habla
     como si la hubiera hecho él.
     """
     if tablero_despues.is_checkmate():
         return (
-            f"La contraparte dio jaque mate con {jugada_san}. Fijate cómo se armó el ataque final: "
+            f"{sujeto} dio jaque mate con {jugada_san}. Fijate cómo se armó el ataque final: "
             "así se reconoce ese patrón."
         )
     if tablero_despues.is_check():
-        return f"La contraparte dio jaque con {jugada_san}. Mirá qué pieza queda obligada a responder."
+        return f"{sujeto} dio jaque con {jugada_san}. Mirá qué pieza queda obligada a responder."
     if clasificacion in ("blunder", "error", "imprecision") and mejor_jugada_san and mejor_jugada_san != jugada_san:
         return (
-            f"La contraparte jugó {jugada_san}, pero había una opción más fuerte: {mejor_jugada_san}. "
+            f"{sujeto} jugó {jugada_san}, pero había una opción más fuerte: {mejor_jugada_san}. "
             "Esta posición sirve para aprender a detectarla."
         )
     if clasificacion in ("brillante", "mejor", "excelente"):
-        return f"La contraparte jugó {jugada_san}, una de las mejores opciones de la posición. Observá qué idea busca."
-    return f"La contraparte jugó {jugada_san}. Observá qué plan sigue en esta posición."
+        return f"{sujeto} jugó {jugada_san}, una de las mejores opciones de la posición. Observá qué idea busca."
+    return f"{sujeto} jugó {jugada_san}. Observá qué plan sigue en esta posición."
 
 
 def explicar_jugada(
@@ -270,6 +271,7 @@ def explicar_jugada(
     perdida_cp: int,
     rango: str = RANGO_POR_DEFECTO,
     es_jugador: bool = True,
+    sujeto: str = "La contraparte",
 ) -> tuple[str, str]:
     """Explica una jugada en lenguaje natural según quién la jugó.
 
@@ -279,7 +281,7 @@ def explicar_jugada(
     """
     principio, texto = _explicar_jugada_base(
         fen_antes, jugada_san, fen_despues, mejor_jugada_san, clasificacion, perdida_cp,
-        rango=rango, es_jugador=es_jugador,
+        rango=rango, es_jugador=es_jugador, sujeto=sujeto,
     )
     if (
         es_jugador
@@ -302,6 +304,7 @@ def _explicar_jugada_base(
     perdida_cp: int,
     rango: str = RANGO_POR_DEFECTO,
     es_jugador: bool = True,
+    sujeto: str = "La contraparte",
 ) -> tuple[str, str]:
     """Genera la explicación pedagógica en lenguaje natural y detecta el principio ajedrecístico involucrado.
 
@@ -324,7 +327,9 @@ def _explicar_jugada_base(
     if not es_jugador:
         # Jugada de la contraparte (Turing o Stockfish): se describe en tercera persona,
         # nunca como si la hubiera jugado el estudiante ("tu rey", "¡Ganaste!").
-        return "contraparte", _explicacion_contraparte(tablero_despues, jugada_san, clasificacion, mejor_jugada_san)
+        return "contraparte", _explicacion_contraparte(
+            tablero_despues, jugada_san, clasificacion, mejor_jugada_san, sujeto
+        )
     turno = tablero_antes.turn  # True = Blancas, False = Negras
     color_str = "blancas" if turno == chess.WHITE else "negras"
     pieza = tablero_antes.piece_at(movimiento.from_square)

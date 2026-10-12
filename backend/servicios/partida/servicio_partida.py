@@ -86,13 +86,13 @@ def crear_partida(
             crear la partida, para no dejar que fallen recién en la primera jugada.
     """
     _validar_control_tiempo(control_tiempo_ms)
-    if usuario_id is not None:
-        ciclo_vida.cerrar_partidas_pendientes(_repositorio, usuario_id)
     if tipo_oponente not in TIPOS_SOPORTADOS:
         raise ValueError(
             f"Tipo de oponente '{tipo_oponente}' no soportado todavía "
             f"(disponibles: {sorted(TIPOS_SOPORTADOS)})"
         )
+    if usuario_id is not None:
+        ciclo_vida.cerrar_partidas_pendientes(_repositorio, usuario_id)
     if fen_inicial is None:
         partida = Partida(
             nivel=nivel, tipo_oponente=tipo_oponente, usuario_id=usuario_id, control_tiempo_ms=control_tiempo_ms
@@ -570,7 +570,13 @@ def _resumen_de_tiempos(partida: Partida) -> dict:
     }
 
 
-def analisis_completo(partida_id: str, tiempo_limite: float = 0.3, rango: str = "Intermedio") -> dict:
+def analisis_completo(
+    partida_id: str,
+    tiempo_limite: float = 0.3,
+    rango: str = "Intermedio",
+    perspectiva: str = "jugador",
+    persistir: bool = True,
+) -> dict:
     """Analiza con Stockfish cada jugada ya jugada de una partida (vista de aprendizaje, HU5/HU6).
 
     Reconstruye, jugada por jugada, todas las posiciones por las que pasó la
@@ -619,6 +625,26 @@ def analisis_completo(partida_id: str, tiempo_limite: float = 0.3, rango: str = 
         KeyError: si no existe una partida con ese id.
     """
     partida = obtener_partida(partida_id)
+    return analizar_partida(partida, tiempo_limite, rango, perspectiva, persistir)
+
+
+def analizar_partida(
+    partida: Partida,
+    tiempo_limite: float = 0.3,
+    rango: str = "Intermedio",
+    perspectiva: str = "jugador",
+    persistir: bool = True,
+) -> dict:
+    """Núcleo de `analisis_completo` sobre una `Partida` ya cargada (ver ese docstring).
+
+    `perspectiva="jugador"` (por defecto) explica las jugadas de las blancas en segunda persona y las
+    de las negras como "la contraparte". `perspectiva="neutra"` (salas humano vs humano) describe a
+    ambos bandos en tercera persona ("El bando blanco…/El bando negro…"). Con `persistir=False` no se
+    guarda ninguna evaluación en la tabla `jugada` (el análisis de una sala no debe alimentar
+    estadísticas ni calibración).
+    """
+    partida_id = partida.id
+    neutra = perspectiva == "neutra"
 
     tablero = chess.Board(partida.fen_inicial)
     posiciones_fen = [tablero.fen()]
@@ -637,10 +663,11 @@ def analisis_completo(partida_id: str, tiempo_limite: float = 0.3, rango: str = 
         mate_resultante = None if despues["mate_en"] is None else -despues["mate_en"]
 
         numero_ply = i + 1
-        _repositorio.actualizar_evaluacion_jugada(
-            partida_id, numero_ply, eval_resultante_cp, mate_resultante,
-            antes["evaluacion_cp"], antes["mate_en"],
-        )
+        if persistir:
+            _repositorio.actualizar_evaluacion_jugada(
+                partida_id, numero_ply, eval_resultante_cp, mate_resultante,
+                antes["evaluacion_cp"], antes["mate_en"],
+            )
 
         cp_antes = antes["evaluacion_cp"] if antes["evaluacion_cp"] is not None else 0
         cp_despues = eval_resultante_cp if eval_resultante_cp is not None else 0
@@ -654,7 +681,8 @@ def analisis_completo(partida_id: str, tiempo_limite: float = 0.3, rango: str = 
             mate_en_despues=mate_resultante,
         )
         # El humano siempre juega primero (blancas): sus jugadas son las de índice par.
-        es_jugador = i % 2 == 0
+        es_jugador = i % 2 == 0 and not neutra
+        sujeto = ("El bando blanco" if i % 2 == 0 else "El bando negro") if neutra else "La contraparte"
         principio, explicacion = explicar_jugada(
             fen_antes=posiciones_fen[i],
             jugada_san=jugada_san,
@@ -664,13 +692,14 @@ def analisis_completo(partida_id: str, tiempo_limite: float = 0.3, rango: str = 
             perdida_cp=perdida_cp,
             rango=rango,
             es_jugador=es_jugador,
+            sujeto=sujeto,
         )
         prob_win = centipawns_a_probabilidad_victoria(eval_resultante_cp, mate_resultante)
 
         resultado.append({
             "numero_ply": numero_ply,
             "color": "blanco" if i % 2 == 0 else "negro",
-            "quien": "jugador" if es_jugador else "contraparte",
+            "quien": ("blancas" if i % 2 == 0 else "negras") if neutra else ("jugador" if es_jugador else "contraparte"),
             "jugada_san": jugada_san,
             "jugada_uci": _san_a_uci(posiciones_fen[i], jugada_san),
             "mejor_jugada_uci": _san_a_uci(posiciones_fen[i], antes["jugada"]),

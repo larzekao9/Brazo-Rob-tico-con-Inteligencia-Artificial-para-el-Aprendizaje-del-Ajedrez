@@ -3,6 +3,7 @@ import os
 
 # Establece entorno de pruebas antes de importar cualquier módulo del backend
 os.environ["PYTEST_RUNNING"] = "1"
+# Evita que los tests usen la base de datos real (PostgreSQL)
 os.environ.pop("DATABASE_URL", None)
 # En los tests cualquier correo @test.com puede registrarse como facilitador sin código (la app real no tiene
 # ningún correo autorizado de fábrica: se configura con CORREOS_FACILITADORES). Los tests del código de

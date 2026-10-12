@@ -110,6 +110,7 @@ def _calcular_top_errores(db: Session, usuario_id: int) -> list[dict]:
         .join(PartidaORM, JugadaORM.partida_id == PartidaORM.id)
         .where(
             PartidaORM.usuario_id == usuario_id,
+            PartidaORM.tipo_oponente != "humano",
             PartidaORM.resultado.is_not(None),
             JugadaORM.decidido_por == "jugador",
         )
@@ -146,6 +147,7 @@ def _calcular_precision_promedio(db: Session, usuario_id: int) -> float:
         .join(PartidaORM, JugadaORM.partida_id == PartidaORM.id)
         .where(
             PartidaORM.usuario_id == usuario_id,
+            PartidaORM.tipo_oponente != "humano",
             PartidaORM.resultado.is_not(None),
             JugadaORM.decidido_por == "jugador",
         )
@@ -240,9 +242,14 @@ def _partidas_con_jugadas_del_jugador():
 
     El humano mueve primero, así que `jugadas_uci` no vacío implica jugada del jugador. Deja
     afuera las que la Sala de Control crea sola al abrirse y nadie juega (ver
-    `obtener_historial_partidas`).
+    `obtener_historial_partidas`). También excluye partidas `humano` (salas),
+    que no miden contra la IA (ver §5.5 de PLAN_MULTIJUGADOR.md).
     """
-    return (PartidaORM.jugadas_uci.is_not(None), PartidaORM.jugadas_uci != "")
+    return (
+        PartidaORM.jugadas_uci.is_not(None),
+        PartidaORM.jugadas_uci != "",
+        PartidaORM.tipo_oponente != "humano",
+    )
 
 
 def _calcular_partidas_por_oponente(db: Session, usuario_id: int) -> dict[str, int]:
@@ -285,6 +292,7 @@ def _calcular_progreso_semanal(db: Session, usuario_id: int, hoy: date | None = 
         .join(PartidaORM, JugadaORM.partida_id == PartidaORM.id)
         .where(
             PartidaORM.usuario_id == usuario_id,
+            PartidaORM.tipo_oponente != "humano",
             PartidaORM.resultado.is_not(None),
             JugadaORM.decidido_por == "jugador",
         )
@@ -346,6 +354,7 @@ def _calcular_precision_por_fase(db: Session, usuario_id: int) -> list[dict]:
         .join(PartidaORM, JugadaORM.partida_id == PartidaORM.id)
         .where(
             PartidaORM.usuario_id == usuario_id,
+            PartidaORM.tipo_oponente != "humano",
             PartidaORM.resultado.is_not(None),
             JugadaORM.decidido_por == "jugador",
         )
@@ -384,9 +393,14 @@ def calcular_estadisticas(db: Session, usuario_id: int) -> dict:
     El humano siempre juega blancas (`backend/modelos/partida.py`), así que
     `"1-0"` es victoria del jugador y `"0-1"` es derrota, tal como los guarda
     `PartidaORM.resultado` (`None` mientras la partida sigue en curso).
+
+    **Excluye partidas `humano` (salas)**: estas no miden contra la IA.
     """
     partidas = db.scalars(
-        select(PartidaORM).where(PartidaORM.usuario_id == usuario_id).order_by(PartidaORM.fecha.desc())
+        select(PartidaORM).where(
+            PartidaORM.usuario_id == usuario_id,
+            PartidaORM.tipo_oponente != "humano",
+        ).order_by(PartidaORM.fecha.desc())
     ).all()
 
     ganadas = sum(1 for partida in partidas if partida.resultado == RESULTADO_HUMANO_GANA)
@@ -421,29 +435,64 @@ def calcular_estadisticas(db: Session, usuario_id: int) -> dict:
 def obtener_historial_partidas(db: Session, usuario_id: int, limit: int, offset: int) -> dict:
     """Página del historial de partidas del usuario, más reciente primero.
 
-    Excluye las partidas sin ninguna jugada del jugador (`jugadas_uci`
-    vacío): el humano siempre mueve primero (`servicio_partida.mover`), así
-    que una partida con al menos una jugada registrada tiene, por
-    definición, al menos una jugada del jugador — no hace falta mirar la
-    tabla `jugada` para este filtro. Son las que la Sala de Control crea
-    sola al abrir la pantalla, sin botón "iniciar", y nadie llegó a jugar
-    (ver `backend/servicios/partida/ciclo_vida.py`); `total` ya cuenta solo
-    las que quedan tras excluirlas.
+    Incluye:
+    - Partidas contra IA (`motor`/`modelo`) donde el usuario es `usuario_id`
+      (blancas) y tiene al menos una jugada.
+    - Partidas `humano` (salas) donde el usuario es `usuario_blancas_id` O
+      `usuario_negras_id` y la sala tiene al menos una jugada.
+
+    Para partidas `humano`: incluye `rival_nombre`, `codigo_sala`, `color`
+    ("blancas"|"negras") y el resultado desde la perspectiva del jugador
+    (`1-0`/`0-1`/`1/2-1/2`).
     """
-    filtro = (PartidaORM.usuario_id == usuario_id, PartidaORM.jugadas_uci.is_not(None), PartidaORM.jugadas_uci != "")
+    from sqlalchemy import or_
 
-    total = db.scalar(select(func.count()).select_from(PartidaORM).where(*filtro)) or 0
+    # Partidas contra IA: usuario_id + jugadas
+    filtro_ia = (
+        PartidaORM.usuario_id == usuario_id,
+        PartidaORM.jugadas_uci.is_not(None),
+        PartidaORM.jugadas_uci != "",
+        PartidaORM.tipo_oponente != "humano",
+    )
 
+    # Partidas humano: usuario_blancas_id O usuario_negras_id + jugadas
+    filtro_humano = (
+        or_(PartidaORM.usuario_blancas_id == usuario_id, PartidaORM.usuario_negras_id == usuario_id),
+        PartidaORM.jugadas_uci.is_not(None),
+        PartidaORM.jugadas_uci != "",
+        PartidaORM.tipo_oponente == "humano",
+    )
+
+    # Total combinado
+    total_ia = db.scalar(select(func.count()).select_from(PartidaORM).where(*filtro_ia)) or 0
+    total_humano = db.scalar(select(func.count()).select_from(PartidaORM).where(*filtro_humano)) or 0
+    total = total_ia + total_humano
+
+    # Consulta unificada con OR en una sola query (funciona en SQLite y Postgres)
     filas = db.scalars(
         select(PartidaORM)
-        .where(*filtro)
-        .order_by(PartidaORM.fecha.desc())
+        .where(
+            or_(
+                # IA: usuario_id + jugadas + no humano
+                (PartidaORM.usuario_id == usuario_id) &
+                (PartidaORM.jugadas_uci.is_not(None)) &
+                (PartidaORM.jugadas_uci != "") &
+                (PartidaORM.tipo_oponente != "humano"),
+                # Humano: (blancas O negras) + jugadas + humano
+                (or_(PartidaORM.usuario_blancas_id == usuario_id, PartidaORM.usuario_negras_id == usuario_id)) &
+                (PartidaORM.jugadas_uci.is_not(None)) &
+                (PartidaORM.jugadas_uci != "") &
+                (PartidaORM.tipo_oponente == "humano"),
+            )
+        )
+        .order_by(PartidaORM.fecha.desc(), PartidaORM.id.desc())
         .limit(limit)
         .offset(offset)
     ).all()
 
-    partidas = [
-        {
+    partidas = []
+    for fila in filas:
+        base = {
             "id": fila.id,
             "fecha": fecha_a_iso(fila.fecha) if hasattr(fila.fecha, "isoformat") else str(fila.fecha),
             "resultado": fila.resultado,
@@ -452,8 +501,26 @@ def obtener_historial_partidas(db: Session, usuario_id: int, limit: int, offset:
             "cantidad_jugadas": len(fila.jugadas_uci.split()) if fila.jugadas_uci else 0,
             "estado": fila.estado,
         }
-        for fila in filas
-    ]
+
+        if fila.tipo_oponente == "humano":
+            # Determinar color del usuario y rival
+            if fila.usuario_blancas_id == usuario_id:
+                color = "blancas"
+                rival_id = fila.usuario_negras_id
+            else:
+                color = "negras"
+                rival_id = fila.usuario_blancas_id
+
+            # Buscar nombre del rival
+            from backend.modelos.tablas_orm import UsuarioORM
+            rival = db.get(UsuarioORM, rival_id) if rival_id else None
+            base.update({
+                "rival_nombre": rival.nombre if rival else None,
+                "codigo_sala": fila.codigo_sala,
+                "color": color,
+            })
+
+        partidas.append(base)
 
     return {"total": total, "partidas": partidas}
 

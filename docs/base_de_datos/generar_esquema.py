@@ -125,13 +125,20 @@ COLUMNAS: dict[tuple[str, str], str] = {
     ("partida", "permite_camara"): "El facilitador habilitó la cámara del tablero físico para esta partida.",
     ("partida", "es_demostracion"): "Partida que el facilitador transmite en vivo a la clase. Solo una a la vez en todo el sistema.",
     ("partida", "usa_brazo"): "La respuesta del oponente también se ejecuta en el brazo robótico (o su simulador).",
-    ("partida", "estado"): "`en_curso`, `terminada` o `abandonada`. Lo administra el ciclo de vida de la partida (Sala de Control sin botón \"iniciar\").",
+    ("partida", "estado"): "`esperando`, `en_curso`, `terminada` o `abandonada`. Lo administra el ciclo de vida de la partida. `esperando` = sala creada, falta segundo jugador (solo `humano`).",
     ("partida", "iniciada_en"): "Momento de la primera jugada del jugador humano. Nulo si todavía no jugó ninguna.",
     ("partida", "actualizada_en"): "Momento de la última jugada aplicada (humano o estrategia). Nulo hasta la primera jugada.",
     ("partida", "control_tiempo_ms"): "Control de tiempo: milisegundos que tiene cada lado para toda la partida. 0 = sin reloj. Se elige al crear la partida.",
     ("partida", "tiempo_blancas_ms"): "Tiempo que le queda al jugador humano (blancas), en milisegundos. Nulo = todavía tiene el control completo. Permite reanudar la partida con el reloj donde se quedó.",
     ("partida", "tiempo_negras_ms"): "Tiempo que le queda al rival (negras), en milisegundos. Nulo = todavía tiene el control completo.",
     ("partida", "tiempos_jugadas_ms"): "Milisegundos que tardó cada jugada, separados por espacio y en el mismo orden que las jugadas; `-` si no se midió. Alimenta el tiempo por jugada del análisis y la retroalimentación.",
+    # Sala (humano vs humano)
+    ("partida", "codigo_sala"): (
+        "Código corto de 6 caracteres para compartir la sala (alfabeto sin ambiguos). "
+        "Único donde no es nulo (índice único parcial). Solo partidas `tipo_oponente = 'humano'`."
+    ),
+    ("partida", "usuario_blancas_id"): "Usuario que juega con blancas en la sala. Nulo si el asiento está libre. FK → usuario.id.",
+    ("partida", "usuario_negras_id"): "Usuario que juega con negras en la sala. Nulo si el asiento está libre. FK → usuario.id.",
     # jugada
     ("jugada", "id"): "Identificador de la jugada.",
     ("jugada", "partida_id"): "Partida a la que pertenece.",
@@ -196,6 +203,9 @@ RELACIONES = [
     ("usuario", "codigo_invitacion", "1 a N", "Un facilitador genera muchos códigos de invitación; cada uno lo usa, a lo sumo, una persona."),
     ("participante", "partida", "1 a N", "Opcional y reservada: una partida puede asignarse a un participante."),
     ("sesion", "partida", "1 a N", "Opcional y reservada: una partida puede pertenecer a una sesión de clase."),
+    # Sala (humano vs humano)
+    ("usuario", "partida", "1 a N", "Un usuario juega muchas salas como blancas; una sala tiene un blanco (opcional)."),
+    ("usuario", "partida", "1 a N", "Un usuario juega muchas salas como negras; una sala tiene un negro (opcional)."),
 ]
 
 

@@ -144,10 +144,15 @@ CREATE TABLE IF NOT EXISTS partida (
 	tiempo_blancas_ms INTEGER, 
 	tiempo_negras_ms INTEGER, 
 	tiempos_jugadas_ms VARCHAR DEFAULT '' NOT NULL, 
+	codigo_sala VARCHAR, 
+	usuario_blancas_id INTEGER, 
+	usuario_negras_id INTEGER, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(usuario_id) REFERENCES usuario (id), 
 	FOREIGN KEY(participante_id) REFERENCES participante (id), 
-	FOREIGN KEY(sesion_id) REFERENCES sesion (id)
+	FOREIGN KEY(sesion_id) REFERENCES sesion (id), 
+	FOREIGN KEY(usuario_blancas_id) REFERENCES usuario (id), 
+	FOREIGN KEY(usuario_negras_id) REFERENCES usuario (id)
 );
 
 -- jugada: Detalle de cada jugada de una partida: quién la decidió y cómo la evaluó Stockfish.
@@ -246,13 +251,16 @@ COMMENT ON COLUMN partida.permite_simulacion_3d IS 'El facilitador habilitó la 
 COMMENT ON COLUMN partida.permite_camara IS 'El facilitador habilitó la cámara del tablero físico para esta partida.';
 COMMENT ON COLUMN partida.es_demostracion IS 'Partida que el facilitador transmite en vivo a la clase. Solo una a la vez en todo el sistema.';
 COMMENT ON COLUMN partida.usa_brazo IS 'La respuesta del oponente también se ejecuta en el brazo robótico (o su simulador).';
-COMMENT ON COLUMN partida.estado IS 'en_curso, terminada o abandonada. Lo administra el ciclo de vida de la partida (Sala de Control sin botón "iniciar").';
+COMMENT ON COLUMN partida.estado IS 'esperando, en_curso, terminada o abandonada. Lo administra el ciclo de vida de la partida. esperando = sala creada, falta segundo jugador (solo humano).';
 COMMENT ON COLUMN partida.iniciada_en IS 'Momento de la primera jugada del jugador humano. Nulo si todavía no jugó ninguna.';
 COMMENT ON COLUMN partida.actualizada_en IS 'Momento de la última jugada aplicada (humano o estrategia). Nulo hasta la primera jugada.';
 COMMENT ON COLUMN partida.control_tiempo_ms IS 'Control de tiempo: milisegundos que tiene cada lado para toda la partida. 0 = sin reloj. Se elige al crear la partida.';
 COMMENT ON COLUMN partida.tiempo_blancas_ms IS 'Tiempo que le queda al jugador humano (blancas), en milisegundos. Nulo = todavía tiene el control completo. Permite reanudar la partida con el reloj donde se quedó.';
 COMMENT ON COLUMN partida.tiempo_negras_ms IS 'Tiempo que le queda al rival (negras), en milisegundos. Nulo = todavía tiene el control completo.';
 COMMENT ON COLUMN partida.tiempos_jugadas_ms IS 'Milisegundos que tardó cada jugada, separados por espacio y en el mismo orden que las jugadas; - si no se midió. Alimenta el tiempo por jugada del análisis y la retroalimentación.';
+COMMENT ON COLUMN partida.codigo_sala IS 'Código corto de 6 caracteres para compartir la sala (alfabeto sin ambiguos). Único donde no es nulo (índice único parcial). Solo partidas tipo_oponente = ''humano''.';
+COMMENT ON COLUMN partida.usuario_blancas_id IS 'Usuario que juega con blancas en la sala. Nulo si el asiento está libre. FK → usuario.id.';
+COMMENT ON COLUMN partida.usuario_negras_id IS 'Usuario que juega con negras en la sala. Nulo si el asiento está libre. FK → usuario.id.';
 COMMENT ON TABLE jugada IS 'Detalle de cada jugada de una partida: quién la decidió y cómo la evaluó Stockfish.';
 COMMENT ON COLUMN jugada.id IS 'Identificador de la jugada.';
 COMMENT ON COLUMN jugada.partida_id IS 'Partida a la que pertenece.';

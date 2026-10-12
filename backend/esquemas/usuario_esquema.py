@@ -59,7 +59,12 @@ class PartidaHistorialItem(BaseModel):
 
     Solo incluye partidas con al menos una jugada del jugador (ver
     `servicio_estadisticas.obtener_historial_partidas`) — las que la Sala de
-    Control crea sola y nadie llega a jugar no aparecen acá."""
+    Control crea sola y nadie llega a jugar no aparecen acá.
+
+    Para partidas `humano` (salas): incluye `rival_nombre`, `codigo_sala`,
+    `color` ("blancas"|"negras") y el resultado desde la perspectiva del
+    jugador (`1-0`/`0-1`/`1/2-1/2`).
+    """
 
     id: str
     fecha: str
@@ -68,6 +73,10 @@ class PartidaHistorialItem(BaseModel):
     nivel: int
     cantidad_jugadas: int
     estado: str | None = None
+    # Campos para partidas humano vs humano
+    rival_nombre: str | None = None
+    codigo_sala: str | None = None
+    color: str | None = None  # "blancas" | "negras"
 
 
 class HistorialPartidasResponse(BaseModel):

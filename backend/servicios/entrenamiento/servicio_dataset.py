@@ -115,7 +115,11 @@ def partidas_validas(db: Session) -> list[PartidaORM]:
     filas = db.scalars(
         select(PartidaORM)
         .join(UsuarioORM, PartidaORM.usuario_id == UsuarioORM.id)
-        .where(PartidaORM.estado == "terminada", UsuarioORM.rol == "jugador")
+        .where(
+            PartidaORM.estado == "terminada",
+            UsuarioORM.rol == "jugador",
+            PartidaORM.tipo_oponente != "humano",
+        )
     ).all()
     return [fila for fila in filas if _jugadas_jugador_de(fila) >= MIN_JUGADAS_PARTIDA_VALIDA]
 

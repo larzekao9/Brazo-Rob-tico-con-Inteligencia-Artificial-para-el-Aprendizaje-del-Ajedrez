@@ -723,3 +723,10 @@ def test_una_partida_terminada_por_tiempo_se_restaura_terminada_desde_la_base() 
 
     assert restaurada.terminada and restaurada.resultado == "0-1"
     assert not restaurada.tablero.is_game_over()  # el tablero no tiene final: es por tiempo
+
+
+def test_crear_partida_con_tipo_rechazado_no_cierra_la_partida_pendiente() -> None:
+    pendiente = crear_partida(nivel=5, usuario_id=4321)
+    with pytest.raises(ValueError):
+        crear_partida(nivel=5, tipo_oponente="humano", usuario_id=4321)
+    assert servicio_partida.obtener_partida(pendiente.id).estado == "en_curso"

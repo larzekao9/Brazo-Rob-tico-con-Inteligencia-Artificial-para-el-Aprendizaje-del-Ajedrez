@@ -70,7 +70,11 @@ class UsuarioORM(Base):
     # preferencia guardada, no hay vínculo formal facilitador-estudiante.
     preset_ensenanza: Mapped[str | None] = mapped_column(nullable=True)
 
-    partidas: Mapped[list["PartidaORM"]] = relationship(back_populates="usuario", cascade="all, delete-orphan")
+    partidas: Mapped[list["PartidaORM"]] = relationship(
+        back_populates="usuario",
+        cascade="all, delete-orphan",
+        foreign_keys="PartidaORM.usuario_id",
+    )
 
 
 class ParticipanteORM(Base):
@@ -135,9 +139,17 @@ class PartidaORM(Base):
     # Milisegundos que tardó cada jugada, separados por espacio y en el mismo orden que `jugadas_uci`;
     # "-" cuando no se midió (ver `Partida.tiempos_jugadas_ms`).
     tiempos_jugadas_ms: Mapped[str] = mapped_column(nullable=False, default="", server_default="")
+    # Sala (humano vs humano)
+    # Índice único parcial creado en `database._agregar_columnas_faltantes`
+    codigo_sala: Mapped[str | None] = mapped_column(nullable=True)
+    usuario_blancas_id: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"), nullable=True)
+    usuario_negras_id: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"), nullable=True)
 
     jugadas: Mapped[list["JugadaORM"]] = relationship(back_populates="partida", cascade="all, delete-orphan")
-    usuario: Mapped["UsuarioORM"] = relationship(back_populates="partidas")
+    usuario: Mapped["UsuarioORM"] = relationship(
+        back_populates="partidas",
+        foreign_keys="PartidaORM.usuario_id",
+    )
 
 
 class JugadaORM(Base):

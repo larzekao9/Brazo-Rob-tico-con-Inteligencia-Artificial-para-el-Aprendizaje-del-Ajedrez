@@ -14,6 +14,7 @@ MotivoCalibracion = Literal[
     "no_terminada",
     "dueno_no_jugador",
     "sin_dueno",
+    "no_aplica",
 ]
 
 

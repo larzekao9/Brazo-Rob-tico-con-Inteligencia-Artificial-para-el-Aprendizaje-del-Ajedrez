@@ -50,6 +50,21 @@ class RepositorioPartidas(ABC):
         si otra llamada concurrente ya la borró."""
 
     @abstractmethod
+    def obtener_por_codigo(self, codigo: str) -> Partida:
+        """Busca una sala por su código corto.
+
+        Raises:
+            KeyError: si no existe una sala con ese código.
+        """
+
+    @abstractmethod
+    def listar_por_participante(self, usuario_id: int) -> list[Partida]:
+        """Devuelve las partidas donde el usuario es blancas O negras, más reciente primero.
+
+        Usado para listar el historial de partidas humanas de un jugador.
+        """
+
+    @abstractmethod
     def registrar_jugada(
         self, partida_id: str, numero: int, fen_antes: str, movimiento: str, decidido_por: str
     ) -> None:
@@ -112,6 +127,19 @@ class RepositorioPartidasEnMemoria(RepositorioPartidas):
     def eliminar(self, partida_id: str) -> None:
         self._partidas.pop(partida_id, None)
 
+    def obtener_por_codigo(self, codigo: str) -> Partida:
+        for partida in self._partidas.values():
+            if partida.codigo_sala == codigo:
+                return partida
+        raise KeyError(f"No existe una sala con código {codigo}")
+
+    def listar_por_participante(self, usuario_id: int) -> list[Partida]:
+        return [
+            partida
+            for partida in reversed(self._partidas.values())
+            if partida.usuario_blancas_id == usuario_id or partida.usuario_negras_id == usuario_id
+        ]
+
     def registrar_jugada(
         self, partida_id: str, numero: int, fen_antes: str, movimiento: str, decidido_por: str
     ) -> None:
@@ -172,6 +200,9 @@ def _partida_a_fila(partida: Partida) -> PartidaORM:
         tiempo_blancas_ms=partida.tiempo_blancas_ms,
         tiempo_negras_ms=partida.tiempo_negras_ms,
         tiempos_jugadas_ms=_tiempos_a_texto(partida.tiempos_jugadas_ms),
+        codigo_sala=partida.codigo_sala,
+        usuario_blancas_id=partida.usuario_blancas_id,
+        usuario_negras_id=partida.usuario_negras_id,
     )
 
 
@@ -212,6 +243,9 @@ def _fila_a_partida(fila: PartidaORM) -> Partida:
         tiempo_blancas_ms=fila.tiempo_blancas_ms,
         tiempo_negras_ms=fila.tiempo_negras_ms,
         tiempos_jugadas_ms=_texto_a_tiempos(fila.tiempos_jugadas_ms),
+        codigo_sala=fila.codigo_sala,
+        usuario_blancas_id=fila.usuario_blancas_id,
+        usuario_negras_id=fila.usuario_negras_id,
     )
 
 
@@ -238,6 +272,7 @@ class RepositorioPartidasPostgres(RepositorioPartidas):
                     "jugadas_uci", "permite_simulacion_3d", "permite_camara", "es_demostracion",
                     "usa_brazo", "estado", "iniciada_en", "actualizada_en",
                     "control_tiempo_ms", "tiempo_blancas_ms", "tiempo_negras_ms", "tiempos_jugadas_ms",
+                    "codigo_sala", "usuario_blancas_id", "usuario_negras_id",
                 ):
                     setattr(fila_existente, columna, getattr(fila_nueva, columna))
             sesion.commit()
@@ -308,6 +343,30 @@ class RepositorioPartidasPostgres(RepositorioPartidas):
                 return
             sesion.delete(fila)
             sesion.commit()
+
+    def obtener_por_codigo(self, codigo: str) -> Partida:
+        with self._fabrica_sesiones() as sesion:
+            fila = sesion.scalar(
+                select(PartidaORM).where(PartidaORM.codigo_sala == codigo)
+            )
+            if fila is None:
+                raise KeyError(f"No existe una sala con código {codigo}")
+            return _fila_a_partida(fila)
+
+    def listar_por_participante(self, usuario_id: int) -> list[Partida]:
+        with self._fabrica_sesiones() as sesion:
+            from sqlalchemy import or_
+            filas = sesion.scalars(
+                select(PartidaORM)
+                .where(
+                    or_(
+                        PartidaORM.usuario_blancas_id == usuario_id,
+                        PartidaORM.usuario_negras_id == usuario_id,
+                    )
+                )
+                .order_by(PartidaORM.fecha.desc())
+            ).all()
+            return [_fila_a_partida(fila) for fila in filas]
 
 
 def crear_repositorio_partidas() -> RepositorioPartidas:

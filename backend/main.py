@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.rutas.ruta_jugada import router as jugada_router
 from backend.rutas.ruta_partida import router as partida_router
+from backend.rutas.ruta_sala import router as sala_router
 from backend.rutas.ruta_usuario import router as usuario_router
 from backend.rutas.ruta_vision import router as vision_router
 from backend.rutas.ruta_auth import router as auth_router
@@ -27,6 +28,7 @@ from backend.rutas.ruta_tutor import router as tutor_router
 from backend.rutas.ruta_entrenamiento import router as entrenamiento_router
 from backend.servicios.facilitador.servicio_videos import MEDIA_VIDEOS_DIR, URL_BASE_VIDEOS_PIEZAS
 from backend.servicios.partida.servicio_partida import limpiar_partidas_inactivas
+from backend.servicios.sala import limpiar_salas_inactivas
 from backend.servicios.usuario.servicio_avatar import MEDIA_AVATARES_DIR, URL_BASE_AVATARES
 
 logger = logging.getLogger(__name__)
@@ -37,13 +39,17 @@ FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Al arrancar, barre las partidas `en_curso` abandonadas por inactividad
-    (`ciclo_vida.limpiar_partidas_inactivas`) — tolera que esto falle (ej. la
-    base todavía no tiene la columna `estado` en un despliegue viejo) sin
-    impedir que el backend levante: solo lo loguea y sigue."""
+    (`ciclo_vida.limpiar_partidas_inactivas`) y las salas `humano` inactivas
+    (`servicio_sala.limpiar_salas_inactivas`) — tolera que esto falle sin
+    impedir que el backend levante."""
     try:
         limpiar_partidas_inactivas()
     except Exception:
         logger.exception("No se pudo limpiar partidas pendientes al arrancar el backend")
+    try:
+        limpiar_salas_inactivas()
+    except Exception:
+        logger.exception("No se pudo limpiar salas inactivas al arrancar el backend")
     yield
 
 
@@ -60,6 +66,7 @@ app.add_middleware(
 
 app.include_router(jugada_router)
 app.include_router(partida_router)
+app.include_router(sala_router)
 app.include_router(usuario_router)
 app.include_router(vision_router)
 app.include_router(auth_router)

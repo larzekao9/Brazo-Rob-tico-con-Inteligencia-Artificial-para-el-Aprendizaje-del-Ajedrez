@@ -70,9 +70,11 @@ def cerrar_partidas_pendientes(repositorio: RepositorioPartidas, usuario_id: int
     no hace falta excluir ningún id a propósito. Nunca toca una partida en
     demostración (`es_demostracion=True`): esa sigue viva aunque el
     facilitador abra la Sala de Control de nuevo.
+
+    **Excluye** partidas `humano` (salas): se retoman desde `GET /sala/activa`.
     """
     for partida in repositorio.listar_por_usuario(usuario_id):
-        if partida.estado != "en_curso" or partida.es_demostracion:
+        if partida.estado != "en_curso" or partida.es_demostracion or partida.tipo_oponente == "humano":
             continue
         _cerrar_o_borrar(partida, repositorio)
 
@@ -90,13 +92,17 @@ def limpiar_partidas_inactivas(repositorio: RepositorioPartidas) -> None:
       `HORAS_INACTIVIDAD_ABANDONO` desde la última jugada (`actualizada_en`,
       o `creada_en` si por algún motivo no está seteada).
 
-    Nunca toca una partida en demostración. Pensada para correr al arrancar
-    el backend y cada vez que se pide `GET /partida/en-curso` — ambos
-    lugares toleran que esta función falle sin romper el flujo del usuario.
+    Nunca toca una partida en demostración ni partidas `humano` (salas).
+    Las salas tienen su propia lógica: `esperando` 30 min sin segundo jugador
+    se elimina; `en_curso` 60 min sin jugadas se elimina; 12 h inactiva pasa
+    a `abandonada` (ver `servicio_sala` y ciclo de vida de salas).
+    Pensada para correr al arrancar el backend y cada vez que se pide
+    `GET /partida/en-curso` — ambos lugares toleran que esta función falle
+    sin romper el flujo del usuario.
     """
     ahora = datetime.now(timezone.utc)
     for partida in repositorio.listar():
-        if partida.estado != "en_curso" or partida.es_demostracion:
+        if partida.estado != "en_curso" or partida.es_demostracion or partida.tipo_oponente == "humano":
             continue
         if partida.jugadas_jugador == 0:
             referencia = _a_datetime_utc(partida.creada_en)
@@ -118,11 +124,16 @@ def partida_en_curso_de(repositorio: RepositorioPartidas, usuario_id: int) -> Pa
     "abandonada" (normalmente `limpiar_partidas_inactivas`, llamada justo
     antes que esta función en la misma request, ya la cerró; este chequeo es
     una segunda red de seguridad, no la única).
+
+    **Excluye** partidas `humano` (salas): se retoman desde `GET /sala/activa`.
     """
     candidatas = [
         partida
         for partida in repositorio.listar_por_usuario(usuario_id)
-        if partida.estado == "en_curso" and not partida.es_demostracion and partida.jugadas_jugador >= 1
+        if partida.estado == "en_curso"
+        and not partida.es_demostracion
+        and partida.tipo_oponente != "humano"
+        and partida.jugadas_jugador >= 1
     ]
     if not candidatas:
         return None

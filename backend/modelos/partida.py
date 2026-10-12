@@ -7,9 +7,9 @@ from datetime import datetime, timezone
 
 import chess
 
-ESTADOS_PARTIDA = ("en_curso", "terminada", "abandonada")
+ESTADOS_PARTIDA = ("esperando", "en_curso", "terminada", "abandonada")
 """Valores válidos de `Partida.estado` (ver `backend/servicios/partida/ciclo_vida.py`
-para quién los asigna)."""
+para quién los asigna). `"esperando"` = sala creada, falta el segundo jugador (solo `humano`)."""
 
 
 @dataclass
@@ -73,6 +73,14 @@ class Partida:
     facilitador vía `PATCH /partida/{id}/permisos` (ver
     `servicio_brazo.ejecutar_respuesta_en_brazo`, HU9). Nunca ejecuta la
     jugada del humano, solo la de la estrategia."""
+    # Sala (humano vs humano)
+    codigo_sala: str | None = None
+    """Código corto de 6 caracteres para compartir la sala (solo `humano`).
+    Alfabeto sin ambiguos: `ABCDEFGHJKMNPQRSTUVWXYZ23456789`."""
+    usuario_blancas_id: int | None = None
+    """Usuario que juega con blancas (solo `humano`). `None` si el asiento está libre."""
+    usuario_negras_id: int | None = None
+    """Usuario que juega con negras (solo `humano`). `None` si el asiento está libre."""
     estado: str = "en_curso"
     """Ciclo de vida de la partida (`ESTADOS_PARTIDA`): `"en_curso"` mientras
     se sigue jugando, `"terminada"` cuando el tablero llega a jaque mate/tablas

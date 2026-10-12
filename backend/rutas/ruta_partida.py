@@ -329,6 +329,19 @@ def _exigir_dueno(partida_id: str, usuario_id: int) -> None:
         raise HTTPException(status_code=404, detail=str(error)) from error
     if partida.usuario_id != usuario_id:
         raise HTTPException(status_code=403, detail="Solo el dueño de la partida puede moverla")
+    _rechazar_si_es_sala(partida)
+
+
+def _rechazar_si_es_sala(partida) -> None:
+    """400 si la partida es una sala humano vs humano: se maneja solo por `/sala/{codigo}/...`.
+
+    Evita que el creador mueva, cierre por tiempo o analice por `/partida/{id}` la partida de ambos.
+    """
+    if partida.tipo_oponente == "humano":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Esta partida es una sala: usá los endpoints de /sala/{partida.codigo_sala}",
+        )
 
 
 @router.post("/{partida_id}/mover", response_model=ResultadoMovimientoResponse)
@@ -439,6 +452,7 @@ def analisis_red_partida(
         partida = obtener_partida(partida_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+    _rechazar_si_es_sala(partida)
     try:
         analisis = analizar_partida_con_red(
             fen_inicial=partida.fen_inicial,
@@ -466,9 +480,10 @@ def calibrar_partida(
     Si la partida no terminó responde 200 con `registrada=false` y
     `motivo="no_terminada"`, sin analizar nada. Si ya se sabe que no se puede
     o no hace falta calibrar (`sin_dueno`, `dueno_no_jugador`, `ya_registrada`)
-    también responde eso sin correr Stockfish. Si no, analiza la partida y
-    delega en `registrar_calibracion`, que es idempotente por partida: llamarlo
-    dos veces no duplica la calibración ni cambia el nivel de nuevo.
+    también responde eso sin correr Stockfish. **Partidas `humano` (salas) no
+    calibran** (`motivo="no_aplica"`). Si no, analiza la partida y delega en
+    `registrar_calibracion`, que es idempotente por partida: llamarlo dos veces
+    no duplica la calibración ni cambia el nivel de nuevo.
     """
     try:
         partida = obtener_partida(partida_id)
@@ -479,6 +494,10 @@ def calibrar_partida(
         solicitante = get_user_by_id(db, usuario_id)
         if not solicitante or solicitante.rol != "facilitador":
             raise HTTPException(status_code=403, detail="La partida pertenece a otro usuario")
+
+    # Excluir partidas humano vs humano (salas) de la calibración
+    if partida.tipo_oponente == "humano":
+        return CalibracionResponse(**respuesta_no_registrada(db, None, "no_aplica"))
 
     dueno = get_user_by_id(db, partida.usuario_id) if partida.usuario_id is not None else None
     if not partida.terminada:
@@ -513,6 +532,9 @@ def analisis_completo_partida(
     (con `registrada=false` y un `motivo` cuando no se registró). El dueño de la
     partida no necesita ser quien pide el análisis (ej. un facilitador
     revisándola desde la Sala de Control también calibra al dueño real).
+
+    **Partidas `humano` (salas)**: 400, sin ejecutar Stockfish ni persistir nada; el análisis
+    de una sala se pide en `GET /sala/{codigo}/analisis`.
     """
     rango = RANGO_POR_DEFECTO
     if usuario_id is not None:
@@ -520,12 +542,21 @@ def analisis_completo_partida(
         if usuario and usuario.rango_estimado:
             rango = usuario.rango_estimado
     try:
+        partida = obtener_partida(partida_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    if partida.tipo_oponente == "humano":
+        raise HTTPException(
+            status_code=400,
+            detail=f"El análisis de una sala se pide en /sala/{partida.codigo_sala}/analisis",
+        )
+    try:
         resultado = analisis_completo(partida_id, rango=rango)
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
-    partida = obtener_partida(partida_id)
     dueno = get_user_by_id(db, partida.usuario_id) if partida.usuario_id is not None else None
+
     if partida.terminada:
         calibracion = registrar_calibracion(db, dueno, partida_id, resultado["resumen"])
     else:

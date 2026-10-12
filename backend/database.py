@@ -132,6 +132,10 @@ _COLUMNAS_AGREGADAS: dict[str, dict[str, str]] = {
         "tiempo_blancas_ms": "INTEGER",
         "tiempo_negras_ms": "INTEGER",
         "tiempos_jugadas_ms": "VARCHAR NOT NULL DEFAULT ''",
+        # Sala (humano vs humano)
+        "codigo_sala": "VARCHAR",
+        "usuario_blancas_id": "INTEGER",
+        "usuario_negras_id": "INTEGER",
     },
 }
 
@@ -146,6 +150,16 @@ def _agregar_columnas_faltantes(engine: Engine) -> None:
             for columna, definicion in columnas.items():
                 if columna not in existentes:
                     conexion.execute(text(f"ALTER TABLE {tabla} ADD COLUMN {columna} {definicion}"))
+        # Índice único parcial para codigo_sala (solo donde no es null)
+        if inspector.has_table("partida"):
+            indices = {idx["name"] for idx in inspector.get_indexes("partida")}
+            if "ix_partida_codigo_sala" not in indices:
+                conexion.execute(
+                    text(
+                        "CREATE UNIQUE INDEX ix_partida_codigo_sala ON partida (codigo_sala) "
+                        "WHERE codigo_sala IS NOT NULL"
+                    )
+                )
 
 
 def _marcar_partidas_con_resultado_como_terminadas(engine: Engine) -> None:
