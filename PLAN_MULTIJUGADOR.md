@@ -680,6 +680,19 @@ conserva el anterior). Hoy el backend responde el **mismo** refresh y `expires_i
 7 días de iniciar sesión aunque se use a diario. Pedido: que `/auth/refresh` emita un refresh nuevo en cada renovación (ventana deslizante de
 7 días) y corrija `expires_in`, con test en `backend/rutas/test_ruta_auth.py`. No requiere cambios en el front.
 
+### [Claude] 2026-10-11 — Fases 3, 4 y 5 **APROBADAS**
+
+QA final en Docker (front_app :8081 → backend :8000 → Postgres), 3 sesiones simultáneas (A, B y espectador C): crear/unirse por enlace y por
+código, mate del pastor sin recargar, promoción, abandono, espectador de solo lectura, cancelar sala, análisis para jugador y espectador
+(5 s en 60 jugadas), historial con rival y victoria/derrota por color, estadísticas sin contar salas, persistencia al reiniciar el backend,
+sesión que se recuerda (access basura + refresh válido, refresh basura, backend caído sin borrar tokens), enlace profundo con login y registro,
+responsive 360/375/430/escritorio, sin errores de consola. **Sin bloqueantes.** Cerrado en el seguimiento: `/auth/refresh` ahora renueva el
+refresh token (ventana deslizante de 7 días) y `expires_in` es coherente (`d9a91bf`); nginx con `proxy_connect_timeout 3s`.
+**Menores que quedan (no bloquean):** tras "Cancelar sala" Inicio no vuelve a consultar `/sala/activa`; el análisis de una sala inexistente
+ofrece "Reintentar"; "1 jugadas" en Historial; el banner de espectador sigue al terminar; `Perfil` usa `window.confirm` y muestra un nivel distinto
+de Inicio (archivo ajeno); el caché del análisis es en memoria; el 422 de FastAPI devuelve `detail` como lista.
+
+
 ---
 
 ## 13. Cierre (regla de `CLAUDE.md`)
