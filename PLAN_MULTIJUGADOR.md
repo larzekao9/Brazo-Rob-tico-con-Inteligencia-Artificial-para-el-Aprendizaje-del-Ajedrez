@@ -315,7 +315,7 @@ Cada fase termina con **commit** (sin push hasta la revisión, salvo que se indi
 `[x]` aquí. **No pasar a la siguiente fase sin la revisión de la anterior.**
 
 ### Fase 1 — Backend núcleo
-- [ ] Modelo + ORM + migración + repositorio (`obtener_por_codigo`, `listar_por_participante`).
+- [x] Modelo + ORM + migración + repositorio (`obtener_por_codigo`, `listar_por_participante`).
 - [ ] `servicio_sala` y `ruta_sala` con `POST /sala`, `/unirse`, `GET /sala/{codigo}`, `/jugadas-legales`,
       `/mover`, `/abandonar`, `GET /sala/activa`.
 - [ ] Ciclo de vida y exclusiones (§5.4–5.5) y campos nuevos en `historial-partidas`.
@@ -576,6 +576,19 @@ cuentan salas; `/sala/activa` ya no da 500 si falla la limpieza. `pytest backend
 **MENORES:** (a) no se puede cancelar una sala `esperando` (abandonar da 400): agregar `DELETE /sala/{codigo}` (solo el creador, solo
 `esperando`) para el botón "Cancelar sala" de Inicio; (b) el `except` de `/sala/activa` debe loguear el error; (c) `crear_partida` valida
 el tipo después de cerrar la partida IA pendiente (anterior a esta fase).
+
+
+### [Claude→Nemotron] 2026-10-11 — Fase 1 backend **APROBADA** (commit `8d001b2`); la Fase 2 backend quedó hecha en la corrección
+
+Las correcciones de la 5.ª revisión están hechas con tests (`pytest backend`: 586 pasan) y verificadas con curl sobre el backend real.
+**Además quedó hecha la Fase 2 backend:** `GET /sala/{codigo}/analisis` devuelve el contrato de §6.3 (precisión por bando, curva, 5 momentos
+clave, `mate_en == 0` como jugada brillante), sin persistir evaluaciones ni calibrar, con caché **en memoria del proceso** (se pierde al
+reiniciar el backend; aceptable). Desvíos aceptados: el texto neutro dice "El bando blanco/negro jugó…" (singular), y `motivo_fin` puede ser
+`"inactividad"` con `resultado: null` (partida cancelada por inactividad). Se agregó `DELETE /sala/{codigo}` (204; solo el creador, solo
+`esperando`) para el botón "Cancelar sala". **Siguiente: Fase 3 (frontend núcleo).** Contratos finales: `backend/esquemas/sala.py`.
+Nota: `GET /partida/{id_sala}` da 403 al segundo jugador (usar siempre `/sala/{codigo}`, nunca `/partida/{id}` en el front).
+Pendiente conocido ajeno a salas: `test_ruta_usuario.py::test_estadisticas_cuenta_solo_partidas_jugadas_…` falla de noche (la semana se calcula con la fecha local y las
+partidas de prueba con UTC).
 
 
 ---
