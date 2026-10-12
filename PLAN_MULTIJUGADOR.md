@@ -281,6 +281,28 @@ solo lectura), `HistorialJugadas`, `GraficoEvaluacion`, `ListaErrores`, `GlassCa
 - Si algo del backend requiere `docker compose build backend`, avisar: reiniciar el backend en
   Docker recrea el contenedor (las partidas **sí** persisten porque están en Postgres).
 
+### 7.5 Sesión que se recuerda (requisito agregado a la Fase 3)
+
+Hoy `front_app` guarda `access_token` y `refresh_token` en `localStorage`, pero **nunca usa el refresh token**: el access dura 12 h
+(`ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 12`) y el refresh 7 días (`REFRESH_TOKEN_EXPIRE_DAYS = 7`); pasadas las 12 h hay que volver a iniciar sesión,
+y además `SesionContext.tsx` (~l. 104) hace `.catch(() => borrarTokens())` ante **cualquier** error al restaurar. Objetivo: quien inicia
+sesión **no tiene que volver a hacerlo** al reabrir la app o al volver días después.
+- **Siempre persistente** (sin casilla "recordarme"): tokens en `localStorage` con `try/catch`, como hoy. "Cerrar sesión" sigue borrándolos.
+- **Restaurar al abrir:** `GET /auth/me`; si da **401**, intentar **una vez** `POST /auth/refresh {refresh_token}` y repetir `/auth/me`
+  con el access nuevo (guardarlo). Solo si el refresh también da 401/403 → borrar tokens e ir a `/login`.
+- **No cerrar sesión por errores que no son de credenciales:** red caída, 5xx, 502/503 o timeout al restaurar **no borran** los tokens;
+  mostrar "No se pudo conectar con el servidor" con botón Reintentar (corrige el hallazgo I1 de la QA de `front_app`).
+- **Un 401 a mitad de sesión** (token vencido con la app abierta): en un único punto central de las llamadas autenticadas
+  (`src/api/`: `sala.js`, `extra.js`, y `solicitarAuth`/`obtenerPerfil`… de la copia de `backend.js`), intentar refrescar **una vez**,
+  reintentar la petición y, si no se puede, cerrar sesión y volver a `/login` guardando la ruta actual (misma `sessionStorage` del enlace
+  profundo, §7.3) para volver después. Evitar varios refrescos simultáneos (compartir una sola promesa en vuelo).
+- **Backend (recomendado, pequeño):** `POST /auth/refresh` devuelve hoy el **mismo** refresh token, así que la sesión muere a los 7 días
+  aunque se use a diario. Que **emita un refresh nuevo** en cada renovación (ventana deslizante de 7 días) y que el front guarde el nuevo.
+  Con test (`backend/rutas/test_ruta_auth.py`). `expires_in` del refresh responde `30 * 60` aunque el access dura 12 h: corregirlo.
+- **Pruebas:** abrir la app con un access vencido (poner uno basura en `localStorage` y un refresh válido) → entra sin pedir login;
+  con refresh basura → `/login`; backend caído al recargar → NO borra tokens y ofrece reintentar; cerrar sesión → pide login; el
+  enlace profundo `#/sala/CODIGO` sin sesión pero con refresh válido entra directo a la sala.
+
 ---
 
 ## 8. Pruebas mínimas exigidas
@@ -591,7 +613,7 @@ Pendiente conocido ajeno a salas: `test_ruta_usuario.py::test_estadisticas_cuent
 partidas de prueba con UTC).
 
 
-### [Claude→Nemotron] 2026-10-11 — Revisión de las Fases 3 y 4 (con QA en navegador, 2 usuarios + espectador): **NO APROBADAS**
+### [Claude→Nemotron] 2026-10-11 — Revisión de las Fases 3 y 4 (**+ nuevo requisito: §7.5 sesión que se recuerda**, incluir en la misma entrega) (con QA en navegador, 2 usuarios + espectador): **NO APROBADAS**
 
 Bien: `lint` y `build` limpios; el backend de salas funciona; unirse por código en `/amigo` (normaliza minúsculas/espacios); orientación de
 negras; banner de espectador; recarga a mitad de partida; Historial "vs rival" con victoria/derrota por color; las partidas contra la IA
