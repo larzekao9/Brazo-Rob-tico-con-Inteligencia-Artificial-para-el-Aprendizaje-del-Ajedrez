@@ -1,12 +1,19 @@
 import {useEffect, type ReactNode} from 'react';
 import Cargando from './componentes/Cargando';
+import ErrorReintentar from './componentes/ErrorReintentar';
 import NavInferior from './componentes/NavInferior';
 import {SesionProvider, useSesion} from './estado/SesionContext';
 import {PAGINAS} from './paginas/registro';
-import {RUTAS_PUBLICAS, reemplazarA, useRuta} from './router';
+import {RUTAS_PUBLICAS, consumirRutaPendiente, guardarRutaPendiente, reemplazarA, rutaActualCompleta, useRuta, type RutaApp} from './router';
 
-/** Rutas donde no se muestra la navegación inferior (flujo de entrada y partida en curso). */
-const SIN_NAVEGACION = ['/login', '/onboarding', '/jugar/partida/:id'];
+/**
+ * Rutas SIN barra de navegación inferior: la entrada (login, onboarding) y las pantallas inmersivas
+ * donde la barra estorba o llevaría fuera de una partida en curso. Todas las demás la muestran.
+ * - /jugar/partida/:id y /sala/:codigo: partida en curso (tablero a pantalla completa).
+ * - /amigo y /sala/:codigo/analisis: parte del mismo flujo "jugar con un amigo"; se entra desde Inicio
+ *   y cada pantalla trae su propio botón para volver (ninguna pestaña correspondería: no está en la barra).
+ */
+const SIN_NAVEGACION: readonly RutaApp[] = ['/login', '/onboarding', '/jugar/partida/:id', '/amigo', '/sala/:codigo', '/sala/:codigo/analisis'];
 
 function Marco({children}: {children: ReactNode}) {
   return (
@@ -18,17 +25,30 @@ function Marco({children}: {children: ReactNode}) {
 
 function Contenido() {
   const {ruta} = useRuta();
-  const {usuario, restaurando} = useSesion();
+  const {usuario, restaurando, errorRestauracion, reintentarRestauracion} = useSesion();
   const esPublica = RUTAS_PUBLICAS.includes(ruta);
+  const sinServidor = errorRestauracion !== null;
 
-  // Guardia de sesión: sin usuario solo se ve /login; con usuario, /login manda al inicio.
+  // Guardia de sesión: sin usuario solo se ve /login (guardando la ruta pedida para volver tras entrar,
+  // p. ej. un enlace #/sala/K7M2QX); con usuario, /login manda a esa ruta guardada o al inicio.
   useEffect(() => {
-    if (restaurando) return;
-    if (!usuario && !esPublica) reemplazarA('/login');
-    if (usuario && ruta === '/login') reemplazarA('/inicio');
-  }, [restaurando, usuario, esPublica, ruta]);
+    if (restaurando || sinServidor) return;
+    if (!usuario && !esPublica) {
+      guardarRutaPendiente(rutaActualCompleta());
+      reemplazarA('/login');
+    }
+    if (usuario && ruta === '/login') reemplazarA(consumirRutaPendiente() ?? '/inicio');
+  }, [restaurando, sinServidor, usuario, esPublica, ruta]);
 
   if (restaurando) return <Cargando mensaje="Restaurando sesión…" />;
+  if (sinServidor) {
+    // Los tokens se conservan: no se manda a /login por un fallo de red.
+    return (
+      <div className="flex flex-1 flex-col justify-center gap-3 p-4">
+        <ErrorReintentar mensaje={errorRestauracion} onReintentar={reintentarRestauracion} />
+      </div>
+    );
+  }
   if (!usuario && !esPublica) return null;
 
   const Pagina = PAGINAS[ruta];

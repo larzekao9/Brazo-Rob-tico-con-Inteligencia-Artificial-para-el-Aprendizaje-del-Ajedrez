@@ -18,6 +18,9 @@ export const RUTAS = [
   '/historial',
   '/perfil',
   '/demostracion',
+  '/amigo',
+  '/sala/:codigo',
+  '/sala/:codigo/analisis',
 ] as const;
 
 export type RutaApp = (typeof RUTAS)[number];
@@ -77,4 +80,35 @@ export function reemplazarA(ruta: string, params?: ParamsRuta): void {
 export function useRuta(): {ruta: RutaApp; params: ParamsRuta} {
   const path = useSyncExternalStore(suscribir, pathActual, () => RUTA_POR_DEFECTO);
   return resolverRuta(path);
+}
+
+const CLAVE_RUTA_PENDIENTE = 'ruta_pendiente';
+
+/** Ruta actual del hash (p. ej. '/sala/K7M2QX'), con parámetros ya resueltos. */
+export function rutaActualCompleta(): string {
+  return pathActual();
+}
+
+/**
+ * Enlace profundo con login: guarda la ruta pedida (sessionStorage, con try/catch) para volver a ella
+ * después de iniciar sesión o registrarse. No guarda /login ni la ruta por defecto.
+ */
+export function guardarRutaPendiente(path: string): void {
+  if (!path.startsWith('/') || path === '/login' || path === RUTA_POR_DEFECTO) return;
+  try {
+    sessionStorage.setItem(CLAVE_RUTA_PENDIENTE, path);
+  } catch {
+    /* sin almacenamiento: se vuelve al inicio */
+  }
+}
+
+/** Devuelve y olvida la ruta guardada con `guardarRutaPendiente` (o null). */
+export function consumirRutaPendiente(): string | null {
+  try {
+    const path = sessionStorage.getItem(CLAVE_RUTA_PENDIENTE);
+    sessionStorage.removeItem(CLAVE_RUTA_PENDIENTE);
+    return path;
+  } catch {
+    return null;
+  }
 }
