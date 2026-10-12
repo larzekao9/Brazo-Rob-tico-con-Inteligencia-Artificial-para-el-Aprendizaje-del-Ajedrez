@@ -51,6 +51,7 @@ from backend.servicios.calibracion import (
     contar_calibraciones_por_usuario,
     estado_nivel_jugador,
 )
+from backend.servicios.auth.servicio_auth import ACCESS_TOKEN_EXPIRE_MINUTES, create_refresh_token
 from backend.servicios.auth.servicio_invitaciones import (
     MENSAJE_CODIGO_INVALIDO,
     generar_codigo,
@@ -207,7 +208,7 @@ def registro(data: RegistroRequest, solicitud: Request, db: Session = Depends(ge
         tokens=TokenResponse(
             access_token=access,
             refresh_token=refresh,
-            expires_in=60 * 60 * 12,
+            expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         ),
     )
 
@@ -243,7 +244,7 @@ def login_google(data: GoogleAuthRequest, solicitud: Request, db: Session = Depe
         tokens=TokenResponse(
             access_token=access,
             refresh_token=refresh,
-            expires_in=60 * 60 * 12,
+            expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         ),
     )
 
@@ -275,7 +276,7 @@ def login(data: LoginRequest, db: Session = Depends(get_db)) -> AuthResponse:
         tokens=TokenResponse(
             access_token=access,
             refresh_token=refresh,
-            expires_in=30 * 60,
+            expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         ),
     )
 
@@ -295,8 +296,12 @@ def refresh(data: RefreshRequest, db: Session = Depends(get_db)) -> TokenRespons
     if not user or not user.activo:
         raise HTTPException(status_code=401, detail="Usuario no encontrado o inactivo")
 
-    access = create_access_token({"sub": str(user.id), "email": user.email, "rol": user.rol})
-    return TokenResponse(access_token=access, refresh_token=data.refresh_token, expires_in=30 * 60)
+    payload = {"sub": str(user.id), "email": user.email, "rol": user.rol}
+    return TokenResponse(
+        access_token=create_access_token(payload),
+        refresh_token=create_refresh_token(payload),
+        expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
 
 
 @router.get(

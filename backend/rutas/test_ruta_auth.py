@@ -334,3 +334,45 @@ def test_subir_foto_perfil_con_extension_no_soportada_da_400(cliente) -> None:
 
     assert respuesta.status_code == 400
 
+
+
+def test_refresh_emite_refresh_nuevo_y_valido_con_expires_in_del_access(cliente) -> None:
+    from backend.servicios.auth.servicio_auth import ACCESS_TOKEN_EXPIRE_MINUTES, decode_and_validate_refresh_token
+
+    tokens = cliente.post("/auth/registro", json=JUGADOR).json()["tokens"]
+    assert tokens["expires_in"] == ACCESS_TOKEN_EXPIRE_MINUTES * 60
+
+    respuesta = cliente.post("/auth/refresh", json={"refresh_token": tokens["refresh_token"]})
+    assert respuesta.status_code == 200
+    nuevos = respuesta.json()
+    assert nuevos["refresh_token"] != tokens["refresh_token"]
+    assert nuevos["expires_in"] == ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    assert decode_and_validate_refresh_token(nuevos["refresh_token"]) is not None
+    assert decode_and_validate_refresh_token(tokens["refresh_token"]) is not None
+
+    encadenado = cliente.post("/auth/refresh", json={"refresh_token": nuevos["refresh_token"]})
+    assert encadenado.status_code == 200
+    me = cliente.get("/auth/me", headers={"Authorization": f"Bearer {encadenado.json()['access_token']}"})
+    assert me.status_code == 200
+
+
+def test_refresh_con_token_invalido_da_401(cliente) -> None:
+    assert cliente.post("/auth/refresh", json={"refresh_token": "no-es-un-jwt"}).status_code == 401
+
+
+def test_refresh_con_access_token_en_lugar_de_refresh_da_401(cliente) -> None:
+    access = cliente.post("/auth/registro", json=JUGADOR).json()["tokens"]["access_token"]
+    assert cliente.post("/auth/refresh", json={"refresh_token": access}).status_code == 401
+
+
+def test_refresh_de_usuario_inactivo_da_401(cliente) -> None:
+    from backend.modelos.tablas_orm import UsuarioORM
+
+    tokens = cliente.post("/auth/registro", json=JUGADOR).json()["tokens"]
+    generador = app.dependency_overrides[get_db]()
+    db = next(generador)
+    db.query(UsuarioORM).update({"activo": False})
+    db.commit()
+    generador.close()
+
+    assert cliente.post("/auth/refresh", json={"refresh_token": tokens["refresh_token"]}).status_code == 401
