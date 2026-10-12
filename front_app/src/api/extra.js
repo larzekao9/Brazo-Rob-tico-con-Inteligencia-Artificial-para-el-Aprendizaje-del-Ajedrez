@@ -1,22 +1,13 @@
 // Endpoints que backend.js (copia de frontend/src/api/backend.js) no exporta.
-// Mismo manejo de token y errores que ese archivo: token JWT en localStorage ("access_token").
+// Token, refresh ante 401 y errores legibles: ver sesionHttp.js.
+import { errorDeRespuesta, fetchConSesion } from "./sesionHttp.js";
 
-async function solicitarGet(endpoint) {
-  let token = null;
-  try {
-    token = localStorage.getItem("access_token");
-  } catch {
-    token = null;
-  }
-  const headers = { "Content-Type": "application/json" };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  const respuesta = await fetch(endpoint, { method: "GET", headers });
-  if (!respuesta.ok) {
-    const detalle = await respuesta.json().catch(() => null);
-    const error = new Error(detalle?.detail ?? `Error ${respuesta.status}`);
-    error.status = respuesta.status;
-    throw error;
-  }
+async function pedir(endpoint, opciones) {
+  const respuesta = await fetchConSesion(endpoint, {
+    ...opciones,
+    headers: { "Content-Type": "application/json" },
+  });
+  if (!respuesta.ok) throw await errorDeRespuesta(respuesta);
   return respuesta.json();
 }
 
@@ -26,7 +17,7 @@ async function solicitarGet(endpoint) {
  * precision_promedio y top_errores [{tipo, cantidad}].
  */
 export function obtenerEstadisticasUsuario() {
-  return solicitarGet("/usuario/estadisticas");
+  return pedir("/usuario/estadisticas", { method: "GET" });
 }
 
 /**
@@ -35,25 +26,9 @@ export function obtenerEstadisticasUsuario() {
  * abandonar; la partida queda terminada y cuenta para historial y estadísticas.
  * 400 si la partida no tiene jugadas todavía.
  */
-export async function abandonarPartida(partidaId) {
-  let token = null;
-  try {
-    token = localStorage.getItem("access_token");
-  } catch {
-    token = null;
-  }
-  const headers = { "Content-Type": "application/json" };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  const respuesta = await fetch(`/partida/${encodeURIComponent(partidaId)}/tiempo-agotado`, {
+export function abandonarPartida(partidaId) {
+  return pedir(`/partida/${encodeURIComponent(partidaId)}/tiempo-agotado`, {
     method: "POST",
-    headers,
     body: JSON.stringify({ lado: "blancas" }),
   });
-  if (!respuesta.ok) {
-    const detalle = await respuesta.json().catch(() => null);
-    const error = new Error(typeof detalle?.detail === "string" ? detalle.detail : `Error ${respuesta.status}`);
-    error.status = respuesta.status;
-    throw error;
-  }
-  return respuesta.json();
 }

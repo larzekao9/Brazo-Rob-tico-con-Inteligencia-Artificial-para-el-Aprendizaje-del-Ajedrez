@@ -6,23 +6,13 @@
  * Incluye automáticamente el token JWT si existe en localStorage.
  */
 
+import { errorDeRespuesta, fetchConSesion } from "./sesionHttp.js";
+
 async function solicitar(endpoint, opciones = {}) {
-  const token = localStorage.getItem("access_token");
   const headers = { "Content-Type": "application/json", ...opciones.headers };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-  const respuesta = await fetch(endpoint, {
-    method: "POST",
-    headers,
-    ...opciones,
-  });
-  if (!respuesta.ok) {
-    const detalle = await respuesta.json().catch(() => null);
-    const error = new Error(detalle?.detail ?? `Error ${respuesta.status}`);
-    error.status = respuesta.status; // permite a la UI distinguir 404 de 503, etc.
-    throw error;
-  }
+  // fetchConSesion agrega el token, refresca ante un 401 y reintenta (ver sesionHttp.js).
+  const respuesta = await fetchConSesion(endpoint, { method: "POST", ...opciones, headers });
+  if (!respuesta.ok) throw await errorDeRespuesta(respuesta); // `status` permite a la UI distinguir 404 de 503, etc.
   return respuesta.json();
 }
 
@@ -48,19 +38,6 @@ export function analisisRedPartida(partidaId) {
 }
 
 /**
- * Arma el `Error` de una respuesta HTTP fallida: usa el `detail` del backend
- * solo si es texto (un 422 de FastAPI manda una lista, que no sirve mostrar
- * tal cual) y conserva el `status` para que la UI distinga 404, 409, 403, etc.
- */
-async function errorDeRespuesta(respuesta) {
-  const detalle = await respuesta.json().catch(() => null);
-  const mensaje = typeof detalle?.detail === "string" ? detalle.detail : `Error ${respuesta.status}`;
-  const error = new Error(mensaje);
-  error.status = respuesta.status;
-  return error;
-}
-
-/**
  * Partida sin terminar del usuario autenticado, para ofrecer retomarla en vez
  * de crear otra al abrir la Sala de Control. Devuelve `null` si no hay ninguna
  * (el backend responde `null` o 204). Campos nuevos opcionales: `estado`,
@@ -69,12 +46,7 @@ async function errorDeRespuesta(respuesta) {
  * llama decide degradar al flujo de siempre.
  */
 export async function obtenerPartidaEnCurso() {
-  const token = localStorage.getItem("access_token");
-  const headers = { "Content-Type": "application/json" };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-  const respuesta = await fetch("/partida/en-curso", { method: "GET", headers });
+  const respuesta = await fetchConSesion("/partida/en-curso", { method: "GET", headers: { "Content-Type": "application/json" } });
   if (respuesta.status === 204) return null;
   if (!respuesta.ok) throw await errorDeRespuesta(respuesta);
   const datos = await respuesta.json().catch(() => null);
@@ -154,12 +126,7 @@ export function actualizarPermisosPartida(partidaId, permisos) {
  * cubren los casos más probables en vez de asumir uno solo.
  */
 export async function obtenerDemostracionActiva() {
-  const token = localStorage.getItem("access_token");
-  const headers = { "Content-Type": "application/json" };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-  const respuesta = await fetch("/partida/demostracion-activa", { method: "GET", headers });
+  const respuesta = await fetchConSesion("/partida/demostracion-activa", { method: "GET", headers: { "Content-Type": "application/json" } });
   if (respuesta.status === 204 || respuesta.status === 404) {
     return null;
   }
@@ -336,22 +303,12 @@ export function inferenciaModelo(fen) {
 }
 
 async function solicitarAuth(endpoint, opciones = {}) {
-  const token = localStorage.getItem("access_token");
-  const respuesta = await fetch(endpoint, {
+  const respuesta = await fetchConSesion(endpoint, {
     method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      ...opciones.headers,
-    },
     ...opciones,
+    headers: { "Content-Type": "application/json", ...opciones.headers },
   });
-  if (!respuesta.ok) {
-    const detalle = await respuesta.json().catch(() => null);
-    const error = new Error(detalle?.detail ?? `Error ${respuesta.status}`);
-    error.status = respuesta.status;
-    throw error;
-  }
+  if (!respuesta.ok) throw await errorDeRespuesta(respuesta);
   return respuesta.json();
 }
 
@@ -541,13 +498,9 @@ export function obtenerHistorialTutor(limite = 50) {
  * criterio defensivo).
  */
 export async function borrarHistorialTutor() {
-  const token = localStorage.getItem("access_token");
-  const respuesta = await fetch("/tutor/historial", {
+  const respuesta = await fetchConSesion("/tutor/historial", {
     method: "DELETE",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
+    headers: { "Content-Type": "application/json" },
   });
   if (!respuesta.ok) {
     const detalle = await respuesta.json().catch(() => null);
