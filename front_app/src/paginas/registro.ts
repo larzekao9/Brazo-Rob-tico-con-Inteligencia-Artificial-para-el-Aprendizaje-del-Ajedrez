@@ -16,8 +16,11 @@ import Tutor from './Aprender/Tutor';
 import Historial from './Historial/Historial';
 import Perfil from './Perfil/Perfil';
 import Demostracion from './Demostracion/Demostracion';
+import Amigo from './Amigo/Amigo';
+import Sala from './Sala/Sala';
+import SalaAnalisis from './Sala/SalaAnalisis';
 
-/** Qué componente pinta cada ruta. Cada página exporta un componente por defecto sin props. */
+/** Qué componente pinta cada ruta. Cada página exporta un componente sin props; si necesita parámetros, los lee con useRuta(). */
 export const PAGINAS: Record<RutaApp, ComponentType> = {
   '/login': Login,
   '/onboarding': Onboarding,
@@ -35,4 +38,7 @@ export const PAGINAS: Record<RutaApp, ComponentType> = {
   '/historial': Historial,
   '/perfil': Perfil,
   '/demostracion': Demostracion,
+  '/amigo': Amigo,
+  '/sala/:codigo': Sala,
+  '/sala/:codigo/analisis': SalaAnalisis,
 };
