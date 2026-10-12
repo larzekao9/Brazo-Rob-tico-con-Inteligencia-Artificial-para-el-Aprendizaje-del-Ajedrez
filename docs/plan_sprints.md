@@ -429,6 +429,25 @@ exigiría PyTorch con CUDA 12.8 en un entorno aparte). **Todavía no se corrió*
   común del notebook (sección 9).
 - **Código nuevo (con tests, `training/test_pipeline_v6.py`):** `contar_partidas_por_elo`,
   `pgn_a_muestras_divididas` y el filtro `elo_minimo` en `evaluar_modelo`.
+- **Resultado del entrenamiento (2026-10-12, Colab T4):** 35.000 partidas con ambos jugadores ≥ 2200 (2.879.371
+  posiciones, ~3 veces las de la v5). El mejor modelo fue el de la **época 9 de 30** (validación por partida:
+  top-1 47,64 %, top-3 75,58 %); después la pérdida de entrenamiento siguió bajando pero la validación cayó cada
+  época (**sobreajuste**), por lo que se cortó a mano y el notebook ahora corta solo (`PACIENCIA = 4`).
+- **Comparación v5 contra v6** (30 partidas de maestros ≥ 2200 posteriores a la zona de entrenamiento, 2.619 jugadas,
+  mismas para las dos; los desaciertos se clasifican por pérdida según Stockfish, que solo mide):
+
+  | | v5 | v6 |
+  |---|---|---|
+  | Coincide con el maestro (top-1) | 43,15 % | **48,99 %** |
+  | Desacierto aceptable (< 50 cp) | 33,4 % | 32,4 % |
+  | Imprecisión (50-99 cp) | 8,9 % | 8,2 % |
+  | Error (100-299 cp) | 8,5 % | 7,1 % |
+  | Blunder (≥ 300 cp) | 6,0 % | **3,3 %** |
+
+  La v6 acierta casi 6 puntos más y **comete casi la mitad de blunders**. Es una evaluación orientativa (30 partidas,
+  las jugadas de una misma partida no son independientes), no un resultado estadísticamente concluyente.
+- **Límites:** no se midió cómo juega partidas completas contra Stockfish; el sobreajuste indica que el siguiente salto
+  viene de más partidas distintas (el archivo tiene muchas más) o de más regularización, no de más épocas.
 - **Subir el tope de nivel (hoy 18):** no se decide por la precisión de predicción. Hay que medir partidas completas de
   la v6 contra Stockfish en niveles 19 y 20; si no las supera, el tope queda en 18. Es el siguiente paso de HU4.
 - **Sigue pendiente:** el botón de entrenar/evaluar/promover en el frontend (ciclo de versiones con rollback).
