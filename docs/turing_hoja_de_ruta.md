@@ -12,7 +12,7 @@ los checkpoints no se suben a git.
 
 | # | Paso | Estado |
 |---|---|---|
-| 0 | Interfaz UCI + medición de Elo base contra Stockfish con Elo calibrado | En curso |
+| 0 | Interfaz UCI + medición de Elo base contra Stockfish con Elo calibrado | **Hecho** (v6 ≈ 1355 Elo) |
 | 1 | Búsqueda ligera sobre la red + libro de aperturas | Pendiente |
 | 2 | Bot de Lichess (rating público) | Pendiente |
 | 3 | Cabeza de valor + búsqueda estilo AlphaZero (datos: base de evaluaciones de Lichess) | Pendiente |
@@ -42,6 +42,7 @@ descarta o se revierte.
 | 2026-10-13 | v6 contra Stockfish nivel 0 | 12 partidas a 0,05 s | 50 % |
 | 2026-10-13 | v6 contra Stockfish niveles 3 / 5 | 12 partidas c/u | 20,8 % / 4,2 % |
 | 2026-10-13 | v6 contra Stockfish niveles 8 a 20 | 20 partidas c/u | ≈ 0 % |
+| 2026-10-13 | **v6, Elo base** (`training/medir_elo.py`, Stockfish con `UCI_Elo`, 0,2 s por jugada, 40 partidas por rival) | 1320: +16 =9 −15 (51,2 %); 1500: +7 =10 −23 (30,0 %); 1700: +2 =9 −29 (16,2 %) | **Elo estimado 1355** (intervalo ~95 %: 1284 a 1427; 120 partidas) |
 
 ## Ficha del modelo (se completa al cerrar cada versión)
 
@@ -51,8 +52,15 @@ descarta o se revierte.
 | v5 | 12.000 partidas, ELO ≥ 2000 | 90/10 por posición (inflada) | 42,1 % | SE-ResNet-8 |
 | v6 | 35.000 partidas, ELO ≥ 2200 | por partida entera | 47,6 % (época 9) | Sobreajuste desde la época 9 |
 
+## Cómo reproducir las mediciones
+
+- Elo base: `python -m training.medir_elo --checkpoint <modelo.pt> --elos 1320 1500 1700 --aperturas 20 --tiempo 0.2`
+- Una versión contra otra y contra la escala de Stockfish: `python -m training.enfrentar_modelos --a <anterior.pt> --b <nueva.pt>`
+- Turing como motor UCI (para cualquier programa de ajedrez): `training/turing_uci.bat` o `python -m training.turing_uci`
+
 ## Límites declarados
 
 - La red sola imita jugadas de maestros pero no busca variantes: pierde contra Stockfish desde el nivel 5.
 - "Maestro 18" es una etiqueta de la escala del sistema (ELO de los datos de entrenamiento), no una fuerza medida.
 - Las mediciones actuales usan pocas partidas y un solo tiempo de Stockfish; sirven para comparar y ubicar el orden de magnitud.
+- El Elo de Stockfish (`UCI_Elo`) está calibrado para tiempos largos; a 0,2 s por jugada no es exacto, así que el 1355 es **relativo a ese rival y ese tiempo**, no un Elo oficial. Sirve para comparar versiones (v6 contra v7, con la búsqueda, etc.).
