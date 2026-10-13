@@ -50,3 +50,11 @@ backend/media/avatares/*
 # front_app
 front_app/node_modules
 front_app/dist
+
+# Bases de datos locales y checkpoints sueltos (no se commitean)
+*.db
+*.pt
+graphify-out/
+app_movil/.flutter-plugins-dependencies*
+.codex/
+.agents/

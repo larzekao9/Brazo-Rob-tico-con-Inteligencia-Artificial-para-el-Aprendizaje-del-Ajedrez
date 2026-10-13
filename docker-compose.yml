@@ -25,6 +25,8 @@ services:
       context: .
       dockerfile: Dockerfile.backend
     container_name: ajedrez-backend
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql+psycopg2://ajedrez:ajedrez@postgres:5432/ajedrez
       PYTHONDONTWRITEBYTECODE: 1
@@ -48,6 +50,17 @@ services:
     container_name: ajedrez-frontend
     ports:
       - "8080:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  front_app:
+    build:
+      context: ./front_app
+      dockerfile: Dockerfile
+    container_name: ajedrez-front-app
+    ports:
+      - "8081:80"
     depends_on:
       - backend
     restart: unless-stopped
