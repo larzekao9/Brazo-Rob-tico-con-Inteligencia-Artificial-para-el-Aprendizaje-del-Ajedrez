@@ -446,8 +446,31 @@ exigiría PyTorch con CUDA 12.8 en un entorno aparte). **Todavía no se corrió*
 
   La v6 acierta casi 6 puntos más y **comete casi la mitad de blunders**. Es una evaluación orientativa (30 partidas,
   las jugadas de una misma partida no son independientes), no un resultado estadísticamente concluyente.
-- **Límites:** no se midió cómo juega partidas completas contra Stockfish; el sobreajuste indica que el siguiente salto
-  viene de más partidas distintas (el archivo tiene muchas más) o de más regularización, no de más épocas.
+- **Partidas completas (2026-10-13, `training/enfrentar_modelos.py`):** el modelo juega con la misma lógica que la
+  aplicación (red + filtro táctico, sin Stockfish); cada apertura se juega con los dos colores; Stockfish a 0,05 s por
+  jugada solo como rival de comparación.
+
+  | Enfrentamiento | Resultado (victorias / tablas / derrotas) | Puntaje |
+  |---|---|---|
+  | **v6 contra v5** (20 aperturas, 40 partidas) | +23 =15 −2 | **76,2 %** (≈ +200 Elo, intervalo 95 % de +124 a +307) |
+  | v5 contra Stockfish nivel 0 (12 partidas) | +1 =3 −8 | 20,8 % |
+  | **v6 contra Stockfish nivel 0** (12 partidas) | +5 =2 −5 | **50,0 %** |
+  | v5 / v6 contra Stockfish nivel 3 (12 partidas) | +1 =2 −9 / +0 =5 −7 | 16,7 % / 20,8 % |
+  | v5 / v6 contra Stockfish nivel 5 (12 partidas) | +0 =0 −12 / +0 =1 −11 | 0 % / 4,2 % |
+  | v5 / v6 contra Stockfish niveles 8, 12, 16 y 20 (20 partidas c/u) | prácticamente todo derrotas | ≈ 0 % |
+
+- **Qué significa (importante para la defensa):** la v6 **juega claramente mejor que la v5** (gana 23 de 40 y pierde 2),
+  pero **ninguna de las dos se acerca al nivel "Maestro 18"**: la v6 empata con Stockfish nivel 0 y pierde casi todo
+  desde el nivel 5. Es esperable: la red solo predice la jugada que haría un maestro, sin buscar variantes, y Stockfish
+  calcula. El "18 / Maestro" de la escala del sistema sale del ELO de las partidas de entrenamiento, **no de una fuerza de
+  juego medida**; decir "imita jugadas de maestros" es correcto, decir "juega como un maestro" no. Por eso el tope de
+  nivel **no se sube**. Para estudiantes principiantes (niveles bajos) Turing sigue siendo un rival razonable.
+- **Límites de estas mediciones:** pocas partidas por celda (12 a 40), un solo tiempo de Stockfish (0,05 s), el modelo
+  es determinista (la variedad sale solo de las 20 aperturas) y no se jugó contra humanos. Sirven para comparar versiones
+  y ubicar el orden de magnitud, no para asignar un Elo exacto.
+- **Siguiente salto de calidad:** el sobreajuste indica que más épocas no ayudan; hace falta más partidas distintas, más
+  regularización o, sobre todo, **búsqueda** (combinar la red con un árbol de variantes), que es lo que más separa a la
+  red sola de Stockfish.
 - **Subir el tope de nivel (hoy 18):** no se decide por la precisión de predicción. Hay que medir partidas completas de
   la v6 contra Stockfish en niveles 19 y 20; si no las supera, el tope queda en 18. Es el siguiente paso de HU4.
 - **Sigue pendiente:** el botón de entrenar/evaluar/promover en el frontend (ciclo de versiones con rollback).
