@@ -157,6 +157,59 @@ class JugadorStockfish:
         self._motor.quit()
 
 
+class JugadorStockfishElo(JugadorStockfish):
+    """Stockfish con fuerza limitada a un ELO calibrado (`UCI_Elo`, de 1320 a 3190), en vez del `Skill Level` 0-20.
+
+    El ELO de Stockfish está calibrado para partidas con control de tiempo largo; con tiempos de décimas de segundo
+    por jugada no es exacto, así que el ELO que se estime de Turing es **relativo a este rival y a este tiempo**.
+    """
+
+    ELO_MIN, ELO_MAX = 1320, 3190
+
+    def __init__(self, elo: int, tiempo_limite: float = 0.2) -> None:
+        from backend.servicios.motor.motor_ajedrez import STOCKFISH_PATH
+
+        self.elo = max(self.ELO_MIN, min(self.ELO_MAX, elo))
+        self._motor = chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH)
+        self._motor.configure({"UCI_LimitStrength": True, "UCI_Elo": self.elo})
+        self._limite = chess.engine.Limit(time=tiempo_limite)
+
+
+def _esperado(elo_propio: float, elo_rival: float) -> float:
+    """Puntaje esperado (0 a 1) de un jugador de `elo_propio` contra uno de `elo_rival`."""
+    return 1.0 / (1.0 + 10.0 ** ((elo_rival - elo_propio) / 400.0))
+
+
+def estimar_elo(resultados: list[tuple[float, Marcador]]) -> tuple[float, float, float]:
+    """Estima el ELO de A a partir de sus resultados contra rivales de ELO conocido.
+
+    Busca el ELO para el cual el puntaje esperado total coincide con el obtenido (máxima verosimilitud logística). Devuelve
+    `(estimación, límite inferior, límite superior)`; el intervalo del 95 % sale de la información de Fisher y es aproximado
+    (se achata con pocas partidas, y si A ganó o perdió TODO la estimación solo tiene una cota: se acota a ±800 del rival
+    extremo). Los rivales sin partidas se ignoran.
+    """
+    datos = [(float(elo), marcador) for elo, marcador in resultados if marcador.partidas > 0]
+    if not datos:
+        raise ValueError("No hay partidas para estimar el ELO")
+
+    def sobrante(elo_a: float) -> float:
+        return sum(m.partidas * (m.puntaje_a - _esperado(elo_a, elo)) for elo, m in datos)
+
+    bajo, alto = min(e for e, _ in datos) - 800.0, max(e for e, _ in datos) + 800.0
+    for _ in range(80):  # bisección: `sobrante` decrece al subir el ELO
+        medio = (bajo + alto) / 2
+        if sobrante(medio) > 0:
+            bajo = medio
+        else:
+            alto = medio
+    estimacion = (bajo + alto) / 2
+
+    k = math.log(10) / 400.0
+    informacion = sum(m.partidas * _esperado(estimacion, e) * (1 - _esperado(estimacion, e)) for e, m in datos) * k * k
+    margen = 1.96 / math.sqrt(informacion) if informacion > 1e-12 else 800.0
+    return estimacion, estimacion - margen, estimacion + margen
+
+
 def _linea(etiqueta: str, marcador: Marcador) -> str:
     bajo, alto = intervalo_elo(marcador)
     return (

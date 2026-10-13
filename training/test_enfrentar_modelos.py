@@ -90,3 +90,46 @@ def test_el_intervalo_contiene_al_valor_central_y_se_achica_con_mas_partidas() -
 
     assert bajo < diferencia_elo(chico.puntaje_a) < alto
     assert (alto_g - bajo_g) < (alto - bajo)
+
+
+# --- Estimación de ELO contra rivales de ELO conocido -----------------------------------------------------------------
+from training.enfrentar_modelos import estimar_elo  # noqa: E402
+
+
+def test_si_empata_en_todo_el_elo_estimado_es_el_del_rival() -> None:
+    estimacion, bajo, alto = estimar_elo([(1500, Marcador(10, 0, 10))])
+
+    assert estimacion == pytest.approx(1500, abs=1)
+    assert bajo < 1500 < alto
+
+
+def test_con_varios_rivales_la_estimacion_queda_entre_ellos() -> None:
+    # Gana mucho a 1320, pierde mucho a 1700: su nivel está en el medio.
+    estimacion, bajo, alto = estimar_elo([(1320, Marcador(16, 2, 2)), (1500, Marcador(8, 4, 8)), (1700, Marcador(2, 2, 16))])
+
+    assert 1450 < estimacion < 1550
+    assert bajo < estimacion < alto
+
+
+def test_si_gana_el_70_por_ciento_el_elo_es_unos_150_puntos_mayor() -> None:
+    estimacion, _, _ = estimar_elo([(1500, Marcador(70, 0, 30))])
+
+    assert estimacion == pytest.approx(1500 + 147, abs=3)
+
+
+def test_si_pierde_todo_la_estimacion_queda_acotada_por_debajo_del_rival() -> None:
+    estimacion, _, alto = estimar_elo([(1320, Marcador(0, 0, 20)), (1500, Marcador(0, 0, 20))])
+
+    assert estimacion < 1320 and alto < 1320 + 900
+
+
+def test_el_intervalo_se_achica_con_mas_partidas() -> None:
+    _, bajo_c, alto_c = estimar_elo([(1500, Marcador(7, 0, 3))])
+    _, bajo_g, alto_g = estimar_elo([(1500, Marcador(70, 0, 30))])
+
+    assert (alto_g - bajo_g) < (alto_c - bajo_c)
+
+
+def test_estimar_elo_sin_partidas_da_error() -> None:
+    with pytest.raises(ValueError):
+        estimar_elo([(1500, Marcador())])
