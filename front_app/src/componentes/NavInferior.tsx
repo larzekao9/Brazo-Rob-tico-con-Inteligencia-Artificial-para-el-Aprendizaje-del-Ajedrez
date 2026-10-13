@@ -1,9 +1,9 @@
-import {BookOpen, Home, Swords, User} from 'lucide-react';
+import {BookOpen, Home, User, List} from 'lucide-react';
 import {irA, useRuta} from '../router';
 
 const PESTANAS = [
   {ruta: '/inicio', etiqueta: 'Inicio', Icono: Home},
-  {ruta: '/jugar', etiqueta: 'Jugar', Icono: Swords},
+  {ruta: '/historial', etiqueta: 'Partidas', Icono: List},
   {ruta: '/aprender', etiqueta: 'Aprender', Icono: BookOpen},
   {ruta: '/perfil', etiqueta: 'Perfil', Icono: User},
 ] as const;
