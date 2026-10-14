@@ -24,18 +24,28 @@ from training.enfrentar_modelos import (
     diferencia_elo,
     enfrentar,
     estimar_elo,
-    jugador_modelo,
+    jugador_turing,
 )
 
 
-def medir(ruta_checkpoint: str, elos: list[int], aperturas: int, tiempo: float, nivel: int | None = None) -> list[tuple[int, Marcador]]:
-    """Juega contra cada ELO de `elos` y devuelve `[(elo_rival, marcador_de_turing), ...]`."""
+def medir(
+    ruta_checkpoint: str,
+    elos: list[int],
+    aperturas: int,
+    tiempo: float,
+    profundidad: int = 0,
+    peso_red: float = 40.0,
+    tiempo_busqueda: float | None = 1.0,
+) -> list[tuple[int, Marcador]]:
+    """Juega contra cada ELO de `elos` y devuelve `[(elo_rival, marcador_de_turing), ...]`.
+
+    Con `profundidad` > 0 Turing usa también la búsqueda de variantes; con 0, solo la red."""
     resultados: list[tuple[int, Marcador]] = []
     for elo in elos:
         rival = JugadorStockfishElo(elo, tiempo)
         try:
             t0 = time.time()
-            marcador = enfrentar(jugador_modelo(ruta_checkpoint), rival, APERTURAS_UCI[:aperturas])
+            marcador = enfrentar(jugador_turing(ruta_checkpoint, profundidad, tiempo_busqueda, peso_red), rival, APERTURAS_UCI[:aperturas])
         finally:
             rival.cerrar()
         resultados.append((rival.elo, marcador))
@@ -53,10 +63,14 @@ def main() -> None:
     parser.add_argument("--elos", type=int, nargs="+", default=[1320, 1500, 1700], help="ELO de los rivales de Stockfish")
     parser.add_argument("--aperturas", type=int, default=len(APERTURAS_UCI), help="aperturas por rival (2 partidas c/u)")
     parser.add_argument("--tiempo", type=float, default=0.2, help="segundos por jugada de Stockfish")
+    parser.add_argument("--busqueda", type=int, default=0, help="profundidad de búsqueda de Turing (0 = red sola)")
+    parser.add_argument("--peso-red", type=float, default=40.0, help="peso de la red frente al cálculo en la búsqueda")
+    parser.add_argument("--tiempo-busqueda", type=float, default=1.0, help="segundos máximos por jugada de la búsqueda")
     args = parser.parse_args()
 
-    print(f"\n== ELO de {Path(args.checkpoint).stem} ({args.aperturas * 2} partidas por rival, {args.tiempo}s por jugada) ==")
-    resultados = medir(args.checkpoint, args.elos, args.aperturas, args.tiempo)
+    modo = f"red + búsqueda de profundidad {args.busqueda} (peso de la red {args.peso_red:g})" if args.busqueda > 0 else "red sola"
+    print(f"\n== ELO de {Path(args.checkpoint).stem}, {modo} ({args.aperturas * 2} partidas por rival, {args.tiempo}s por jugada) ==")
+    resultados = medir(args.checkpoint, args.elos, args.aperturas, args.tiempo, args.busqueda, args.peso_red, args.tiempo_busqueda)
     estimacion, bajo, alto = estimar_elo(resultados)
     total = sum(m.partidas for _, m in resultados)
     todo_igual = all(m.victorias_a == 0 for _, m in resultados) or all(m.victorias_b == 0 for _, m in resultados)

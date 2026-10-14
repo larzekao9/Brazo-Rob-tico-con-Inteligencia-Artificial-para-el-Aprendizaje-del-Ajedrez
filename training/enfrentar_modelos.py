@@ -139,6 +139,20 @@ def jugador_modelo(ruta_checkpoint: str | Path) -> Jugador:
     return lambda fen: predecir_jugada_maestra(fen, ruta_checkpoint=ruta_checkpoint)
 
 
+def jugador_turing(
+    ruta_checkpoint: str | Path, profundidad: int = 0, tiempo_limite: float | None = 1.0, peso_red: float = 40.0
+) -> Jugador:
+    """Turing completo: la red y, si `profundidad` > 0, además la búsqueda de variantes (`busqueda_turing`).
+
+    Con `profundidad = 0` es la red sola (igual que `jugador_modelo`), para poder medir cuánto aporta la búsqueda.
+    """
+    if profundidad <= 0:
+        return jugador_modelo(ruta_checkpoint)
+    from backend.servicios.aprendizaje.busqueda_turing import elegir_jugada_con_busqueda
+
+    return lambda fen: elegir_jugada_con_busqueda(fen, ruta_checkpoint, profundidad, tiempo_limite, peso_red)
+
+
 class JugadorStockfish:
     """Stockfish a un nivel (`Skill Level` 0-20) con un motor persistente, para no abrir un proceso por jugada."""
 
@@ -226,9 +240,14 @@ def main() -> None:
     parser.add_argument("--niveles-stockfish", type=int, nargs="*", default=[], help="niveles de Stockfish contra los que medir")
     parser.add_argument("--aperturas-stockfish", type=int, default=10, help="aperturas por nivel contra Stockfish")
     parser.add_argument("--tiempo-stockfish", type=float, default=0.05, help="segundos por jugada de Stockfish")
+    parser.add_argument("--busqueda-a", type=int, default=0, help="profundidad de búsqueda de A (0 = red sola)")
+    parser.add_argument("--busqueda-b", type=int, default=0, help="profundidad de búsqueda de B (0 = red sola)")
+    parser.add_argument("--peso-red", type=float, default=40.0, help="peso de la red frente al cálculo en la búsqueda")
+    parser.add_argument("--tiempo-busqueda", type=float, default=1.0, help="segundos máximos por jugada de la búsqueda")
     args = parser.parse_args()
 
-    modelo_a, modelo_b = jugador_modelo(args.a), jugador_modelo(args.b)
+    modelo_a = jugador_turing(args.a, args.busqueda_a, args.tiempo_busqueda, args.peso_red)
+    modelo_b = jugador_turing(args.b, args.busqueda_b, args.tiempo_busqueda, args.peso_red)
 
     def avance(hechas: int, total: int) -> None:
         if hechas % 10 == 0 or hechas == total:

@@ -706,3 +706,25 @@ def estado_modelo(ruta_checkpoint: str | Path = RUTA_CHECKPOINT_POR_DEFECTO) -> 
         "dispositivo": dispositivo,
         "latencia_ms": latencia_ms,
     }
+
+
+def probabilidades_legales(
+    tablero: chess.Board, ruta_checkpoint: str | Path = RUTA_CHECKPOINT_POR_DEFECTO
+) -> dict[chess.Move, float]:
+    """Probabilidad que la red le da a CADA jugada legal de `tablero` (softmax solo sobre las legales).
+
+    Es lo que usa la búsqueda (`busqueda_turing.buscar`) como intuición de la red. Una sola pasada de la red.
+
+    Raises:
+        ValueError: si la posición no tiene jugadas legales.
+    """
+    jugadas_legales = list(tablero.legal_moves)
+    if not jugadas_legales:
+        raise ValueError("La posición no tiene jugadas legales")
+    modelo = cargar_modelo(ruta_checkpoint)
+    entrada = tensor_a_entrada_red(board_to_tensor(tablero)).unsqueeze(0)
+    with torch.no_grad():
+        puntajes = modelo(entrada)[0]
+    indices = [jugada_a_etiqueta(tablero, jugada) for jugada in jugadas_legales]
+    probabilidades = F.softmax(puntajes[indices], dim=0).tolist()
+    return dict(zip(jugadas_legales, probabilidades))

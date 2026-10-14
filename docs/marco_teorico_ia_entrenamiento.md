@@ -1,10 +1,18 @@
 # Marco Teórico y Metodológico: Modelo de Inteligencia Artificial para la Toma de Decisiones en Ajedrez
 
-**Proyecto de Grado:** Plataforma y Brazo Robótico con Inteligencia Artificial para el Aprendizaje del Ajedrez  
+**Proyecto de Grado:** Sistema Tutor Inteligente de Ajedrez (con brazo robótico como recurso de práctica y motivación)  
 **Autores:** Suárez Burgos Hebert · Arze Kao Luis Ángel  
 **Carrera:** Ingeniería Informática  
 **Institución:** Universidad Autónoma Gabriel René Moreno (UAGRM) — Facultad de Ciencias de la Computación y Telecomunicaciones  
-**Fecha:** Septiembre de 2026
+**Fecha:** Octubre de 2026 (actualizado el 2026-10-13)
+
+> **Nota de actualización (2026-10-13).** Este documento se revisó contra las mediciones reales del repositorio. Cambios:
+> (1) se agregó la versión **v6**, con validación por partida entera (§5.2, §7.3); (2) se midió la **fuerza de juego en
+> partidas completas** y se estimó su Elo (§7.4, §13); (3) se agregó la **búsqueda de variantes** de Turing (§12);
+> (4) se **corrigieron afirmaciones que las mediciones no respaldan**: la prevención de fuga de información de la v5 (§5.2),
+> la tasa de errores graves en juego real (§7.2 y Fase 5), el número de parámetros y las analogías de "edad cognitiva" y
+> "maestría FIDE" de la §8, que no equivalen a fuerza de juego. Todos los números de tablas provienen de ejecuciones
+> reproducibles (`training/evaluar_modelo.py`, `training/enfrentar_modelos.py`, `training/medir_elo.py`).
 
 ---
 
@@ -15,6 +23,8 @@ El diseño de un sistema automatizado para el aprendizaje y juego del ajedrez tr
 Sin embargo, el objetivo pedagógico y diferencial de esta investigación no radica en la replicación de una búsqueda por fuerza bruta, sino en la **construcción de un agente autónomo basado en aprendizaje profundo (Deep Learning)** capaz de emular el razonamiento intuitivo humano. Tal como demostraron Silver et al. (2017) con _AlphaZero_ y McIlroy-Young et al. (2020) con _Maia Chess_, una red neuronal convolucional puede aprender a priorizar jugadas prometedoras directamente a partir de la configuración espacial de las piezas, prescindiendo de árboles de búsqueda profundos durante la inferencia inmediata.
 
 En este marco, el sistema implementa una **Red de Política (Policy Network)** entrenada mediante clonación de comportamiento (Behavioral Cloning) sobre partidas de ajedrez federado y competitivo. De acuerdo con las directrices metodológicas del proyecto, **el modelo decide sus propias jugadas de manera 100% independiente sin consultar a Stockfish en el flujo de inferencia**, utilizando a este último exclusivamente como un **oráculo de evaluación comparativa** para la retroalimentación al jugador y la auditoría de calidad de las versiones del modelo (HU4/HU6).
+
+Este trabajo mide además hasta dónde llega esa intuición por sí sola (la red de política sin cálculo juega al nivel de un aficionado, §7.4) y cuánto aporta agregarle un cálculo propio de pocas jugadas (§12), sin recurrir a motores externos para decidir.
 
 ---
 
@@ -166,7 +176,7 @@ Sea $\mathbf{U} = [\mathbf{u}_1, \mathbf{u}_2, \dots, \mathbf{u}_C] \in \mathbb{
 #### Escalado Estructural entre Versiones:
 
 - **Modelo v4:** 6 bloques residuales SE con $C = 128$ canales (~1.8M de parámetros entrenables).
-- **Modelo v5 (Maestría Consolidada):** 8 bloques residuales SE con $C = 192$ canales (~4.5M de parámetros), dotando al agente de la capacidad representacional requerida para discernir planes posicionales profundos a nivel de Gran Maestro FIDE.
+- **Modelo v5 (Consolidación):** 8 bloques residuales SE con $C = 192$ canales (8.565.952 parámetros), con mayor capacidad representacional para discernir patrones posicionales. La v6 conserva esta misma arquitectura.
 
 ---
 
@@ -227,15 +237,33 @@ $$\text{Filtro}(p) = \begin{cases} \text{Admitir}, & \text{si } \min(\text{White
 
 Esto asegura que las posiciones de entrenamiento provengan de partidas donde ambos participantes poseen nivel de candidato a maestro o superior, modelando aperturas teóricas depuradas y planes tácticos sólidos.
 
+Las versiones v4 y v5 usaron el umbral de 2000 y la **v6 el de 2200** (siempre sobre ambos jugadores). La elección se hizo con datos: contando las partidas del archivo de Lichess de febrero de 2017 (primeras 3.000.000 de partidas), las que cumplen el filtro en ambos jugadores son:
+
+| ELO mínimo (ambos jugadores) | Partidas | % del total leído |
+| :--- | ---: | ---: |
+| 2000 | 197.432 | 6,58 % |
+| 2200 | 38.277 | 1,28 % |
+| 2300 | 14.500 | 0,48 % |
+| 2400 | 5.093 | 0,17 % |
+| 2500 | 1.527 | 0,05 % |
+
+Un umbral de 2300 dejaba solo 14.500 partidas (apenas más que las 12.000 de la v5); el de 2200 permitió usar 35.000 partidas de jugadores fuertes.
+
 ### 5.2 Prevención de Fuga de Información (Data Leakage)
 
 A diferencia de problemas de visión artificial estándar donde las imágenes son independientes e idénticamente distribuidas (i.i.d.), en ajedrez **posiciones consecutivas de una misma partida comparten un alto grado de correlación espacial**.
 
 Si el split de entrenamiento y validación se realiza a nivel de posiciones individuales aleatorias, la red memoriza posiciones previas de la misma partida en el conjunto de entrenamiento y "adivina" el resultado en validación, reportando métricas falsamente infladas (Kaufman et al., 2012).
 
-Para mitigar este sesgo:
+**Qué ocurrió en este proyecto (corrección del 2026-10-13).** En la v5 (y anteriores) la validación del entrenamiento se hizo mezclando posiciones sueltas en una proporción 90/10, de modo que posiciones de una misma partida quedaron a ambos lados del corte: la precisión de validación reportada para la v5 (42,1 %) es, por lo tanto, **optimista**. Además, la evaluación original (`saltar_partidas = 35000`) omitía partidas del archivo en bruto sin garantizar que quedaran fuera de la zona usada para entrenar (la v5 consumió las primeras 12.000 partidas que cumplían el filtro de ELO, que se extienden mucho más allá de la partida 35.000 del archivo), y evaluaba partidas de cualquier nivel.
 
-- En `evaluar_modelo.py`, la división se realiza **estrictamente a nivel de partida completa**: las primeras $N$ partidas se reservan para el entrenamiento, y las evaluaciones científicas se ejecutan sobre las partidas $N+k$, garantizando que el modelo jamás haya observado ninguna posición de la partida bajo test.
+**Corrección aplicada en la v6** (`training/data_pipeline.py::pgn_a_muestras_divididas`):
+
+- La separación entrenamiento/validación se hace **por partida entera**: cada partida va completa a un lado (el 3 % de las partidas a validación, con semilla fija). Ninguna posición de una partida de validación aparece en entrenamiento.
+- La extracción registra hasta qué partida del archivo llegó (`partidas_crudas_leidas`); la evaluación comparativa usa partidas **posteriores** a ese punto (con un margen de 1.000) y **solo de maestros** (`evaluar_modelo(..., elo_minimo=...)`), así ninguna versión comparada las vio.
+- Las posiciones se guardan como `uint8` (768 bytes en lugar de 3.072), lo que permite entrenar con millones de posiciones en la memoria de Colab.
+
+Por esta razón la precisión de validación de la v6 **no es comparable** con la reportada para la v5: la comparación válida entre versiones es la del §7.3, con las mismas partidas nuevas para ambas.
 
 ---
 
@@ -335,13 +363,13 @@ A partir de esta distribución, el tutor genera un diagnóstico pedagógico form
 
 ---
 
-## 7. Resultados Experimentales y Comparativa Empírica (v2 vs. v3 vs. v4 vs. v5)
+## 7. Resultados Experimentales y Comparativa Empírica (v2 a v6)
 
 La evaluación científica se ejecutó sobre partidas de prueba no vistas durante las fases de entrenamiento (`saltar_partidas = 6000` en v3, `15000` en v4 y `35000` en v5), contrastando cada predicción de las distintas redes neuronales contra la evaluación objetiva del oráculo Stockfish.
 
 ### 7.1 Tabla Comparativa del Desarrollo Cognitivo Cuadrupartito
 
-| Métrica de Desempeño                          | Modelo v2 (CNN Base, "15 años") | Modelo v3 (ResNet 4B, "20 años") | Modelo v4 (SE-ResNet 6B, "25+ años") | Modelo v5 (SE-ResNet 8B, "Maestría FIDE") |     Salto Total (v2 $\to$ v5)      |
+| Métrica de Desempeño                          | Modelo v2 (CNN base) | Modelo v3 (ResNet 4B) | Modelo v4 (SE-ResNet 6B) | Modelo v5 (SE-ResNet 8B) |     Salto Total (v2 $\to$ v5)      |
 | :-------------------------------------------- | :-----------------------------: | :------------------------------: | :----------------------------------: | :---------------------------------------: | :--------------------------------: |
 | **Total Jugadas Evaluadas**                   |              1,426              |              1,204               |                1,231                 |                 **1,421**                 |                 -                  |
 | **Aciertos Exactos (Top-1)**                  |          26.58% (379)           |           37.54% (452)           |             37.86% (466)             |             **41.87% (595)**              |    **+15.29% (+57.5% rel.)** 🚀    |
@@ -351,14 +379,66 @@ La evaluación científica se ejecutó sobre partidas de prueba no vistas durant
 | **Errores Posicionales (100–299 cp)**         |          15.08% (215)           |           12.29% (148)           |              8.04% (99)              |              **8.80% (125)**              |             **-6.28%**             |
 | **Blunders / Cuelgues Graves ($\ge 300$ cp)** |          19.35% (276)           |           12.04% (145)           |             12.59% (155)             |              **8.59% (122)**              | **-10.76% (Menos de la mitad)** 🛡️ |
 
+> **Nota metodológica (2026-10-13).** Las cifras de esta tabla corresponden a la evaluación original de cada versión. Para la v5 esa evaluación no garantizaba que las partidas estuvieran fuera de la zona de entrenamiento ni se restringía a maestros (§5.2). Se conservan por trazabilidad histórica; la comparación v5 contra v6 con partidas realmente no vistas es la de §7.3.
+
 ### 7.2 Discusión Científica y Análisis de Ablación
 
 1. **Ruptura de la Barrera del 40% en Accuracy Top-1 y 75% en Solidez:**  
-   El modelo `v5` alcanza un hito fundamental para la tesis: un **41.87% de coincidencia exacta** con Grandes Maestros humanos y un **74.74% de jugadas sólidas** (Top-1 + Aceptables con pérdida $< 50$ cp), sosteniendo partidas completas contra jugadores de club y maestros en inferencia CPU pura en $< 15$ ms.
+   El modelo `v5` alcanza un hito fundamental para la tesis: un **41.87% de coincidencia exacta** con Grandes Maestros humanos y un **74.74% de jugadas sólidas** (Top-1 + Aceptables con pérdida $< 50$ cp), con inferencia en CPU en menos de $15$ ms por jugada. La fuerza de juego en partidas completas se midió aparte y es la de un aficionado (§7.4).
 2. **Desplome Histórico de los Blunders (Por Debajo del 9%):**  
-   Los errores catastróficos o cuelgues tácticos graves cayeron al **8.59%** (en comparación con el $19.35\%$ del modelo inicial). Con la incorporación adicional de la poda táctica local `predecir_jugada_maestra()` (< 3 ms), los blunders en tiempo de ejecución del brazo robótico quedan prácticamente extinguidos a $0\%$.
+   Los errores catastróficos o cuelgues tácticos graves cayeron al **8.59%** (en comparación con el $19.35\%$ del modelo inicial). La poda táctica local `predecir_jugada_maestra()` (< 3 ms) descarta las jugadas que entregan una pieza mayor o permiten un mate en 1, pero **no se midió una tasa de errores graves en partidas reales**; las partidas completas muestran que el modelo sigue cometiendo errores tácticos frente a rivales que calculan (§7.4).
 3. **Efecto de la Escala Curricular y Atención por Canales:**  
    El entrenamiento con 12,000 partidas de maestros (ELO $\ge$ 2000, ~850,000 posiciones en train) junto con la torre residual SE de 8 bloques y 192 canales dotó al agente de una comprensión posicional profunda, evidenciada por la baja tasa de imprecisiones ($7.88\%$).
+
+### 7.3 Modelo v6: más partidas, jugadores más fuertes y validación por partida
+
+**Configuración.** Red `RedSEResNetAjedrez` idéntica a la v5 (8 bloques residuales SE, 192 canales, 8.565.952 parámetros) para que la diferencia se deba a los datos y a la forma de validar. Corpus: **35.000 partidas** con ambos jugadores de ELO $\ge 2200$ (33.970 de entrenamiento y 1.030 de validación; 2.794.656 y 84.715 posiciones respectivamente, 2.879.371 en total, unas tres veces las de la v5). Optimización: AdamW ($\text{lr}_{max}=10^{-3}$, decaimiento de pesos $10^{-4}$), una época de calentamiento lineal y descenso coseno hasta $10^{-5}$, lote de 256, *label smoothing* $0{,}05$ y precisión mixta (FP16) sobre una GPU Tesla T4; unos 9,4 minutos por época.
+
+**Curva de validación (por partida).**
+
+| Época | Pérdida de entrenamiento | Val. top-1 | Val. top-3 |
+| ---: | ---: | ---: | ---: |
+| 1 | 3,3657 | 38,68 % | 65,04 % |
+| 3 | 2,3994 | 45,70 % | 73,66 % |
+| 6 | 2,0990 | 47,62 % | 75,77 % |
+| **9** | **1,8910** | **47,64 %** | 75,58 % |
+| 12 | 1,6978 | 47,02 % | 74,74 % |
+| 16 | 1,4506 | 46,09 % | 73,60 % |
+
+A partir de la época 9 la pérdida de entrenamiento sigue descendiendo mientras la precisión de validación **decrece**: **sobreajuste** (la red memoriza partidas de entrenamiento). Se conservó el punto de mayor precisión de validación (época 9) y el cuaderno de entrenamiento incorporó una **parada temprana** (`PACIENCIA = 4` épocas sin mejora).
+
+**Comparación v5 contra v6 con partidas nuevas.** Treinta partidas de maestros (ELO $\ge 2200$) posteriores a la zona de entrenamiento, 2.619 jugadas, las mismas para ambas versiones (`training/evaluar_modelo.py`); cada desacierto se clasifica por la pérdida que le causa según Stockfish (oráculo de medición, no de decisión). Los porcentajes son sobre el total de jugadas:
+
+| Indicador | v5 | v6 |
+| :--- | ---: | ---: |
+| Coincide con la jugada del maestro (top-1) | 43,15 % | **48,99 %** |
+| Desacierto aceptable (< 50 cp) | 33,4 % | 32,4 % |
+| Imprecisión (50–99 cp) | 8,9 % | 8,2 % |
+| Error (100–299 cp) | 8,5 % | 7,1 % |
+| Blunder ($\ge 300$ cp) | 6,0 % | **3,3 %** |
+
+La v6 acierta casi seis puntos más y comete casi la mitad de errores graves. Es una evaluación orientativa (30 partidas, y las jugadas de una misma partida no son independientes).
+
+### 7.4 Fuerza de juego en partidas completas
+
+La exactitud al predecir la jugada de un maestro no mide si el modelo **juega bien**. Para medirlo se jugaron partidas completas (`training/enfrentar_modelos.py`) con la misma lógica de decisión que usa la aplicación (red + poda táctica, sin consultar a Stockfish), en 20 aperturas distintas jugadas con los dos colores, para que ningún lado tenga ventaja. Las partidas que llegan a 240 medias jugadas se declaran tablas.
+
+**Modelo contra modelo.** La v6 contra la v5, 40 partidas: **+23 =15 −2** (puntaje 76,2 %, equivalente a unos $+200$ puntos de Elo; intervalo de confianza aproximado del 95 %: de $+124$ a $+307$).
+
+**Contra Stockfish con el nivel de habilidad (`Skill Level`) limitado**, 0,05 s por jugada (victorias / tablas / derrotas del modelo):
+
+| Rival | v5 | v6 |
+| :--- | :---: | :---: |
+| Skill 0 (12 partidas) | 1 / 3 / 8 | **5 / 2 / 5** |
+| Skill 3 (12 partidas) | 1 / 2 / 9 | 0 / 5 / 7 |
+| Skill 5 (12 partidas) | 0 / 0 / 12 | 0 / 1 / 11 |
+| Skill 8, 12, 16 y 20 (20 partidas c/u) | casi todo derrotas | 0 / 0 / 20 en los cuatro niveles |
+
+**Conclusión.** La red de política sola juega aproximadamente al nivel de Stockfish con la habilidad mínima: **imita jugadas de maestros, pero no juega como un maestro**. Es esperable, porque la red no explora variantes y Stockfish sí. En consecuencia, el nivel "18 / Maestro" de la escala del sistema se deriva del ELO de los datos de entrenamiento y **no es una fuerza de juego medida**; el tope de nivel del modelo no se modificó.
+
+### 7.5 Búsqueda de variantes sobre la red
+
+Los resultados de agregar cálculo a la red (§12) se reportan en §12.4.
 
 ---
 
@@ -366,44 +446,47 @@ La evaluación científica se ejecutó sobre partidas de prueba no vistas durant
 
 Para la sustentación académica y defensa de grado, el proceso de entrenamiento del agente inteligente se estructura bajo la **Metáfora del Desarrollo Cognitivo Antropomórfico**, fundamentada rigurosamente en la _Teoría del Aprendizaje por Currículo_ (_Curriculum Learning_, Bengio et al., 2009) y la _Teoría de Plantillas y Bloques Perceptuales en Ajedrez_ (_Template Theory_, Chase & Simon, 1973; Gobet & Simon, 1996).
 
+> **Aclaración (2026-10-13).** Las "edades cognitivas" y los títulos de esta sección son una **analogía pedagógica** para explicar la progresión de las versiones; **no indican fuerza de juego**. La fuerza medida se reporta en §7.4 y §13: la red sola de la v6 juega al nivel de un aficionado (Elo estimado de unos 1.355 contra Stockfish con ELO calibrado, en las condiciones descritas en §13).
+
 El sistema no nació siendo un Gran Maestro; su red neuronal fue "educada" de manera análoga a las etapas de maduración de un ajedrecista humano a lo largo de su vida:
 
 ```mermaid
 timeline
-    title Evolución Cognitiva del Agente Neuronal (De la Infancia a la Maestría)
-    Fase 1 (La Infancia - 10 años) : Prototipo v1 : 200 partidas sin filtrar : Reglas elementales y visión miope : Comprobación de tubería de datos
-    Fase 2 (La Adolescencia de Club - 15 años) : Modelo v2 : 2,000 partidas Lichess : Comprensión de patrones comunes : Auditoría con Oráculo Stockfish (26.5% Top-1, 19.3% Blunders)
-    Fase 3 (El Maestro Titulado - 20 años) : Modelo v3 : 3,000 partidas (ELO >= 1900) : ResNet profunda con Skip Connections : Gran reducción de colgadas (37.5% Top-1, 12.0% Blunders)
-    Fase 4 (El Gran Maestro de Élite - 25+ años) : Modelo v4 : 8,000 partidas (ELO >= 2000) : SE-ResNet 6 Bloques con Atención Selectiva : Label Smoothing y Refinamiento Posicional
-    Fase 5 (La Maestría FIDE Consolidada - 30 años) : Modelo v5 : 12,000 partidas magistrales (ELO >= 2000) : SE-ResNet 8 Bloques (192 Canales) : 41.87% Top-1, 74.74% Sólido, Poda Táctica Local (< 3 ms)
+    title Evolución de las Versiones del Agente Neuronal (v1 a v6)
+    Fase 1 (Prototipo) : Prototipo v1 : 200 partidas sin filtrar : Reglas elementales y visión miope : Comprobación de tubería de datos
+    Fase 2 (Corpus ampliado) : Modelo v2 : 2,000 partidas Lichess : Comprensión de patrones comunes : Auditoría con Oráculo Stockfish (26.5% Top-1, 19.3% Blunders)
+    Fase 3 (Red residual) : Modelo v3 : 3,000 partidas (ELO >= 1900) : ResNet profunda con Skip Connections : Gran reducción de colgadas (37.5% Top-1, 12.0% Blunders)
+    Fase 4 (Atención selectiva) : Modelo v4 : 8,000 partidas (ELO >= 2000) : SE-ResNet 6 Bloques con Atención Selectiva : Label Smoothing y Refinamiento Posicional
+    Fase 5 (Consolidación) : Modelo v5 : 12,000 partidas magistrales (ELO >= 2000) : SE-ResNet 8 Bloques (192 Canales) : 41.87% Top-1, 74.74% Sólido, Poda Táctica Local (< 3 ms)
+    Fase 6 (Validación honesta) : Modelo v6 : 35,000 partidas (ELO >= 2200) : Validación por partida entera : 48.99% Top-1 en partidas nuevas, gana 23-2 a la v5
 ```
 
 ---
 
-### Fase 1: La Infancia del Agente (Versión v1 - "El Niño de 10 Años")
+### Fase 1: El Prototipo (Versión v1)
 
-- **Edad Cognitiva:** ~10 años (Principiante que recién asimila las reglas de movimiento).
+- **Analogía pedagógica (no indica fuerza de juego):** ~10 años (Principiante que recién asimila las reglas de movimiento).
 - **Parámetros Técnicos:** 200 partidas tomadas al azar, 10 épocas, optimizador Adam convencional, CNN básica de 3 capas.
 - **Comportamiento Lúdico:** Juega por imitación inmediata de jugadas observadas. No evalúa consecuencias a medio plazo; mueve piezas atacadas sin coordinar planes defensivos.
 - **Aporte Académico:** Demostró la viabilidad técnica del flujo completo (lectura de PGN streaming $\to$ codificación tensorial $8 \times 8 \times 12 \to$ inferencia en tiempo real).
 
-### Fase 2: La Adolescencia de Club (Versión v2 - "El Joven de 15 Años")
+### Fase 2: Corpus Ampliado (Versión v2)
 
-- **Edad Cognitiva:** ~15 años (Jugador de club escolar que asiste a torneos locales).
+- **Analogía pedagógica (no indica fuerza de juego):** ~15 años (Jugador de club escolar que asiste a torneos locales).
 - **Parámetros Técnicos:** 2,000 partidas de Lichess sin filtro ELO (~140,000 posiciones), 10 épocas, split limpio por partida completa.
 - **Comportamiento Lúdico:** Conoce tácticas estándar (jaques directos, capturas obvias, desarrollo de piezas menores), pero sufre de distracciones tácticas frecuentes cuando el rival elabora clavadas o amenazas a distancia.
 - **Resultados Empíricos:** Coincidencia Top-1 del $26.58\%$ y $54.00\%$ de jugadas sólidas, pero con un $19.35\%$ de errores catastróficos (_blunders_ $\ge 300$ cp) debido al ruido de partidas de aficionados.
 
-### Fase 3: La Juventud Competitiva (Versión v3 - "El Maestro de 20 Años")
+### Fase 3: Red Residual (Versión v3)
 
-- **Edad Cognitiva:** ~20 años (Aspirante a Maestro FIDE / Candidato a Maestro).
+- **Analogía pedagógica (no indica fuerza de juego):** ~20 años (Aspirante a Maestro FIDE / Candidato a Maestro).
 - **Parámetros Técnicos:** 3,000 partidas rigurosamente filtradas ($\text{ELO} \ge 1900$), 4 bloques residuales (`RedResNetAjedrez`), optimizador AdamW con _Cosine Annealing_.
 - **Comportamiento Lúdico:** Estudia exclusivamente las obras de maestros. Las conexiones residuales (_skip connections_) actúan como la memoria de trabajo humana, permitiendo seguir la trayectoria de diagonales y columnas abiertas sin degradación.
 - **Resultados Empíricos:** Salto extraordinario a **$37.54\%$ en precisión Top-1 (+41.2% relativo)**, **$64.70\%$ de decisiones competitivas** y caída drástica de errores graves al **$12.04\%$ (-37.8% de blunders)**.
 
-### Fase 4: La Madurez y Atención Selectiva (Versión v4 - "El Gran Maestro de 25+ Años")
+### Fase 4: Atención Selectiva (Versión v4)
 
-- **Edad Cognitiva:** 25+ años (Gran Maestro Internacional con alta capacidad de cálculo y atención focalizada).
+- **Analogía pedagógica (no indica fuerza de juego):** 25+ años (Gran Maestro Internacional con alta capacidad de cálculo y atención focalizada).
 - **Fundamento Teórico:** Incorpora la **Teoría de la Atención Selectiva** mediante bloques _Squeeze-and-Excitation_ (Hu et al., 2018). Un Gran Maestro no calcula mecánicamente cada casilla; focaliza su atención cognitiva en las piezas desprotegidas y las rupturas críticas del centro.
 - **Parámetros Técnicos:**
   1. **Datos de Élite:** 8,000 partidas con $\min(\text{WhiteElo}, \text{BlackElo}) \ge 2000$ (~600,000 a 700,000 posiciones magistrales).
@@ -411,19 +494,26 @@ timeline
   3. **Regularización Cognitiva:** Pérdida de entropía cruzada con _Label Smoothing_ ($\alpha = 0.05$), que impide la sobreconfianza dogmática y reconoce que en posiciones ricas pueden coexistir múltiples planes correctos.
   4. **Optimización:** 20 épocas con decaimiento de peso y programación coseno de la tasa de aprendizaje.
 
-### Fase 5: La Consolidación y Maestría FIDE (Versión v5 - "El Gran Maestro de 30 Años")
+### Fase 5: Consolidación (Versión v5)
 
-- **Edad Cognitiva:** ~30 años (Gran Maestro FIDE internacional en el cénit de su madurez competitiva, intuición estratégica y solidez técnica).
+- **Analogía pedagógica (no indica fuerza de juego):** ~30 años (Gran Maestro FIDE internacional en el cénit de su madurez competitiva, intuición estratégica y solidez técnica).
 - **Fundamento Teórico:** Escalado curricular a gran escala y blindaje contra el error catastrófico mediante **doble filtro cognitivo**: Percepción Neuronal Profunda SE-ResNet-8 complementada con **Poda Táctica Heurística Local** (`predecir_jugada_maestra`).
 - **Parámetros Técnicos:**
-  1. **Dataset de Maestros a Gran Escala:** 12,000 partidas completas con $\min(\text{WhiteElo}, \text{BlackElo}) \ge 2000$ (~850,000 posiciones en conjunto de entrenamiento y ~94,000 en validación no vista).
-  2. **Arquitectura Robusta:** `RedSEResNetAjedrez` con 8 bloques residuales SE y 192 canales (~4.5 millones de parámetros entrenables).
-  3. **Poda Táctica Heurística en Inferencia:** Para garantizar movimientos 100% seguros y evitar cualquier anomalía en el brazo físico provocada por el residual de $8.59\%$ de colgadas del clasificador base, la función `predecir_jugada_maestra()` extrae las $K=5$ mejores alternativas por política de Softmax y ejecuta un filtrado táctico instantáneo en CPU (< 3 ms) sin consultar motores externos. Este filtro descarta en tiempo $\mathcal{O}(1)$ cualquier jugada que entregue una pieza mayor indefensa sin contrapartida o permita jaque mate forzado en 1 ply, reduciendo los blunders en juego real a **0.0%**.
+  1. **Dataset de Maestros a Gran Escala:** 12,000 partidas completas con $\min(\text{WhiteElo}, \text{BlackElo}) \ge 2000$ (944.534 posiciones en total; la separación 90/10 se hizo por posición suelta, ver §5.2).
+  2. **Arquitectura Robusta:** `RedSEResNetAjedrez` con 8 bloques residuales SE y 192 canales (8.565.952 parámetros entrenables).
+  3. **Poda Táctica Heurística en Inferencia:** Para garantizar movimientos 100% seguros y evitar cualquier anomalía en el brazo físico provocada por el residual de $8.59\%$ de colgadas del clasificador base, la función `predecir_jugada_maestra()` extrae las $K=5$ mejores alternativas por política de Softmax y ejecuta un filtrado táctico instantáneo en CPU (< 3 ms) sin consultar motores externos. Este filtro descarta en tiempo $\mathcal{O}(1)$ cualquier jugada que entregue una pieza mayor indefensa sin contrapartida o permita jaque mate forzado en 1 ply, que descarta las jugadas que entregan una pieza mayor o permiten un mate en 1. Su efecto sobre la tasa de errores en partidas completas no se midió por separado (ver §7.4).
 - **Resultados Empíricos:**
-  - Hito histórico de **41.87% de coincidencia exacta humana Top-1** (595 aciertos sobre 1,421 jugadas inéditas de maestros).
+  - Hito histórico de **41.87% de coincidencia exacta humana Top-1** (595 aciertos sobre 1,421 jugadas de la evaluación original; ver la nota metodológica de §7).
   - Tasa de jugadas viables y sólidas del **74.74%** (1,062 de 1,421).
   - Desplome de blunders al **8.59%** en el modelo neuronal base (reducción de más del 55% frente al modelo v2).
   - Inferencia ultra-rápida de **10 a 15 ms en CPU** estándar, óptima para el control en tiempo real del brazo robótico sin latencia perceptible.
+
+### Fase 6: Más Datos y Validación Honesta (Versión v6)
+
+- **Analogía pedagógica (no indica fuerza de juego):** repaso del mismo programa de estudio con más material y un examen sin repetición de preguntas.
+- **Parámetros técnicos:** misma arquitectura que la v5; 35.000 partidas con ELO $\ge 2200$ en ambos jugadores; validación por partida entera; precisión mixta; parada temprana.
+- **Resultados empíricos:** 47,64 % de top-1 en validación por partida (época 9); 48,99 % de top-1 en 2.619 jugadas de maestros no vistas (la v5: 43,15 %); errores graves del 3,3 % (la v5: 6,0 %); gana 23, empata 15 y pierde 2 contra la v5 en partidas completas (§7.3–§7.4).
+- **Limitación observada:** sobreajuste desde la época 9; el siguiente avance requiere más partidas distintas, más regularización o cálculo adicional (§12).
 
 ---
 
@@ -521,22 +611,97 @@ Esta latencia ultra baja (< 20 ms) resulta determinante para la fase de integrac
 
 ---
 
-## 12. Referencias Bibliográficas (Normas APA 7ma Edición)
+## 12. Búsqueda de Variantes sobre la Red de Política (Turing con Cálculo)
+
+### 12.1 Motivación
+
+Los resultados de §7.4 muestran que una red de política sin cálculo comete errores tácticos que cualquier motor de búsqueda evita: no "ve" que una jugada pierde una pieza dos jugadas más tarde. Siguiendo la tradición de los programas de ajedrez desde Shannon (1950), se combina la **intuición** de la red (qué jugadas merecen atención) con **cálculo** explícito de variantes (qué ocurre si se juegan), de forma análoga a cómo AlphaGo y AlphaZero combinan una red de política con búsqueda (Silver et al., 2016; 2017). A diferencia de esos sistemas, aquí la evaluación de las posiciones hojas es una función propia, simple y determinista, y **en ningún momento se consulta a Stockfish** (Regla 1 del proyecto).
+
+### 12.2 Diseño (`backend/servicios/aprendizaje/busqueda_turing.py`)
+
+1. **Probabilidades de la red.** Una sola pasada de la red da, por *softmax* restringido a las jugadas legales, la probabilidad $P(a \mid s)$ de cada jugada.
+2. **Candidatas.** Las 12 jugadas más probables y, hasta 6 más, capturas y jaques que la red hubiera subestimado.
+3. **Búsqueda.** *Negamax* con poda alfa-beta (Knuth & Moore, 1975), ordenamiento de jugadas por captura (mayor víctima, menor atacante) y promoción, **búsqueda de quietud** (se siguen las capturas hasta que la posición se calma, hasta 8 niveles, para no evaluar en medio de un intercambio) y **profundización iterativa** con límite de tiempo: si el tiempo se agota a mitad de un nivel se usa el resultado del nivel anterior.
+4. **Evaluación estática.** Material (peón 100, caballo 320, alfil 330, torre 500, dama 900 centipeones) más una tabla de posición por tipo de pieza; el rey usa una tabla de final cuando ningún bando conserva más de 2.600 centipeones de material sin contar peones. Se trata la repetición, el material insuficiente y la regla de los 50 movimientos como tablas.
+5. **Combinación con la red.** El puntaje final de cada candidata $a$ es
+
+$$S(a) = C(a) + w \cdot \ln P(a \mid s)$$
+
+donde $C(a)$ es el puntaje del cálculo (centipeones, desde la óptica de quien mueve) y $w$ (`peso_red`) regula cuánto manda la red: con $w = 0$ decide solo el cálculo; con $w$ alto la red decide salvo que el cálculo encuentre una ventaja mayor. Se elige la jugada de mayor $S(a)$; los mates encontrados cortan la profundización.
+
+**Costo.** En Python, con `python-chess`, el buscador procesa unos 17.000 a 20.000 nodos por segundo; una profundidad de 2 a 3 medias jugadas por posición cuesta entre décimas de segundo y un segundo. El procedimiento es determinista y no aprende en vivo (Regla 2).
+
+### 12.3 Verificación
+
+Quince pruebas unitarias (`test_busqueda_turing.py`) comprueban, entre otras cosas: que se encuentre un mate en 1 y el mate del pasillo, que se capture una dama colgada, que **no se regale la dama aunque la red la prefiera**, que con $w = 0$ mande solo el cálculo, que se devuelva siempre una jugada legal, que la posición recibida no se modifique y que una búsqueda con tiempo casi nulo igualmente responda.
+
+### 12.4 Resultados
+
+Se enfrenta la red **más** búsqueda contra la **misma red sola** (checkpoint v6), 20 aperturas con los dos colores (40 partidas), máximo 1 s por jugada de búsqueda. Resultados desde el punto de vista de la red con búsqueda:
+
+| Profundidad | Peso de la red $w$ | Victorias / tablas / derrotas | Puntaje | Diferencia de Elo (IC 95 %) |
+| :---: | :---: | :---: | ---: | :--- |
+| 2 | 40 | **29 / 11 / 0** | 86,2 % | $+319$ ($+234$ a $+454$) |
+
+Las demás configuraciones (profundidad 3 con pesos 20, 40 y 100) están en medición y se agregan a esta tabla al terminar. La búsqueda de profundidad 2 con $w = 40$ no perdió ninguna de las 40 partidas contra la red sola.
+
+---
+
+## 13. Medición de la Fuerza de Juego (Elo) y Protocolo UCI
+
+### 13.1 Modelo de Elo
+
+El sistema de calificación Elo (Elo, 1978) estima la probabilidad esperada de que un jugador $A$ de calificación $R_A$ obtenga un punto (victoria = 1, tablas = 0,5) frente a $B$ de calificación $R_B$:
+
+$$E_A = \frac{1}{1 + 10^{(R_B - R_A)/400}}$$
+
+Dados los resultados de $A$ contra rivales de calificación conocida $R_i$ (con $n_i$ partidas y puntaje medio $s_i$), se estima $R_A$ como el valor que iguala el puntaje esperado al obtenido, es decir, la solución de $\sum_i n_i\,(s_i - E_i(R_A)) = 0$ (estimación de máxima verosimilitud logística, `training/enfrentar_modelos.py::estimar_elo`, resuelta por bisección). El intervalo de confianza del 95 % se aproxima con la información de Fisher, $\operatorname{Var}(\hat R_A) \approx \left[ k^2 \sum_i n_i E_i (1 - E_i) \right]^{-1}$ con $k = \ln 10 / 400$; es aproximado y se achata con pocas partidas.
+
+### 13.2 Rivales calibrados
+
+Se usa como rival Stockfish con fuerza limitada (`UCI_LimitStrength` y `UCI_Elo`, rango de 1320 a 3190). **Limitación:** esa calibración corresponde a controles de tiempo largos; con $0{,}2$ s por jugada no es exacta, por lo que el Elo estimado es **relativo a ese rival y a ese tiempo** y sirve sobre todo para comparar versiones del modelo entre sí, no como calificación oficial.
+
+### 13.3 Resultado para la v6 (red sola)
+
+Cuarenta partidas contra cada rival (20 aperturas, dos colores), 0,2 s por jugada del rival:
+
+| Rival (Stockfish con ELO calibrado) | Victorias / tablas / derrotas | Puntaje |
+| :--- | :---: | ---: |
+| 1320 | 16 / 9 / 15 | 51,2 % |
+| 1500 | 7 / 10 / 23 | 30,0 % |
+| 1700 | 2 / 9 / 29 | 16,2 % |
+
+**Elo estimado de la v6 (red sola): $\approx 1355$ (intervalo del 95 %: de 1284 a 1427; 120 partidas).** Es el valor de referencia contra el cual se mide cada mejora posterior (la búsqueda de §12 y las versiones siguientes), aceptando un cambio únicamente si el puntaje mejora de forma clara.
+
+### 13.4 Interfaz UCI
+
+Turing se expone como motor del **protocolo UCI** (*Universal Chess Interface*; Meyer-Kahlen, 2000), el estándar con el que los programas de ajedrez se comunican con sus motores (`training/turing_uci.py`). Soporta `uci`, `isready`, `setoption` (opciones `Checkpoint` y `Nivel`), `ucinewgame`, `position`, `go` y `quit`. Con ello Turing puede conectarse a cualquier programa que acepte motores UCI, igual que Stockfish, y medirse con herramientas estándar. La interfaz se verificó con pruebas unitarias del protocolo y con una prueba de punta a punta en la que un proceso real de Turing juega contra la biblioteca `python-chess` con la red cargada.
+
+---
+
+## 14. Referencias Bibliográficas (Normas APA 7ma Edición)
 
 - Adadi, A., & Berrada, M. (2018). Peeking inside the black-box: A review of Explainable Artificial Intelligence (XAI). _IEEE Access_, 6, 52138-52160. https://doi.org/10.1109/ACCESS.2018.2870052
 - Bengio, Y., Louradour, J., Collobert, R., & Weston, J. (2009). Curriculum learning. En _Proceedings of the 26th annual international conference on machine learning (ICML)_ (pp. 41-48). https://doi.org/10.1145/1553374.1553380
 - Chase, W. G., & Simon, H. A. (1973). Perception in chess. _Cognitive Psychology_, 4(1), 55-81. https://doi.org/10.1016/0010-0285(73)90004-2
+- Elo, A. E. (1978). _The rating of chessplayers, past and present_. Arco Publishing.
 - FIDE. (2022). _FIDE Laws of Chess_. International Chess Federation. https://www.fide.com/fide/handbook
+- Fiekas, N. (2024). _python-chess: A chess library for Python_. https://python-chess.readthedocs.io/
 - Gobet, F., & Simon, H. A. (1996). Templates in chess memory: A mechanism for recalling several boards. _Cognitive Psychology_, 31(1), 1-40. https://doi.org/10.1006/cogp.1996.0011
 - He, K., Zhang, X., Ren, S., & Sun, J. (2016). Deep residual learning for image recognition. En _Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_ (pp. 770-778). https://doi.org/10.1109/CVPR.2016.90
 - Hu, J., Shen, L., & Sun, G. (2018). Squeeze-and-excitation networks. En _Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_ (pp. 7132-7141). https://doi.org/10.1109/CVPR.2018.00745
 - Kaufman, S., Rosset, S., Perlich, C., & Stitelman, O. (2012). Leakage in data mining: Formulation, detection, and avoidance. _ACM Transactions on Knowledge Discovery from Data (TKDD)_, 6(4), 1-21. https://doi.org/10.1145/2382577.2382579
+- Knuth, D. E., & Moore, R. W. (1975). An analysis of alpha-beta pruning. _Artificial Intelligence_, 6(4), 293-326. https://doi.org/10.1016/0004-3702(75)90019-3
+- Lichess. (s. f.). _Lichess open database_ [Conjunto de datos, licencia CC0]. https://database.lichess.org/
 - Loshchilov, I., & Hutter, F. (2017). SGDR: Stochastic gradient descent with warm restarts. En _International Conference on Learning Representations (ICLR)_.
 - Loshchilov, I., & Hutter, F. (2019). Decoupled weight decay regularization. En _International Conference on Learning Representations (ICLR)_. https://openreview.net/forum?id=Bkg6RiCqY7
 - McIlroy-Young, R., Sen, S., Kleinberg, J., & Anderson, A. (2020). Aligning superhuman AI with human behavior: Chess as a model system. En _Proceedings of the 26th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining_ (pp. 1677-1687). https://doi.org/10.1145/3394486.3403219
+- Meyer-Kahlen, S. (2000). _UCI - Universal Chess Interface_. Shredder Chess. https://www.shredderchess.com/chess-features/uci-universal-chess-interface.html
 - Müller, R., Kornblith, S., & Hinton, G. E. (2019). When does label smoothing help? En _Advances in Neural Information Processing Systems (NeurIPS)_, 32.
 - Romstad, T., Costalba, M., Kiiski, J., & Linscott, G. (2024). _Stockfish: A strong open-source chess engine_. https://stockfishchess.org/
 - Rudin, C. (2019). Stop explaining black box machine learning models for high stakes decisions and use interpretable models instead. _Nature Machine Intelligence_, 1(5), 206-215. https://doi.org/10.1038/s42256-019-0048-x
 - Russell, S., & Norvig, P. (2020). _Artificial Intelligence: A Modern Approach_ (4ta ed.). Pearson.
+- Shannon, C. E. (1950). Programming a computer for playing chess. _Philosophical Magazine_, 41(314), 256-275.
+- Silver, D., Huang, A., Maddison, C. J., Guez, A., Sifre, L., van den Driessche, G., Schrittwieser, J., Antonoglou, I., Panneershelvam, V., Lanctot, M., Dieleman, S., Grewe, D., Nham, J., Kalchbrenner, N., Sutskever, I., Lillicrap, T., Leach, M., Kavukcuoglu, K., Graepel, T., & Hassabis, D. (2016). Mastering the game of Go with deep neural networks and tree search. _Nature_, 529(7587), 484-489. https://doi.org/10.1038/nature16961
 - Silver, D., Hubert, T., Schrittwieser, J., Antonoglou, I., Lai, M., Guez, A., Lanctot, M., Sifre, L., Dhar, S., Lillicrap, T., Graepel, T., & Hassabis, D. (2017). Mastering chess and shogi by self-play with a general reinforcement learning algorithm. _arXiv preprint arXiv:1712.01815_. https://doi.org/10.48550/arXiv.1712.01815
 - Sutton, R. S., & Barto, A. G. (2018). _Reinforcement Learning: An Introduction_ (2da ed.). MIT Press.
