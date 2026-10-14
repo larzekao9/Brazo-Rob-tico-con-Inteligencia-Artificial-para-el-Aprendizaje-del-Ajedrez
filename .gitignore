@@ -58,3 +58,14 @@ graphify-out/
 app_movil/.flutter-plugins-dependencies*
 .codex/
 .agents/
+
+# Volcados de caída de la JVM (Gradle/Android Studio) y salida de compilación de Android
+hs_err_pid*.log
+replay_pid*.log
+app_movil/android/build/
+
+# Material personal de estudio (no forma parte del código ni de la documentación formal)
+docs/guia_de_estudio_turing.md
+
+# Capturas de diseño de la app (referencia visual, no es código)
+imgapp/

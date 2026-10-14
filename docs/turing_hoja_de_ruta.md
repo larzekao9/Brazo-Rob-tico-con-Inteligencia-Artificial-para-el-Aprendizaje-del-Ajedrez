@@ -13,7 +13,7 @@ los checkpoints no se suben a git.
 | # | Paso | Estado |
 |---|---|---|
 | 0 | Interfaz UCI + medición de Elo base contra Stockfish con Elo calibrado | **Hecho** (v6 ≈ 1355 Elo) |
-| 1 | Búsqueda ligera sobre la red + libro de aperturas | Pendiente |
+| 1 | Búsqueda ligera sobre la red + libro de aperturas | Búsqueda **hecha y medida contra la red sola** (profundidad 3, peso 40: 92,5 %); falta medir su Elo absoluto, integrarla a la app/UCI y el libro de aperturas |
 | 2 | Bot de Lichess (rating público) | Pendiente |
 | 3 | Cabeza de valor + búsqueda estilo AlphaZero (datos: base de evaluaciones de Lichess) | Pendiente |
 | 4 | Evolución visible: gráfico de Elo por versión + modo "escalera" | Pendiente |
@@ -43,6 +43,15 @@ descarta o se revierte.
 | 2026-10-13 | v6 contra Stockfish niveles 3 / 5 | 12 partidas c/u | 20,8 % / 4,2 % |
 | 2026-10-13 | v6 contra Stockfish niveles 8 a 20 | 20 partidas c/u | ≈ 0 % |
 | 2026-10-13 | **v6, Elo base** (`training/medir_elo.py`, Stockfish con `UCI_Elo`, 0,2 s por jugada, 40 partidas por rival) | 1320: +16 =9 −15 (51,2 %); 1500: +7 =10 −23 (30,0 %); 1700: +2 =9 −29 (16,2 %) | **Elo estimado 1355** (intervalo ~95 %: 1284 a 1427; 120 partidas) |
+
+Búsqueda de variantes sobre la v6 (red + cálculo contra la **misma red sola**, 40 partidas, 20 aperturas, máx. 1 s por jugada de búsqueda):
+
+| Fecha | Profundidad / peso de la red | Resultado (+ = −) | Puntaje | Dif. Elo (IC 95 %) |
+|---|---|---|---|---|
+| 2026-10-14 | 2 / 40 | +29 =11 −0 | 86,2 % | +319 (+234 a +454) |
+| 2026-10-14 | 3 / 20 | +29 =9 −2 | 83,8 % | +285 (+191 a +437) |
+| 2026-10-14 | **3 / 40** | **+34 =6 −0** | **92,5 %** | **+436 (+330 a +679)** |
+| 2026-10-14 | 3 / 100 | +24 =15 −1 | 78,8 % | +228 (+150 a +333) |
 
 ## Ficha del modelo (se completa al cerrar cada versión)
 

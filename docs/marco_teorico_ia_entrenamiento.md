@@ -641,9 +641,12 @@ Se enfrenta la red **más** búsqueda contra la **misma red sola** (checkpoint v
 
 | Profundidad | Peso de la red $w$ | Victorias / tablas / derrotas | Puntaje | Diferencia de Elo (IC 95 %) |
 | :---: | :---: | :---: | ---: | :--- |
-| 2 | 40 | **29 / 11 / 0** | 86,2 % | $+319$ ($+234$ a $+454$) |
+| 2 | 40 | 29 / 11 / 0 | 86,2 % | $+319$ ($+234$ a $+454$) |
+| 3 | 20 | 29 / 9 / 2 | 83,8 % | $+285$ ($+191$ a $+437$) |
+| 3 | 40 | **34 / 6 / 0** | **92,5 %** | $+436$ ($+330$ a $+679$) |
+| 3 | 100 | 24 / 15 / 1 | 78,8 % | $+228$ ($+150$ a $+333$) |
 
-Las demás configuraciones (profundidad 3 con pesos 20, 40 y 100) están en medición y se agregan a esta tabla al terminar. La búsqueda de profundidad 2 con $w = 40$ no perdió ninguna de las 40 partidas contra la red sola.
+La mejor configuración medida es la de **profundidad 3 con $w = 40$**: no perdió ninguna de las 40 partidas contra la red sola. Con $w$ más bajo (20) el cálculo manda demasiado y su evaluación simple (material y posición) comete errores que la red evitaba; con $w$ más alto (100) la red manda tanto que el cálculo casi no corrige nada (más tablas). El valor intermedio rinde mejor, lo que respalda combinar ambas fuentes en lugar de usar una sola. Estos intervalos son de 40 partidas y las configuraciones se ajustaron sobre las mismas 20 aperturas, de modo que la diferencia exacta de Elo debe tomarse como orden de magnitud; el Elo absoluto con búsqueda frente a Stockfish aún no se ha medido.
 
 ---
 
