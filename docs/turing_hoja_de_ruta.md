@@ -13,7 +13,7 @@ los checkpoints no se suben a git.
 | # | Paso | Estado |
 |---|---|---|
 | 0 | Interfaz UCI + medición de Elo base contra Stockfish con Elo calibrado | **Hecho** (v6 ≈ 1355 Elo) |
-| 1 | Búsqueda ligera sobre la red + libro de aperturas | Búsqueda **hecha y medida contra la red sola** (profundidad 3, peso 40: 92,5 %); falta medir su Elo absoluto, integrarla a la app/UCI y el libro de aperturas |
+| 1 | Búsqueda ligera sobre la red + libro de aperturas | Búsqueda **hecha y medida**: 92,5 % contra la red sola y **Elo ≈ 1808** (profundidad 3, peso 40). Falta integrarla a la app/UCI y el libro de aperturas |
 | 2 | Bot de Lichess (rating público) | Pendiente |
 | 3 | Cabeza de valor + búsqueda estilo AlphaZero (datos: base de evaluaciones de Lichess) | Pendiente |
 | 4 | Evolución visible: gráfico de Elo por versión + modo "escalera" | Pendiente |
@@ -52,6 +52,16 @@ Búsqueda de variantes sobre la v6 (red + cálculo contra la **misma red sola**,
 | 2026-10-14 | 3 / 20 | +29 =9 −2 | 83,8 % | +285 (+191 a +437) |
 | 2026-10-14 | **3 / 40** | **+34 =6 −0** | **92,5 %** | **+436 (+330 a +679)** |
 | 2026-10-14 | 3 / 100 | +24 =15 −1 | 78,8 % | +228 (+150 a +333) |
+
+**Elo absoluto de la v6 con búsqueda** (profundidad 3, peso de la red 40, 1 s máx. de búsqueda por jugada; Stockfish con `UCI_Elo`, 0,2 s por jugada, 40 partidas por rival, 2026-10-14):
+
+| Rival | Resultado (G/E/P) | Puntaje | Red sola (mismo rival) |
+|---|---|---|---|
+| 1500 | +30 =7 −3 | 83,8 % | 30,0 % |
+| 1700 | +20 =4 −16 | 55,0 % | 16,2 % |
+| 1900 | +11 =17 −12 | 48,8 % | — |
+
+**Elo estimado: 1808** (intervalo ~95 %: 1737 a 1878; 120 partidas), contra **1355** de la red sola: la búsqueda aporta unos **+450 Elo** en esta escala. Sigue siendo relativo a este rival y a 0,2 s por jugada. (La primera corrida se cayó por un `TimeoutError` de Stockfish en el rival 1700; el rival 1500 ya estaba medido y se repitió solo 1700 y 1900. `JugadorStockfish` ahora reinicia el motor y reintenta.)
 
 ## Ficha del modelo (se completa al cerrar cada versión)
 

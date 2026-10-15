@@ -106,7 +106,7 @@ def test_estrategia_modelo_pasa_su_nivel_a_predecir_jugada_maestra(monkeypatch) 
     assert recibido["fen"] == POSICION_INICIAL
     assert recibido["kwargs"] == {"nivel": 9}
 
-    EstrategiaModelo().decidir_jugada(POSICION_INICIAL)
+    EstrategiaModelo(profundidad_busqueda=0).decidir_jugada(POSICION_INICIAL)
     assert recibido["kwargs"] == {"nivel": None}
 
 
@@ -135,3 +135,90 @@ def test_estrategia_modelo_nivel_bajo_decide_jugadas_legales_y_no_usa_stockfish(
     for _ in range(10):
         jugada_san = estrategia.decidir_jugada(POSICION_INICIAL)
         assert tablero.parse_san(jugada_san) in tablero.legal_moves
+
+
+# --- búsqueda de variantes de Turing (solo en modo maestro) ----------------------------------------------------------
+def _falsa_busqueda(monkeypatch) -> dict:
+    """Reemplaza la búsqueda por una de mentira que registra con qué parámetros la llamaron."""
+    pytest.importorskip("torch")
+
+    from backend.servicios.aprendizaje import busqueda_turing, inferencia
+
+    llamadas: dict = {"busqueda": [], "red_sola": []}
+
+    def falsa_busqueda(fen, ruta, profundidad, tiempo, peso):
+        llamadas["busqueda"].append((profundidad, tiempo, peso))
+        return "e4"
+
+    def falsa_red_sola(fen, ruta, **kwargs):
+        llamadas["red_sola"].append(kwargs)
+        return "d4"
+
+    monkeypatch.setattr(busqueda_turing, "elegir_jugada_con_busqueda", falsa_busqueda)
+    monkeypatch.setattr(inferencia, "predecir_jugada_maestra", falsa_red_sola)
+    return llamadas
+
+
+@pytest.mark.parametrize("nivel", [None, 18, 20])
+def test_modo_maestro_usa_la_busqueda_con_los_valores_medidos(monkeypatch, nivel) -> None:
+    monkeypatch.delenv("AJEDREZ_TURING_PROFUNDIDAD", raising=False)
+    llamadas = _falsa_busqueda(monkeypatch)
+
+    assert EstrategiaModelo(nivel=nivel).decidir_jugada(POSICION_INICIAL) == "e4"
+    assert llamadas["busqueda"] == [(3, 1.0, 40.0)] and not llamadas["red_sola"]
+
+
+@pytest.mark.parametrize("nivel", [0, 9, 17])
+def test_por_debajo_del_maestro_no_usa_la_busqueda(monkeypatch, nivel) -> None:
+    llamadas = _falsa_busqueda(monkeypatch)
+
+    assert EstrategiaModelo(nivel=nivel).decidir_jugada(POSICION_INICIAL) == "d4"
+    assert not llamadas["busqueda"] and llamadas["red_sola"] == [{"nivel": nivel}]
+
+
+def test_con_profundidad_cero_la_busqueda_queda_desactivada(monkeypatch) -> None:
+    llamadas = _falsa_busqueda(monkeypatch)
+
+    assert EstrategiaModelo(nivel=18, profundidad_busqueda=0).decidir_jugada(POSICION_INICIAL) == "d4"
+    assert not llamadas["busqueda"]
+
+
+def test_la_busqueda_se_configura_por_variables_de_entorno(monkeypatch) -> None:
+    monkeypatch.setenv("AJEDREZ_TURING_PROFUNDIDAD", "2")
+    monkeypatch.setenv("AJEDREZ_TURING_TIEMPO", "0.5")
+    monkeypatch.setenv("AJEDREZ_TURING_PESO_RED", "60")
+    llamadas = _falsa_busqueda(monkeypatch)
+
+    EstrategiaModelo(nivel=18).decidir_jugada(POSICION_INICIAL)
+
+    assert llamadas["busqueda"] == [(2, 0.5, 60.0)]
+
+
+def test_una_variable_de_entorno_invalida_cae_en_el_valor_por_defecto(monkeypatch) -> None:
+    monkeypatch.setenv("AJEDREZ_TURING_PROFUNDIDAD", "mucha")
+    monkeypatch.setenv("AJEDREZ_TURING_TIEMPO", "")
+    llamadas = _falsa_busqueda(monkeypatch)
+
+    EstrategiaModelo(nivel=18).decidir_jugada(POSICION_INICIAL)
+
+    assert llamadas["busqueda"] == [(3, 1.0, 40.0)]
+
+
+def test_con_busqueda_el_modelo_tampoco_consulta_a_stockfish(tmp_path, monkeypatch) -> None:
+    torch = pytest.importorskip("torch")
+
+    from backend.servicios.aprendizaje.modelo_jugadas import NUM_CLASES, RedPrediccionJugadas
+    from backend.servicios.estrategias import estrategia_jugada
+
+    def stockfish_prohibido(*args, **kwargs):
+        raise AssertionError("el modelo propio no debe consultar a Stockfish")
+
+    monkeypatch.setattr(estrategia_jugada, "calcular_jugada", stockfish_prohibido)
+    ruta_checkpoint = tmp_path / "checkpoint_prueba.pt"
+    torch.save({"state_dict": RedPrediccionJugadas().state_dict(), "num_clases": NUM_CLASES}, ruta_checkpoint)
+
+    jugada = EstrategiaModelo(ruta_checkpoint=ruta_checkpoint, nivel=18, profundidad_busqueda=2).decidir_jugada(
+        POSICION_INICIAL
+    )
+
+    assert chess.Board(POSICION_INICIAL).parse_san(jugada) in chess.Board(POSICION_INICIAL).legal_moves

@@ -3,10 +3,27 @@
 """
 from __future__ import annotations
 
+import os
 from abc import ABC, abstractmethod
 from pathlib import Path
 
+from backend.servicios.aprendizaje.niveles import NIVEL_MAX_MODELO
 from backend.servicios.motor.motor_ajedrez import calcular_jugada
+
+# Búsqueda de variantes de Turing (ver `busqueda_turing.py`). Valores medidos en la v6: profundidad 3 con peso 40
+# (Elo ≈ 1808 frente a ≈ 1355 de la red sola, ver `docs/turing_hoja_de_ruta.md`). `AJEDREZ_TURING_PROFUNDIDAD=0`
+# la desactiva y deja la red con el filtro táctico de siempre.
+PROFUNDIDAD_BUSQUEDA_POR_DEFECTO = 3
+TIEMPO_BUSQUEDA_POR_DEFECTO = 1.0
+PESO_RED_POR_DEFECTO = 40.0
+
+
+def _numero_de_entorno(nombre: str, por_defecto: float, tipo: type = float):
+    """Lee un número de una variable de entorno; si falta o es inválido, usa `por_defecto`."""
+    try:
+        return tipo(os.environ[nombre])
+    except (KeyError, ValueError):
+        return por_defecto
 
 
 class EstrategiaJugada(ABC):
@@ -45,11 +62,30 @@ class EstrategiaModelo(EstrategiaJugada):
     modelo: `None` o >= 18 es el modo maestro determinista; por debajo, el modelo
     muestrea entre sus mejores candidatas (ver `predecir_jugada_maestra`). En
     ningún caso interviene Stockfish.
+
+    En modo maestro (`nivel` `None` o >= 18) Turing combina la red con una búsqueda de
+    variantes propia (`profundidad_busqueda` > 0): la red propone y pondera, el cálculo
+    evita errores tácticos. Por debajo de ese nivel la búsqueda NO se usa: ahí la
+    gracia es justamente que el modelo juegue de forma más humana y falible.
     """
 
-    def __init__(self, ruta_checkpoint: str | Path | None = None, nivel: int | None = None):
+    def __init__(
+        self,
+        ruta_checkpoint: str | Path | None = None,
+        nivel: int | None = None,
+        profundidad_busqueda: int | None = None,
+    ):
         self.ruta_checkpoint = ruta_checkpoint
         self.nivel = nivel
+        self.profundidad_busqueda = (
+            profundidad_busqueda
+            if profundidad_busqueda is not None
+            else _numero_de_entorno("AJEDREZ_TURING_PROFUNDIDAD", PROFUNDIDAD_BUSQUEDA_POR_DEFECTO, int)
+        )
+
+    def _usa_busqueda(self) -> bool:
+        modo_maestro = self.nivel is None or self.nivel >= NIVEL_MAX_MODELO
+        return modo_maestro and self.profundidad_busqueda > 0
 
     def decidir_jugada(self, fen: str) -> str:
         from backend.servicios.aprendizaje.inferencia import (
@@ -58,4 +94,14 @@ class EstrategiaModelo(EstrategiaJugada):
         )
 
         ruta = self.ruta_checkpoint if self.ruta_checkpoint is not None else RUTA_CHECKPOINT_POR_DEFECTO
+        if self._usa_busqueda():
+            from backend.servicios.aprendizaje.busqueda_turing import elegir_jugada_con_busqueda
+
+            return elegir_jugada_con_busqueda(
+                fen,
+                ruta,
+                self.profundidad_busqueda,
+                _numero_de_entorno("AJEDREZ_TURING_TIEMPO", TIEMPO_BUSQUEDA_POR_DEFECTO),
+                _numero_de_entorno("AJEDREZ_TURING_PESO_RED", PESO_RED_POR_DEFECTO),
+            )
         return predecir_jugada_maestra(fen, ruta, nivel=self.nivel)

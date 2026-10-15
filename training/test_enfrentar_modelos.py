@@ -133,3 +133,51 @@ def test_el_intervalo_se_achica_con_mas_partidas() -> None:
 def test_estimar_elo_sin_partidas_da_error() -> None:
     with pytest.raises(ValueError):
         estimar_elo([(1500, Marcador())])
+
+
+# --- Stockfish que se cuelga a mitad de una medición larga -----------------------------------------------------------
+class _MotorFalso:
+    """Motor de mentira: falla las primeras `fallos` veces y después juega e2e4."""
+
+    def __init__(self, fallos: int) -> None:
+        self.fallos = fallos
+        self.cerrado = False
+
+    def play(self, tablero, limite):
+        if self.fallos > 0:
+            self.fallos -= 1
+            raise TimeoutError
+        return type("Resultado", (), {"move": chess.Move.from_uci("e2e4")})()
+
+    def close(self) -> None:
+        self.cerrado = True
+
+
+def _stockfish_falso(fallos_por_motor: list[int]):
+    from training.enfrentar_modelos import JugadorStockfish
+
+    jugador = JugadorStockfish.__new__(JugadorStockfish)
+    motores: list[_MotorFalso] = []
+
+    def abrir() -> None:
+        jugador._motor = _MotorFalso(fallos_por_motor.pop(0))
+        motores.append(jugador._motor)
+
+    jugador._abrir_motor = abrir
+    jugador._limite = None
+    abrir()
+    return jugador, motores
+
+
+def test_stockfish_colgado_se_reinicia_y_sigue_jugando() -> None:
+    jugador, motores = _stockfish_falso([1, 0])  # el primer motor se cuelga una vez; el reiniciado anda
+
+    assert jugador(chess.STARTING_FEN) == "e4"
+    assert len(motores) == 2 and motores[0].cerrado
+
+
+def test_stockfish_que_nunca_responde_termina_dando_error() -> None:
+    jugador, _ = _stockfish_falso([1, 1, 1])
+
+    with pytest.raises(TimeoutError):
+        jugador(chess.STARTING_FEN)

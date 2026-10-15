@@ -646,7 +646,7 @@ Se enfrenta la red **más** búsqueda contra la **misma red sola** (checkpoint v
 | 3 | 40 | **34 / 6 / 0** | **92,5 %** | $+436$ ($+330$ a $+679$) |
 | 3 | 100 | 24 / 15 / 1 | 78,8 % | $+228$ ($+150$ a $+333$) |
 
-La mejor configuración medida es la de **profundidad 3 con $w = 40$**: no perdió ninguna de las 40 partidas contra la red sola. Con $w$ más bajo (20) el cálculo manda demasiado y su evaluación simple (material y posición) comete errores que la red evitaba; con $w$ más alto (100) la red manda tanto que el cálculo casi no corrige nada (más tablas). El valor intermedio rinde mejor, lo que respalda combinar ambas fuentes en lugar de usar una sola. Estos intervalos son de 40 partidas y las configuraciones se ajustaron sobre las mismas 20 aperturas, de modo que la diferencia exacta de Elo debe tomarse como orden de magnitud; el Elo absoluto con búsqueda frente a Stockfish aún no se ha medido.
+La mejor configuración medida es la de **profundidad 3 con $w = 40$**: no perdió ninguna de las 40 partidas contra la red sola. Con $w$ más bajo (20) el cálculo manda demasiado y su evaluación simple (material y posición) comete errores que la red evitaba; con $w$ más alto (100) la red manda tanto que el cálculo casi no corrige nada (más tablas). El valor intermedio rinde mejor, lo que respalda combinar ambas fuentes en lugar de usar una sola. Estos intervalos son de 40 partidas y las configuraciones se ajustaron sobre las mismas 20 aperturas, de modo que la diferencia exacta de Elo debe tomarse como orden de magnitud; el Elo absoluto con búsqueda frente a Stockfish se reporta en §13.4.
 
 ---
 
@@ -676,7 +676,19 @@ Cuarenta partidas contra cada rival (20 aperturas, dos colores), 0,2 s por jugad
 
 **Elo estimado de la v6 (red sola): $\approx 1355$ (intervalo del 95 %: de 1284 a 1427; 120 partidas).** Es el valor de referencia contra el cual se mide cada mejora posterior (la búsqueda de §12 y las versiones siguientes), aceptando un cambio únicamente si el puntaje mejora de forma clara.
 
-### 13.4 Interfaz UCI
+### 13.4 Resultado para la v6 con búsqueda (Turing completo)
+
+Misma metodología que en §13.3, con la red más la búsqueda de §12 (profundidad 3, $w = 40$, máximo 1 s de búsqueda por jugada), contra rivales más fuertes porque la red sola ya no los alcanzaba:
+
+| Rival (Stockfish con ELO calibrado) | Victorias / tablas / derrotas | Puntaje | Red sola |
+| :--- | :---: | ---: | ---: |
+| 1500 | 30 / 7 / 3 | 83,8 % | 30,0 % |
+| 1700 | 20 / 4 / 16 | 55,0 % | 16,2 % |
+| 1900 | 11 / 17 / 12 | 48,8 % | — |
+
+**Elo estimado de Turing con búsqueda: $\approx 1808$ (intervalo del 95 %: de 1737 a 1878; 120 partidas)**, frente a $\approx 1355$ de la red sola: el cálculo de variantes aporta unos $+450$ puntos Elo en esta escala. Valen las mismas salvedades de §13.2: el valor es relativo al rival calibrado y al tiempo de $0{,}2$ s por jugada, y el intervalo es aproximado. Los resultados contra 1500 y contra 1700 y 1900 provienen de dos ejecuciones separadas con la misma configuración (la primera se interrumpió por un fallo de comunicación con el proceso de Stockfish y, al repetirla, solo se volvieron a jugar los rivales 1700 y 1900).
+
+### 13.5 Interfaz UCI
 
 Turing se expone como motor del **protocolo UCI** (*Universal Chess Interface*; Meyer-Kahlen, 2000), el estándar con el que los programas de ajedrez se comunican con sus motores (`training/turing_uci.py`). Soporta `uci`, `isready`, `setoption` (opciones `Checkpoint` y `Nivel`), `ucinewgame`, `position`, `go` y `quit`. Con ello Turing puede conectarse a cualquier programa que acepte motores UCI, igual que Stockfish, y medirse con herramientas estándar. La interfaz se verificó con pruebas unitarias del protocolo y con una prueba de punta a punta en la que un proceso real de Turing juega contra la biblioteca `python-chess` con la red cargada.
 

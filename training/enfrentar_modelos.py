@@ -156,16 +156,38 @@ def jugador_turing(
 class JugadorStockfish:
     """Stockfish a un nivel (`Skill Level` 0-20) con un motor persistente, para no abrir un proceso por jugada."""
 
+    REINTENTOS = 3
+
     def __init__(self, nivel: int, tiempo_limite: float = 0.05) -> None:
+        self._opciones = {"Skill Level": nivel}
+        self._limite = chess.engine.Limit(time=tiempo_limite)
+        self._abrir_motor()
+
+    def _abrir_motor(self) -> None:
         from backend.servicios.motor.motor_ajedrez import STOCKFISH_PATH
 
         self._motor = chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH)
-        self._motor.configure({"Skill Level": nivel})
-        self._limite = chess.engine.Limit(time=tiempo_limite)
+        self._motor.configure(self._opciones)
 
     def __call__(self, fen: str) -> str:
+        """Jugada de Stockfish. Si el proceso se cuelga o se cae a mitad de una medición larga, lo reinicia y reintenta
+        (hasta `REINTENTOS` veces) en vez de perder horas de partidas."""
         tablero = chess.Board(fen)
-        return tablero.san(self._motor.play(tablero, self._limite).move)
+        for intento in range(self.REINTENTOS):
+            try:
+                return tablero.san(self._motor.play(tablero, self._limite).move)
+            except (TimeoutError, chess.engine.EngineError, chess.engine.EngineTerminatedError):
+                if intento == self.REINTENTOS - 1:
+                    raise
+                self._reiniciar_motor()
+        raise RuntimeError("inalcanzable")
+
+    def _reiniciar_motor(self) -> None:
+        try:
+            self._motor.close()
+        except Exception:  # el proceso ya puede estar muerto
+            pass
+        self._abrir_motor()
 
     def cerrar(self) -> None:
         self._motor.quit()
@@ -181,12 +203,10 @@ class JugadorStockfishElo(JugadorStockfish):
     ELO_MIN, ELO_MAX = 1320, 3190
 
     def __init__(self, elo: int, tiempo_limite: float = 0.2) -> None:
-        from backend.servicios.motor.motor_ajedrez import STOCKFISH_PATH
-
         self.elo = max(self.ELO_MIN, min(self.ELO_MAX, elo))
-        self._motor = chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH)
-        self._motor.configure({"UCI_LimitStrength": True, "UCI_Elo": self.elo})
+        self._opciones = {"UCI_LimitStrength": True, "UCI_Elo": self.elo}
         self._limite = chess.engine.Limit(time=tiempo_limite)
+        self._abrir_motor()
 
 
 def _esperado(elo_propio: float, elo_rival: float) -> float:
