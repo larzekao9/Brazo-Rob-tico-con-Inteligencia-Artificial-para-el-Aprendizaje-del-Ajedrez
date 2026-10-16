@@ -28,6 +28,7 @@ Uso:
 from __future__ import annotations
 
 import random
+import shutil
 from collections import Counter
 from pathlib import Path
 
@@ -39,14 +40,17 @@ from torch.utils.data import DataLoader
 from backend.servicios.vision.modelo_piezas import CLASES, RedClasificadoraPiezas
 from training.dataset_piezas import construir_dataset
 from training.entrenar_clasificador_piezas import DatasetCasillas, _evaluar
+from training.entrenar_valor import elegir_dispositivo
 
 RUTA_CHECKPOINT = Path("training/checkpoints/clasificador_piezas.pt")
+RUTA_RESPALDO = Path("training/checkpoints/clasificador_piezas_roboflow.pt")
 CARPETA_DATASET_PROPIO = Path("training/dataset_propio")
 EPOCAS = 20
 TASA_APRENDIZAJE = 1e-4  # más chica que el entrenamiento original: es fine-tuning
 TAMANO_LOTE = 32
 PROPORCION_VALIDACION_PROPIA = 0.2
 SEMILLA = 42
+FOTOS_DE_VALIDACION = 3
 
 
 def _cargar_dataset_propio() -> list[tuple[cv2.typing.MatLike, str]]:
@@ -60,6 +64,34 @@ def _cargar_dataset_propio() -> list[tuple[cv2.typing.MatLike, str]]:
             if recorte is not None:
                 muestras.append((recorte, clase))
     return muestras
+
+
+def _cargar_dataset_propio_por_foto() -> list[tuple[cv2.typing.MatLike, str, str]]:
+    """Como `_cargar_dataset_propio`, pero cada muestra trae también de qué foto salió (la marca de tiempo del nombre del archivo)."""
+    muestras = []
+    for carpeta_clase in sorted(CARPETA_DATASET_PROPIO.iterdir()):
+        if not carpeta_clase.is_dir():
+            continue
+        for ruta_imagen in carpeta_clase.glob("*.png"):
+            recorte = cv2.imread(str(ruta_imagen))
+            if recorte is not None:
+                muestras.append((recorte, carpeta_clase.name, ruta_imagen.name.split("_")[0]))
+    return muestras
+
+
+def _separar_por_foto(
+    muestras: list[tuple[cv2.typing.MatLike, str, str]], fotos_de_validacion: int = FOTOS_DE_VALIDACION
+) -> tuple[list[tuple[cv2.typing.MatLike, str]], list[tuple[cv2.typing.MatLike, str]]]:
+    """Aparta ENTERAS las últimas `fotos_de_validacion` fotos para validar.
+
+    Separar recortes al azar mezcla casillas de la misma foto (y la misma pieza en la misma casilla de fotos consecutivas) a los
+    dos lados, y el accuracy sale inflado. Con fotos enteras apartadas, la validación mide cómo anda con posiciones que no vio.
+    """
+    fotos = sorted({marca for _, _, marca in muestras})
+    apartadas = set(fotos[-fotos_de_validacion:]) if len(fotos) > fotos_de_validacion else set()
+    train = [(imagen, clase) for imagen, clase, marca in muestras if marca not in apartadas]
+    valid = [(imagen, clase) for imagen, clase, marca in muestras if marca in apartadas]
+    return train, valid
 
 
 def _separar_train_valid(
@@ -92,7 +124,7 @@ def _pesos_por_clase(muestras: list[tuple[cv2.typing.MatLike, str]]) -> torch.Te
 
 
 def reentrenar() -> None:
-    dispositivo = "cuda" if torch.cuda.is_available() else "cpu"
+    dispositivo = elegir_dispositivo()
     print(f"Usando dispositivo: {dispositivo}")
 
     if not RUTA_CHECKPOINT.exists():
@@ -106,10 +138,13 @@ def reentrenar() -> None:
             "`python -m training.capturar_dataset_propio \"<fen>\"` varias veces"
         )
 
+    if not RUTA_RESPALDO.exists():
+        shutil.copy(RUTA_CHECKPOINT, RUTA_RESPALDO)  # el reentrenamiento sobrescribe el checkpoint: se guarda el original aparte
+        print(f"Respaldo del modelo original en {RUTA_RESPALDO}")
     print("Armando dataset original (Roboflow)...")
     muestras_originales = construir_dataset("training/dataset_tablero/train")
     print("Armando dataset propio...")
-    muestras_propias = _cargar_dataset_propio()
+    muestras_propias = _cargar_dataset_propio_por_foto()
     print(f"Original: {len(muestras_originales)} casillas — Propio: {len(muestras_propias)} casillas")
     if len(muestras_propias) < 20:
         print(
@@ -117,9 +152,7 @@ def reentrenar() -> None:
             "Conviene correr capturar_dataset_propio.py varias veces más antes de esto."
         )
 
-    muestras_propias_train, muestras_propias_valid = _separar_train_valid(
-        muestras_propias, PROPORCION_VALIDACION_PROPIA
-    )
+    muestras_propias_train, muestras_propias_valid = _separar_por_foto(muestras_propias)
     print(
         f"Propio train: {len(muestras_propias_train)} — "
         f"Propio valid (apartado, no se entrena con esto): {len(muestras_propias_valid)}"

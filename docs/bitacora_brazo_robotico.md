@@ -428,3 +428,19 @@ cargar varios checkpoints `.pt` en el mismo proceso (`backend/servicios/vision/p
 tras `backend/servicios/aprendizaje/` y/o `backend/servicios/estrategias/test_fabrica_estrategias.py`)
 — no es un bug de este cableado (cada módulo pasa 100% en aislamiento), se dejó
 flageado como tarea de entorno aparte.
+
+## 2026-10-16: primera prueba con el brazo real en la universidad
+
+**Red.** Laptop con IP manual 192.168.5.100 / 255.255.255.0 (sin puerta de enlace) conectada a LAN 1; el controlador responde en 192.168.5.1 (ping sin pérdidas). Controlador 4.6.5.3, DobotStudio Pro 4.6, modo de dispositivo TCP.
+
+**Protocolo.** Según el manual "Dobot TCP/IP Remote Control Interface Guide V4.6.5", en este controlador todos los comandos (control, ajustes y movimiento) van por el puerto 29999; no existe el puerto 30003 ni el comando `Sync`. El fin de un movimiento se detecta con `RobotMode()` (7 y 8 en movimiento, 5 libre). Si DobotStudio cambia el modo (por ejemplo al usar "Run to"), el controlador responde `Control Mode Is Not Tcp` y hay que volver a poner TCP desde el software.
+
+**Pruebas.**
+- Lectura (`scripts/probar_conexion_dobot.py`): modo 11 (colisión de la piel de seguridad en los ejes 4 y 6) que se despejó solo; luego modo 5.
+- `SpeedFactor(20)` aceptado. Desplazamiento relativo de +10 mm y −10 mm en Z (`RelMovLUser`, 20 mm/s): Z pasó de 605,19 a 615,19 y volvió a 605,19 mm, sin cambio en X, Y ni orientación.
+
+**Calibración del tablero.** Enseñar los puntos arrastrando el brazo a mano dio alturas muy distintas entre puntos (en tres intentos: 206,5 a 242,8 mm; 238,5 a 238,7 y 228,9 mm; 236,3 a 260,3 mm) y h8 quedó corrida. Con los puntos centrados con el jog de DobotStudio (alias A1, H1, H8, A8 y DESCANSO, pinza vertical Rx −180°, Ry −0,0001°, Rz −120°, Z 234,8 mm) el ajuste por mínimos cuadrados deja todos los puntos a menos de 4 mm de la grilla, con un paso de 30,5 mm entre columnas y 30,0 mm entre filas. Verificado con el brazo real: sobre las cuatro esquinas a 80 mm y a 10 mm del tablero, la punta quedó centrada y a la altura esperada.
+
+**Cámara.** Webcam USB fija (fuente 5, backend MSMF). Esquinas del área de juego marcadas una vez con `scripts/calibrar_esquinas_tablero.py`. El clasificador de piezas pasó de 10,4 % a 95,3 % de acierto en 3 fotos apartadas (192 casillas) tras reentrenar con 18 fotos propias; falla la dama negra (0 de 3) y el caballo blanco (4 de 6).
+
+**Pendiente.** Modelo de la pinza y su control, medidas de piezas y dedos, capturas/enroque/captura al paso/coronación, más fotos de dama, caballo y alfil.

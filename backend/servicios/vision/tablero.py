@@ -7,7 +7,9 @@ esta parte esté validada contra fotos reales.
 """
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -25,6 +27,46 @@ TAMANO_CASILLA = TAMANO_TABLERO_PLANO // 8
 # (mismo patrón que `CAMARA_FUENTE`) para no tocar el comportamiento de
 # tableros sin ese borde ancho si hiciera falta volver a 0.
 MARGEN_TABLERO_PORCENTAJE = float(os.environ.get("MARGEN_TABLERO_PORCENTAJE", "7"))
+
+# Con la cámara FIJA (en un trípode, por ejemplo) no hace falta detectar el tablero en cada foto: se marcan sus 4 esquinas una
+# sola vez (`scripts/calibrar_esquinas_tablero.py`) y se guardan acá. Son las esquinas del ÁREA DE JUEGO (las casillas 8x8, sin
+# el borde de madera), por eso con ellas el margen de recorte es 0. Es un archivo local de cada instalación: no se sube a git.
+ARCHIVO_ESQUINAS = Path(
+    os.environ.get("ESQUINAS_TABLERO_ARCHIVO", str(Path(__file__).resolve().parents[3] / "calibracion_local" / "esquinas_tablero.json"))
+)
+ORDEN_DE_CLICS = ("a1", "h1", "h8", "a8")
+"""Esquinas del área de juego, nombradas por la casilla que las ocupa (así no importa hacia dónde esté girado el tablero en la foto)."""
+ORDEN_DE_ENDEREZADO = ("a8", "h8", "h1", "a1")
+"""Orden que espera `enderezar_tablero` (arriba-izq, arriba-der, abajo-der, abajo-izq del diagrama): blancas abajo, a8 arriba a la izquierda."""
+
+
+def guardar_esquinas_calibradas(esquinas: dict[str, tuple[float, float]], ruta: Path | None = None) -> None:
+    """Guarda las 4 esquinas marcadas (`{"a1": (x, y), "h1": ..., "h8": ..., "a8": ...}`, en píxeles de la foto)."""
+    if set(esquinas) != set(ORDEN_DE_CLICS):
+        raise ValueError(f"Hacen falta exactamente las esquinas {ORDEN_DE_CLICS}")
+    destino = Path(ruta or ARCHIVO_ESQUINAS)
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    destino.write_text(json.dumps({k: [float(v[0]), float(v[1])] for k, v in esquinas.items()}, indent=2), encoding="utf-8")
+
+
+def cargar_esquinas_calibradas(ruta: Path | None = None) -> np.ndarray | None:
+    """Esquinas guardadas, listas para `enderezar_tablero` (orden a8, h8, h1, a1), o `None` si todavía no se calibró.
+
+    Raises:
+        ValueError: si el archivo existe pero está dañado o incompleto.
+    """
+    origen = Path(ruta or ARCHIVO_ESQUINAS)
+    if not origen.exists():
+        return None
+    try:
+        datos = json.loads(origen.read_text(encoding="utf-8"))
+        puntos = np.array([datos[nombre] for nombre in ORDEN_DE_ENDEREZADO], dtype=np.float32)
+    except (ValueError, KeyError, TypeError) as error:
+        raise ValueError(f"El archivo de esquinas {origen} está dañado: volvé a calibrar") from error
+    if puntos.shape != (4, 2):
+        raise ValueError(f"El archivo de esquinas {origen} está incompleto: volvé a calibrar")
+    return puntos
+
 
 
 def _ordenar_esquinas(puntos: np.ndarray) -> np.ndarray:

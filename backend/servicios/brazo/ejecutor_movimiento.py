@@ -4,10 +4,11 @@ del backend lo note (PLAN_IMPLEMENTACION_COMPLETO.md, sección 4.1; HU9).
 """
 from __future__ import annotations
 
-import socket
 from abc import ABC, abstractmethod
 
 import chess
+
+from backend.servicios.brazo.cliente_dobot import ClienteDobot
 
 
 class EjecutorMovimiento(ABC):
@@ -86,28 +87,18 @@ class EjecutorSimulado(EjecutorMovimiento):
 
 
 class EjecutorReal(EjecutorMovimiento):
-    """Ejecuta movimientos contra el brazo físico real, un Dobot CR5AS
-    (colaborativo, 6 ejes), por TCP/IP.
+    """Ejecuta movimientos contra el brazo físico real, un Dobot CR5AS (colaborativo, 6 ejes), por TCP/IP.
 
-    Habla por el puerto **29999** (dashboard: comandos de control como texto
-    plano, ej. `EnableRobot()`, `DisableRobot()`, `ClearError()`,
-    `MovJ(x,y,z,rx,ry,rz)`, `MovL(x,y,z,rx,ry,rz)` — se escriben como string
-    ASCII por el socket y se lee de vuelta una respuesta de texto). El
-    puerto **30004** (feedback en tiempo real) queda fuera de este esqueleto.
+    Usa `ClienteDobot` (`cliente_dobot.py`), que habla el protocolo del controlador V4 por el puerto 29999 con la sintaxis del
+    manual (`MovJ(pose={x,y,z,rx,ry,rz},a=..,v=..)`) y espera a que termine cada movimiento antes de mandar el siguiente.
+    Está implementado con el módulo estándar `socket`, sin el SDK oficial, para no sumar una dependencia nueva.
 
-    Implementado a mano con el módulo estándar `socket`, no con el SDK
-    oficial `Dobot-Arm/TCP-IP-Python-V4` (ese repo es código fuente para
-    copiar, no un paquete de PyPI, y esto evita sumar una dependencia nueva
-    sin pinear).
+    Requisitos antes de mover (el ejecutor falla explícitamente si falta alguno, nunca inventa valores):
+    - `posiciones_casillas`: calibración del tablero (`calcular_posiciones_casillas`), con las coordenadas XYZ reales.
+    - `orientacion`: `(rx, ry, rz)` de la herramienta con la pinza apuntando al tablero, tomada de `GetPose()` en el robot real.
+    - el brazo ya encendido y habilitado (esta clase no manda `PowerOn` ni `EnableRobot`).
 
-    Movimientos sin captura ya arman y envían la secuencia real de comandos
-    (`MovJ`/`MovL`/`DO`) una vez cargada la calibración del tablero (ver
-    `calcular_posiciones_casillas` en `calibracion_tablero.py`). Todavía no
-    resuelve la lógica de captura (retirar del tablero físico la pieza en
-    `destino` antes de mover la propia) — ver `ejecutar_movimiento` — ni trae
-    cinemática inversa propia: usa directamente las coordenadas XYZ
-    calibradas para cada casilla, que el propio Dobot resuelve internamente
-    al recibir `MovJ`/`MovL`.
+    Todavía no resuelve capturas (retirar la pieza que ocupa el destino), enroque, captura al paso ni coronación.
     """
 
     def __init__(
@@ -118,126 +109,85 @@ class EjecutorReal(EjecutorMovimiento):
         posiciones_casillas: dict[str, tuple[float, float, float]] | None = None,
         altura_segura_mm: float = 50.0,
         pin_efector_do: int = 1,
+        orientacion: tuple[float, float, float] | None = None,
+        angulos_cero: tuple[float, ...] | None = None,
+        velocidad_global: int = 20,
+        cliente: ClienteDobot | None = None,
     ):
-        """Guarda la configuración de conexión y de calibración del tablero.
-
-        Args:
-            host: IP del Dobot en la red local.
-            puerto_dashboard: puerto de comandos de control (29999 por
-                defecto).
-            timeout_segundos: timeout del socket TCP.
-            posiciones_casillas: resultado de `calcular_posiciones_casillas`
-                (`calibracion_tablero.py`), con las coordenadas XYZ reales en
-                mm de cada casilla del tablero físico, medidas en el sitio.
-                `None` hasta que se cargue esa calibración —
-                `ejecutar_movimiento` falla explícitamente mientras tanto, no
-                inventa coordenadas.
-            altura_segura_mm: cuánto sube en Z, en mm, sobre una casilla
-                antes de trasladarse lateralmente, para no arrastrar piezas
-                al pasar por encima de otras. El default de 50.0 es un valor
-                de partida razonable, **no verificado contra las piezas
-                reales** — hay que ajustarlo con la altura real medida en el
-                sitio el día de la prueba.
-            pin_efector_do: índice del `DO(index, status)` del dashboard del
-                Dobot que activa/desactiva el efector final. El default de 1
-                es un **placeholder** — hay que confirmarlo contra cómo esté
-                cableado el efector real (gripper, ventosa, u otro mecanismo;
-                todavía no se sabe cuál es).
         """
-        self.host = host
-        self.puerto_dashboard = puerto_dashboard
-        self.timeout_segundos = timeout_segundos
+        Args:
+            host: IP del Dobot en la red local (192.168.5.1 por defecto de fábrica en LAN 1).
+            posiciones_casillas: resultado de `calcular_posiciones_casillas`, con las coordenadas reales medidas en el sitio.
+            altura_segura_mm: cuánto sube sobre una casilla antes de trasladarse, para no arrastrar piezas. El valor de
+                partida **no está verificado contra las piezas reales**: se ajusta con la pieza más alta (el rey).
+            pin_efector_do: salida digital `DO(índice, estado)` que activa el efector. Es un **placeholder** hasta confirmar
+                cómo está comandada la pinza DH (salida digital o Modbus RS485).
+            orientacion: `(rx, ry, rz)` fijo de la herramienta durante toda la jugada.
+            angulos_cero: ángulos de las 6 articulaciones de la posición cero, a la que vuelve al terminar. `None` = no vuelve.
+            velocidad_global: `SpeedFactor` al conectar (1 a 100); bajo por seguridad.
+            cliente: cliente ya armado (para pruebas); si no, se crea uno con `host` y `puerto_dashboard`.
+        """
+        self.cliente = cliente or ClienteDobot(host, puerto_dashboard, timeout_segundos, velocidad_global)
         self.posiciones_casillas = posiciones_casillas
         self.altura_segura_mm = altura_segura_mm
         self.pin_efector_do = pin_efector_do
-        self._socket: socket.socket | None = None
+        self.orientacion = orientacion
+        self.angulos_cero = angulos_cero
 
     def conectar(self) -> None:
-        """Abre la conexión TCP con el puerto dashboard (29999) y habilita el robot."""
-        self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._socket.settimeout(self.timeout_segundos)
-        self._socket.connect((self.host, self.puerto_dashboard))
-        self._enviar_comando("EnableRobot()")
+        """Abre la conexión y fija la velocidad global. No enciende ni habilita el brazo."""
+        self.cliente.conectar()
 
     def desconectar(self) -> None:
-        """Deshabilita el robot y cierra la conexión TCP, si había una abierta."""
-        if self._socket is None:
-            return
-        try:
-            self._enviar_comando("DisableRobot()")
-        finally:
-            try:
-                self._socket.close()
-            except OSError:
-                pass
-            self._socket = None
+        """Cierra la conexión (el brazo queda habilitado, como estaba)."""
+        self.cliente.cerrar()
 
-    def _enviar_comando(self, comando: str) -> str:
-        """Envía `comando` como texto ASCII por el socket y devuelve la respuesta.
+    def _efector(self, activo: bool) -> None:
+        """Cierra (`True`) o abre (`False`) el efector y espera a que se ejecute."""
+        self.cliente.enviar(f"DO({self.pin_efector_do},{1 if activo else 0})")
+        self.cliente.esperar_fin()
 
-        Args:
-            comando: comando del dashboard del Dobot, ej. `"EnableRobot()"`.
-
-        Raises:
-            RuntimeError: si todavía no se llamó a `conectar()`.
-        """
-        if self._socket is None:
-            raise RuntimeError(
-                "No hay conexión abierta con el Dobot: llamá a conectar() antes de "
-                "enviar comandos por el puerto dashboard (29999)."
-            )
-        self._socket.sendall(comando.encode("ascii"))
-        return self._socket.recv(1024).decode("ascii", errors="replace")
+    def _pose(self, casilla: str, sobre_la_casilla_mm: float = 0.0) -> tuple[float, ...]:
+        x, y, z = self.posiciones_casillas[casilla]
+        return (x, y, z + sobre_la_casilla_mm, *self.orientacion)
 
     def ejecutar_movimiento(self, tablero_antes: chess.Board, jugada: chess.Move) -> None:
         """Ejecuta un movimiento simple (sin captura) en el brazo físico real.
 
-        `origen`, `destino` y `captura` se derivan de `tablero_antes`/`jugada`
-        acá mismo, nunca de un tablero propio guardado entre llamadas.
+        `origen`, `destino` y `captura` se derivan de `tablero_antes`/`jugada`, nunca de un tablero guardado entre llamadas.
 
-        Secuencia enviada por el puerto dashboard: sube a altura segura sobre
-        `origen` (`MovJ`), baja en línea recta hasta la pieza (`MovL`), activa
-        el efector (`DO`), vuelve a subir a altura segura (`MovL`), se
-        traslada en `MovJ` sobre `destino`, baja (`MovL`), desactiva el
-        efector (`DO`) y sube a altura segura otra vez (`MovL`) — 8 comandos
-        en total. `rx`, `ry`, `rz` van fijos en 0 (orientación fija de la
-        herramienta, no se varía).
-
-        La lógica de captura (retirar del tablero físico la pieza que ocupa
-        `destino` antes de mover la propia) todavía no está implementada — es
-        el siguiente paso una vez validado este movimiento simple.
+        Secuencia (cada paso espera a que el brazo termine): sobre el origen a altura segura (`MovJ`), baja hasta la pieza
+        (`MovL`), cierra el efector, sube, se traslada sobre el destino (`MovJ`), baja, abre el efector, sube y, si hay
+        `angulos_cero`, vuelve a la posición cero.
 
         Raises:
-            RuntimeError: si todavía no se cargó `self.posiciones_casillas`
-                (falta correr `calcular_posiciones_casillas` con puntos
-                medidos reales primero).
-            NotImplementedError: si `jugada` captura una pieza rival —
-                retirar piezas capturadas del tablero físico es el siguiente
-                paso, no implementado todavía.
+            RuntimeError: si falta la calibración del tablero o la orientación de la herramienta.
+            NotImplementedError: si `jugada` captura una pieza (retirar la capturada es el siguiente paso, no implementado).
         """
         if self.posiciones_casillas is None:
             raise RuntimeError(
-                "No se cargó la calibración del tablero todavía — llamá "
-                "calcular_posiciones_casillas() con puntos medidos primero."
+                "No se cargó la calibración del tablero todavía — llamá calcular_posiciones_casillas() con puntos medidos primero."
+            )
+        if self.orientacion is None:
+            raise RuntimeError(
+                "Falta la orientación (rx, ry, rz) de la herramienta: tomala de GetPose() con la pinza apuntando al tablero."
             )
         if tablero_antes.is_capture(jugada):
             raise NotImplementedError(
-                "Retirar piezas capturadas del tablero físico es el siguiente paso, "
-                "no implementado todavía."
+                "Retirar piezas capturadas del tablero físico es el siguiente paso, no implementado todavía."
             )
 
         origen = chess.square_name(jugada.from_square)
         destino = chess.square_name(jugada.to_square)
-        x_origen, y_origen, z_origen = self.posiciones_casillas[origen]
-        x_destino, y_destino, z_destino = self.posiciones_casillas[destino]
-        z_segura_origen = z_origen + self.altura_segura_mm
-        z_segura_destino = z_destino + self.altura_segura_mm
+        segura = self.altura_segura_mm
 
-        self._enviar_comando(f"MovJ({x_origen},{y_origen},{z_segura_origen},0,0,0)")
-        self._enviar_comando(f"MovL({x_origen},{y_origen},{z_origen},0,0,0)")
-        self._enviar_comando(f"DO({self.pin_efector_do},1)")
-        self._enviar_comando(f"MovL({x_origen},{y_origen},{z_segura_origen},0,0,0)")
-        self._enviar_comando(f"MovJ({x_destino},{y_destino},{z_segura_destino},0,0,0)")
-        self._enviar_comando(f"MovL({x_destino},{y_destino},{z_destino},0,0,0)")
-        self._enviar_comando(f"DO({self.pin_efector_do},0)")
-        self._enviar_comando(f"MovL({x_destino},{y_destino},{z_segura_destino},0,0,0)")
+        self.cliente.mover_a_pose(self._pose(origen, segura))
+        self.cliente.mover_a_pose(self._pose(origen), lineal=True)
+        self._efector(True)
+        self.cliente.mover_a_pose(self._pose(origen, segura), lineal=True)
+        self.cliente.mover_a_pose(self._pose(destino, segura))
+        self.cliente.mover_a_pose(self._pose(destino), lineal=True)
+        self._efector(False)
+        self.cliente.mover_a_pose(self._pose(destino, segura), lineal=True)
+        if self.angulos_cero is not None:
+            self.cliente.mover_a_angulos(self.angulos_cero)

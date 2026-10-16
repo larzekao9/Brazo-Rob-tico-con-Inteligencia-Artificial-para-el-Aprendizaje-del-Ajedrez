@@ -39,6 +39,16 @@ def _fuente_por_defecto() -> int | str:
     return valor
 
 
+def _api_por_defecto() -> int | None:
+    """Backend de captura de Windows según `CAMARA_API` (`MSMF` o `DSHOW`); `None` deja que OpenCV elija.
+
+    Con varias cámaras (reales y virtuales como Iriun o DroidCam) cada backend las numera distinto: el índice 5 de MSMF no es el
+    5 de DirectShow. Por eso, cuando la cámara se eligió por número, conviene fijar también el backend con el que se midió.
+    """
+    nombre = os.environ.get("CAMARA_API", "").strip().upper()
+    return {"MSMF": cv2.CAP_MSMF, "DSHOW": cv2.CAP_DSHOW}.get(nombre)
+
+
 def capturar_foto_tablero(fuente: int | str | None = None) -> np.ndarray:
     """Toma una foto desde la cámara/fuente indicada.
 
@@ -55,7 +65,8 @@ def capturar_foto_tablero(fuente: int | str | None = None) -> np.ndarray:
         RuntimeError: si no se pudo abrir la cámara/fuente o capturar un frame.
     """
     fuente_resuelta = fuente if fuente is not None else _fuente_por_defecto()
-    camara = cv2.VideoCapture(fuente_resuelta)
+    api = _api_por_defecto() if isinstance(fuente_resuelta, int) else None
+    camara = cv2.VideoCapture(fuente_resuelta, api) if api is not None else cv2.VideoCapture(fuente_resuelta)
     try:
         if not camara.isOpened():
             raise RuntimeError(f"No se pudo abrir la cámara/fuente {fuente_resuelta!r}")
@@ -68,6 +79,14 @@ def capturar_foto_tablero(fuente: int | str | None = None) -> np.ndarray:
         # de abrirse (necesitan un instante para "calentar") — un par de
         # reintentos cortos alcanza, sin agregar demora perceptible a una
         # cámara física que siempre responde a la primera.
+        # Una webcam USB necesita unos frames para ajustar exposición y balance de blancos: los primeros salen oscuros.
+        ultima = None
+        for _ in range(12 if isinstance(fuente_resuelta, int) else 1):
+            exito, imagen = camara.read()
+            if exito:
+                ultima = imagen
+        if ultima is not None:
+            return ultima
         for intento in range(3):
             exito, imagen = camara.read()
             if exito:

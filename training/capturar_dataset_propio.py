@@ -58,11 +58,12 @@ import time
 from pathlib import Path
 
 import cv2
+from dotenv import load_dotenv
 
 from backend.servicios.vision.camara import capturar_foto_tablero
 from backend.servicios.vision.modelo_piezas import CLASE_VACIA
+from backend.servicios.vision.reconocimiento import esquinas_y_margen
 from backend.servicios.vision.tablero import (
-    detectar_esquinas_tablero,
     dibujar_grilla_debug,
     dividir_en_casillas,
     enderezar_tablero,
@@ -140,7 +141,7 @@ def capturar_muestras(fen_piezas: str, ruta_imagen: str | None = None) -> int:
         print("Sacando foto (misma cámara configurada por CAMARA_FUENTE)...")
         imagen = capturar_foto_tablero()
 
-    esquinas = detectar_esquinas_tablero(imagen)
+    esquinas, margen = esquinas_y_margen(imagen)  # las esquinas calibradas de la cámara fija, si existen
     plano = enderezar_tablero(imagen, esquinas)
 
     CARPETA_DATASET.mkdir(parents=True, exist_ok=True)
@@ -148,7 +149,7 @@ def capturar_muestras(fen_piezas: str, ruta_imagen: str | None = None) -> int:
     cv2.imwrite(str(ruta_control), dibujar_grilla_debug(plano))
     print(f"Imagen de control guardada en {ruta_control} — revisala antes de confiar en las casillas.")
 
-    casillas = dividir_en_casillas(plano)
+    casillas = dividir_en_casillas(plano, margen)
 
     marca_tiempo = int(time.time())
     guardadas = 0
@@ -163,6 +164,7 @@ def capturar_muestras(fen_piezas: str, ruta_imagen: str | None = None) -> int:
 
 
 if __name__ == "__main__":
+    load_dotenv()  # CAMARA_FUENTE y CAMARA_API del .env
     if len(sys.argv) not in (2, 3):
         print('Uso: python -m training.capturar_dataset_propio "<fen_de_piezas>" ["<ruta_a_la_foto.jpg>"]')
         print('Ejemplo: python -m training.capturar_dataset_propio "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR" "C:/fotos/tablero1.jpg"')

@@ -70,3 +70,7 @@ docs/guia_de_estudio_turing.md
 # Capturas de diseño de la app (referencia visual, no es código)
 imgapp/
 training/dataset_valor/
+
+# Calibración propia de cada instalación (esquinas del tablero en la foto de la cámara fija)
+calibracion_local/
+training/dataset_propio/

@@ -45,12 +45,13 @@ def calcular_posiciones_casillas(
 ) -> dict[str, tuple[float, float, float]]:
     """Calcula la posición XYZ real de las 64 casillas por transformación afín.
 
-    Usa los 3 primeros elementos de `puntos` para resolver la transformación
-    afín 2D (columna, fila) del tablero -> (x, y) real del Dobot, donde
-    columna 0-7 corresponde a las columnas "a"-"h" y fila 0-7 a las filas
-    "1"-"8" (ver `chess.square_file` / `chess.square_rank`). Para `z` usa el
-    promedio de los `z` de **todos** los puntos de `puntos` (no solo los 3
-    primeros), asumiendo el tablero plano.
+    Resuelve la transformación afín 2D (columna, fila) del tablero -> (x, y) real
+    del Dobot, donde columna 0-7 corresponde a las columnas "a"-"h" y fila 0-7 a las
+    filas "1"-"8" (ver `chess.square_file` / `chess.square_rank`). Con 3 puntos la
+    solución es exacta; con 4 o más se ajusta por mínimos cuadrados (el error de
+    medir cada punto se reparte en vez de acumularse en la esquina que no se midió).
+    Para `z` usa el promedio de los `z` de **todos** los puntos, asumiendo el
+    tablero plano.
 
     Args:
         puntos: puntos de referencia medidos a mano en el robot real (ver
@@ -72,25 +73,24 @@ def calcular_posiciones_casillas(
         )
 
     columnas_filas = []
-    for punto in puntos[:3]:
+    for punto in puntos:
         casilla_idx = chess.parse_square(punto.casilla)
         columnas_filas.append((chess.square_file(casilla_idx), chess.square_rank(casilla_idx)))
 
     matriz_afin = np.array(
         [[columna, fila, 1.0] for columna, fila in columnas_filas]
     )
-    vector_x = np.array([punto.x for punto in puntos[:3]])
-    vector_y = np.array([punto.y for punto in puntos[:3]])
+    vector_x = np.array([punto.x for punto in puntos])
+    vector_y = np.array([punto.y for punto in puntos])
 
-    try:
-        coeficientes_x = np.linalg.solve(matriz_afin, vector_x)
-        coeficientes_y = np.linalg.solve(matriz_afin, vector_y)
-    except np.linalg.LinAlgError as error:
+    if np.linalg.matrix_rank(matriz_afin) < 3:
         raise ValueError(
-            "Los 3 primeros puntos de calibración son colineales en el plano del "
-            "tablero (columna, fila) y no alcanzan para resolver la transformación "
-            "afín — usá 3 puntos que cubran ambos ejes, ej. 'a1', 'h1', 'a8'."
-        ) from error
+            "Los puntos de calibración son colineales en el plano del tablero "
+            "(columna, fila) y no alcanzan para resolver la transformación "
+            "afín — usá puntos que cubran ambos ejes, ej. 'a1', 'h1', 'a8'."
+        )
+    coeficientes_x = np.linalg.lstsq(matriz_afin, vector_x, rcond=None)[0]
+    coeficientes_y = np.linalg.lstsq(matriz_afin, vector_y, rcond=None)[0]
 
     altura_z = sum(punto.z for punto in puntos) / len(puntos)
 

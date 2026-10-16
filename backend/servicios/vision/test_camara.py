@@ -9,7 +9,7 @@ from __future__ import annotations
 import cv2
 import pytest
 
-from backend.servicios.vision.camara import _fuente_por_defecto, capturar_foto_tablero
+from backend.servicios.vision.camara import _api_por_defecto, _fuente_por_defecto, capturar_foto_tablero
 
 
 def _hay_camara_disponible() -> bool:
@@ -47,3 +47,18 @@ def test_fuente_por_defecto_interpreta_numero_como_indice(monkeypatch) -> None:
 def test_fuente_por_defecto_interpreta_url_como_string(monkeypatch) -> None:
     monkeypatch.setenv("CAMARA_FUENTE", "http://192.168.1.23:8080/video")
     assert _fuente_por_defecto() == "http://192.168.1.23:8080/video"
+
+
+def test_api_por_defecto_sin_configurar_deja_elegir_a_opencv(monkeypatch) -> None:
+    monkeypatch.delenv("CAMARA_API", raising=False)
+
+    assert _api_por_defecto() is None
+
+
+def test_api_por_defecto_acepta_msmf_y_dshow_sin_importar_mayusculas(monkeypatch) -> None:
+    monkeypatch.setenv("CAMARA_API", "msmf")
+    assert _api_por_defecto() == cv2.CAP_MSMF
+    monkeypatch.setenv("CAMARA_API", " DShow ")
+    assert _api_por_defecto() == cv2.CAP_DSHOW
+    monkeypatch.setenv("CAMARA_API", "otra")
+    assert _api_por_defecto() is None
