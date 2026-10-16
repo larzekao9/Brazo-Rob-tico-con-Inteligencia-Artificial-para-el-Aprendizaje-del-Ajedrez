@@ -63,6 +63,17 @@ Búsqueda de variantes sobre la v6 (red + cálculo contra la **misma red sola**,
 
 **Elo estimado: 1808** (intervalo ~95 %: 1737 a 1878; 120 partidas), contra **1355** de la red sola: la búsqueda aporta unos **+450 Elo** en esta escala. Sigue siendo relativo a este rival y a 0,2 s por jugada. (La primera corrida se cayó por un `TimeoutError` de Stockfish en el rival 1700; el rival 1500 ya estaba medido y se repitió solo 1700 y 1900. `JugadorStockfish` ahora reinicia el motor y reintenta.)
 
+**Red de valor (paso 3, primer experimento, 2026-10-16).** Red chica (SE-ResNet de 4 bloques y 64 canales, `modelo_valor.py`) entrenada con 1.000.000 de posiciones evaluadas de la base de Lichess (`training/datos_valor.py`, `training/entrenar_valor.py`), 6 épocas en CPU. Sobre posiciones que no vio, comparada con la evaluación manual de la búsqueda:
+
+| | Error cuadrático | Correlación | Acierto de quién gana (posiciones claras) |
+|---|---|---|---|
+| Evaluación manual (material + posición) | 0,231 | 0,596 | 76,2 % |
+| Red de valor | 0,089 | 0,852 | 92,2 % |
+
+Pero **usada como evaluador dentro de la búsqueda perdió contra la evaluación manual**: 40 partidas, misma red de política, profundidad 3 y 1 s por jugada: **+2 =12 −26 (20,0 %, ≈ −241 Elo, IC 95 % −364 a −155)**. La red evalúa mejor pero cuesta ~1 ms por posición (la manual ~0,05 ms), así que en 1 s llega a profundidad 1-2 en vez de 3. Se descarta como evaluador de hojas; queda como herramienta de experimento (desactivada por defecto).
+
+**Segundo experimento (misma fecha): la red de valor solo opina sobre cada jugada candidata** (una evaluación por candidata y no por nodo, peso 0,5, así que no resta profundidad de búsqueda): 40 partidas contra la búsqueda actual, **+8 =21 −11 (46,2 %, ≈ −26 Elo, IC 95 % −103 a +48)**. No mejora (el intervalo incluye el empate y el centro es negativo): **se descarta**. Cumple el criterio de la hoja de ruta (solo se acepta una mejora clara).
+
 ## Ficha del modelo (se completa al cerrar cada versión)
 
 | Versión | Datos | Validación | Top-1 | Notas |

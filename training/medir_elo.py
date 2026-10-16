@@ -36,6 +36,7 @@ def medir(
     profundidad: int = 0,
     peso_red: float = 40.0,
     tiempo_busqueda: float | None = 1.0,
+    ruta_valor: str | None = None,
 ) -> list[tuple[int, Marcador]]:
     """Juega contra cada ELO de `elos` y devuelve `[(elo_rival, marcador_de_turing), ...]`.
 
@@ -45,7 +46,7 @@ def medir(
         rival = JugadorStockfishElo(elo, tiempo)
         try:
             t0 = time.time()
-            marcador = enfrentar(jugador_turing(ruta_checkpoint, profundidad, tiempo_busqueda, peso_red), rival, APERTURAS_UCI[:aperturas])
+            marcador = enfrentar(jugador_turing(ruta_checkpoint, profundidad, tiempo_busqueda, peso_red, ruta_valor), rival, APERTURAS_UCI[:aperturas])
         finally:
             rival.cerrar()
         resultados.append((rival.elo, marcador))
@@ -66,11 +67,12 @@ def main() -> None:
     parser.add_argument("--busqueda", type=int, default=0, help="profundidad de búsqueda de Turing (0 = red sola)")
     parser.add_argument("--peso-red", type=float, default=40.0, help="peso de la red frente al cálculo en la búsqueda")
     parser.add_argument("--tiempo-busqueda", type=float, default=1.0, help="segundos máximos por jugada de la búsqueda")
+    parser.add_argument("--valor", default=None, help="red de valor (checkpoint) para puntuar las posiciones en la búsqueda")
     args = parser.parse_args()
 
     modo = f"red + búsqueda de profundidad {args.busqueda} (peso de la red {args.peso_red:g})" if args.busqueda > 0 else "red sola"
     print(f"\n== ELO de {Path(args.checkpoint).stem}, {modo} ({args.aperturas * 2} partidas por rival, {args.tiempo}s por jugada) ==")
-    resultados = medir(args.checkpoint, args.elos, args.aperturas, args.tiempo, args.busqueda, args.peso_red, args.tiempo_busqueda)
+    resultados = medir(args.checkpoint, args.elos, args.aperturas, args.tiempo, args.busqueda, args.peso_red, args.tiempo_busqueda, args.valor)
     estimacion, bajo, alto = estimar_elo(resultados)
     total = sum(m.partidas for _, m in resultados)
     todo_igual = all(m.victorias_a == 0 for _, m in resultados) or all(m.victorias_b == 0 for _, m in resultados)

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -100,13 +101,16 @@ class _Buscador:
     _NODOS_ENTRE_RELOJES = 1024
     _PROFUNDIDAD_CAPTURAS = 8
 
-    def __init__(self, limite: float | None) -> None:
+    def __init__(self, limite: float | None, evaluador: Callable[[chess.Board], int] | None = None) -> None:
         self.limite = limite
         self.nodos = 0
+        self.evaluador = evaluador or evaluar
+        # Con un evaluador lento (la red de valor, ~1 ms por posición) el reloj se mira más seguido para no pasarse del tiempo.
+        self._nodos_entre_relojes = self._NODOS_ENTRE_RELOJES if evaluador is None else 32
 
     def _contar_nodo(self) -> None:
         self.nodos += 1
-        if self.limite is not None and self.nodos % self._NODOS_ENTRE_RELOJES == 0 and time.perf_counter() > self.limite:
+        if self.limite is not None and self.nodos % self._nodos_entre_relojes == 0 and time.perf_counter() > self.limite:
             raise _TiempoAgotado
 
     def negamax(self, tablero: chess.Board, profundidad: int, alfa: int, beta: int, ply: int) -> int:
@@ -137,7 +141,7 @@ class _Buscador:
         self._contar_nodo()
         en_jaque = tablero.is_check()
         if not en_jaque:
-            estatico = evaluar(tablero)
+            estatico = self.evaluador(tablero)
             if estatico >= beta:
                 return estatico
             alfa = max(alfa, estatico)
@@ -147,7 +151,7 @@ class _Buscador:
         else:
             # En jaque no se puede "quedarse quieto": hay que responder con cualquier jugada legal.
             if restante <= 0:
-                return evaluar(tablero)
+                return self.evaluador(tablero)
             jugadas = list(tablero.legal_moves)
             if not jugadas:
                 return -MATE + ply
@@ -190,6 +194,9 @@ def buscar(
     tiempo_limite: float | None = 2.0,
     peso_red: float = 40.0,
     candidatas_max: int = 12,
+    evaluador: Callable[[chess.Board], int] | None = None,
+    valor_raiz: Callable[[chess.Board], int] | None = None,
+    peso_valor: float = 0.5,
 ) -> ResultadoBusqueda:
     """Elige la mejor jugada combinando el cálculo con la probabilidad que le da la red a cada jugada.
 
@@ -200,6 +207,10 @@ def buscar(
         tiempo_limite: segundos máximos (`None` = sin límite). Si se acaba a mitad de una profundidad, se usa la anterior.
         peso_red: cuánto pesa la red frente al cálculo (centipeones por unidad de logaritmo de la probabilidad).
         candidatas_max: cuántas jugadas calcular: las mejores según la red más las capturas y los jaques.
+        evaluador: función que puntúa una posición en centipeones desde quien mueve; por defecto la evaluación manual
+            (`evaluar`). Se puede pasar la red de valor (`EvaluadorRedValor`).
+        valor_raiz: opinión extra, barata, sobre la posición que deja cada candidata (una sola evaluación por candidata, no
+            por nodo): se suma `peso_valor` veces su valor al puntaje final. Pensado para la red de valor.
 
     Raises:
         ValueError: si la posición no tiene jugadas legales.
@@ -225,7 +236,7 @@ def buscar(
         return ResultadoBusqueda(elegidas[0], 0.0, 0, 0, [(elegidas[0], 0.0)])
 
     limite = None if tiempo_limite is None else time.perf_counter() + tiempo_limite
-    buscador = _Buscador(limite)
+    buscador = _Buscador(limite, evaluador)
     mejor_resultado: ResultadoBusqueda | None = None
     copia = tablero.copy(stack=True)
     for nivel in range(1, max(1, profundidad) + 1):
@@ -234,8 +245,9 @@ def buscar(
             for jugada in elegidas:
                 copia.push(jugada)
                 calculo = -buscador.negamax(copia, nivel - 1, -MATE, MATE, 1)
+                extra = -peso_valor * valor_raiz(copia) if valor_raiz is not None and abs(calculo) < MATE - 1000 else 0.0
                 copia.pop()
-                puntajes.append((jugada, calculo + peso_red * math.log(probabilidad(jugada))))
+                puntajes.append((jugada, calculo + extra + peso_red * math.log(probabilidad(jugada))))
         except _TiempoAgotado:
             while len(copia.move_stack) > len(tablero.move_stack):
                 copia.pop()
@@ -259,13 +271,19 @@ def elegir_jugada_con_busqueda(
     profundidad: int = 3,
     tiempo_limite: float | None = 2.0,
     peso_red: float = 40.0,
+    evaluador: Callable[[chess.Board], int] | None = None,
+    valor_raiz: Callable[[chess.Board], int] | None = None,
+    peso_valor: float = 0.5,
 ) -> str:
-    """Jugada de Turing (en SAN) usando la red del checkpoint y la búsqueda de variantes."""
+    """Jugada de Turing (en SAN) usando la red del checkpoint y la búsqueda de variantes (con `evaluador` opcional)."""
     from backend.servicios.aprendizaje.inferencia import RUTA_CHECKPOINT_POR_DEFECTO, probabilidades_legales
 
     tablero = chess.Board(fen)
     probabilidades = probabilidades_legales(tablero, ruta_checkpoint or RUTA_CHECKPOINT_POR_DEFECTO)
-    resultado = buscar(tablero, probabilidades, profundidad, tiempo_limite, peso_red)
+    resultado = buscar(
+        tablero, probabilidades, profundidad, tiempo_limite, peso_red,
+        evaluador=evaluador, valor_raiz=valor_raiz, peso_valor=peso_valor,
+    )
     return tablero.san(resultado.jugada)
 
 

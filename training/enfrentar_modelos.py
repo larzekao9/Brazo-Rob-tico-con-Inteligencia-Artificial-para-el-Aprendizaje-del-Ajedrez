@@ -140,7 +140,13 @@ def jugador_modelo(ruta_checkpoint: str | Path) -> Jugador:
 
 
 def jugador_turing(
-    ruta_checkpoint: str | Path, profundidad: int = 0, tiempo_limite: float | None = 1.0, peso_red: float = 40.0
+    ruta_checkpoint: str | Path,
+    profundidad: int = 0,
+    tiempo_limite: float | None = 1.0,
+    peso_red: float = 40.0,
+    ruta_valor: str | Path | None = None,
+    ruta_valor_raiz: str | Path | None = None,
+    peso_valor: float = 0.5,
 ) -> Jugador:
     """Turing completo: la red y, si `profundidad` > 0, además la búsqueda de variantes (`busqueda_turing`).
 
@@ -150,7 +156,19 @@ def jugador_turing(
         return jugador_modelo(ruta_checkpoint)
     from backend.servicios.aprendizaje.busqueda_turing import elegir_jugada_con_busqueda
 
-    return lambda fen: elegir_jugada_con_busqueda(fen, ruta_checkpoint, profundidad, tiempo_limite, peso_red)
+    evaluador = None
+    if ruta_valor is not None:  # la búsqueda puntúa las posiciones con la red de valor en vez de la evaluación manual
+        from backend.servicios.aprendizaje.modelo_valor import EvaluadorRedValor
+
+        evaluador = EvaluadorRedValor(ruta_valor)
+    valor_raiz = None
+    if ruta_valor_raiz is not None:  # la red de valor solo opina sobre la posición que deja cada candidata
+        from backend.servicios.aprendizaje.modelo_valor import EvaluadorRedValor
+
+        valor_raiz = EvaluadorRedValor(ruta_valor_raiz)
+    return lambda fen: elegir_jugada_con_busqueda(
+        fen, ruta_checkpoint, profundidad, tiempo_limite, peso_red, evaluador, valor_raiz, peso_valor
+    )
 
 
 class JugadorStockfish:
@@ -264,10 +282,15 @@ def main() -> None:
     parser.add_argument("--busqueda-b", type=int, default=0, help="profundidad de búsqueda de B (0 = red sola)")
     parser.add_argument("--peso-red", type=float, default=40.0, help="peso de la red frente al cálculo en la búsqueda")
     parser.add_argument("--tiempo-busqueda", type=float, default=1.0, help="segundos máximos por jugada de la búsqueda")
+    parser.add_argument("--valor-a", default=None, help="red de valor de A (checkpoint); sin ella usa la evaluación manual")
+    parser.add_argument("--valor-b", default=None, help="red de valor de B (checkpoint); sin ella usa la evaluación manual")
+    parser.add_argument("--valor-raiz-a", default=None, help="red de valor que opina solo sobre la jugada candidata de A")
+    parser.add_argument("--valor-raiz-b", default=None, help="red de valor que opina solo sobre la jugada candidata de B")
+    parser.add_argument("--peso-valor", type=float, default=0.5, help="cuánto pesa esa opinión (centipeones por centipeón)")
     args = parser.parse_args()
 
-    modelo_a = jugador_turing(args.a, args.busqueda_a, args.tiempo_busqueda, args.peso_red)
-    modelo_b = jugador_turing(args.b, args.busqueda_b, args.tiempo_busqueda, args.peso_red)
+    modelo_a = jugador_turing(args.a, args.busqueda_a, args.tiempo_busqueda, args.peso_red, args.valor_a, args.valor_raiz_a, args.peso_valor)
+    modelo_b = jugador_turing(args.b, args.busqueda_b, args.tiempo_busqueda, args.peso_red, args.valor_b, args.valor_raiz_b, args.peso_valor)
 
     def avance(hechas: int, total: int) -> None:
         if hechas % 10 == 0 or hechas == total:

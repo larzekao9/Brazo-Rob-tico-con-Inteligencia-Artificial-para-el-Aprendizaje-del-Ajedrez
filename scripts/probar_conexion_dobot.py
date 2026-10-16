@@ -22,10 +22,12 @@ import socket
 # Solo comandos de consulta. Ninguno mueve ni habilita el robot.
 COMANDOS_DE_LECTURA = ("RobotMode()", "GetPose()", "GetAngle()", "GetErrorID()")
 
+# Valores de `RobotMode()` según el manual "Dobot TCP/IP Remote Control Interface Guide V4.6.5" (controlador V4, como el CR5AS).
 MODOS_DE_ROBOT = {
-    1: "inicializando", 2: "brake abierto", 3: "sin energía (apagado)", 4: "desactivado", 5: "habilitado y libre",
-    6: "arrastre (modo de enseñanza manual)", 7: "ejecutando", 8: "pausa de ejecución", 9: "pausa de programa",
-    10: "alarma", 11: "pausa por error",
+    1: "inicializando", 2: "freno liberado", 3: "sin energía (apagado)", 4: "desactivado (sin freno puesto)",
+    5: "habilitado y libre", 6: "modo arrastre (enseñanza manual)", 7: "ejecutando (proyecto o cola de comandos)",
+    8: "movimiento individual (jog, RunTo)", 9: "ALARMA activa (hay que revisar GetErrorID y limpiar con ClearError)",
+    10: "en pausa", 11: "colisión detectada",
 }
 
 
