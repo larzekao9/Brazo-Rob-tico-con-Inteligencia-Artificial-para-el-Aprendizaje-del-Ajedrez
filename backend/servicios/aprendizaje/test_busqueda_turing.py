@@ -1,8 +1,10 @@
 """Búsqueda de Turing: evaluación, tácticas y combinación con las probabilidades de la red (sin cargar ninguna red)."""
+import math
+
 import chess
 import pytest
 
-from backend.servicios.aprendizaje.busqueda_turing import MATE, buscar, evaluar
+from backend.servicios.aprendizaje.busqueda_turing import MATE, buscar, evaluar, explicar_decision
 
 
 def _jugada(tablero: chess.Board, san: str) -> chess.Move:
@@ -122,3 +124,57 @@ def test_profundidad_mayor_nunca_calcula_menos() -> None:
     tablero = chess.Board("r2q1rk1/pp2bppp/2n1pn2/3p4/3P4/2NBPN2/PP3PPP/R2QK2R w KQ - 0 9")
 
     assert buscar(tablero, profundidad=3, tiempo_limite=None).nodos > buscar(tablero, profundidad=1, tiempo_limite=None).nodos
+
+
+# --- desglose de la decisión (panel de Razonamiento Neuronal) ---------------------------------------------------------
+def test_explicar_decision_corrige_a_la_red_cuando_regala_la_dama() -> None:
+    tablero = chess.Board("4k3/8/8/4p3/8/8/3Q4/4K3 w - - 0 1")
+    probabilidades = {j: 0.02 for j in tablero.legal_moves}
+    probabilidades[_jugada(tablero, "Qd4")] = 0.7
+
+    desglose = explicar_decision(tablero, probabilidades, profundidad=3, tiempo_limite=None, maximo_candidatas=30)
+
+    assert desglose["jugada_red_sola"] == "Qd4" and desglose["jugada"] != "Qd4" and desglose["corrige_a_la_red"]
+    por_jugada = {c["jugada"]: c for c in desglose["candidatas"]}
+    assert por_jugada["Qd4"]["calculo_cp"] < por_jugada[desglose["jugada"]]["calculo_cp"]  # regalar la dama se paga en el cálculo
+
+
+def test_explicar_decision_el_puntaje_es_el_calculo_mas_el_aporte_de_la_red() -> None:
+    tablero = chess.Board("r2q1rk1/pp2bppp/2n1pn2/3p4/3P4/2NBPN2/PP3PPP/R2QK2R w KQ - 0 9")
+    probabilidades = {j: 1 / len(list(tablero.legal_moves)) for j in tablero.legal_moves}
+
+    desglose = explicar_decision(tablero, probabilidades, profundidad=2, tiempo_limite=None, peso_red=40.0)
+
+    for c in desglose["candidatas"]:
+        assert abs(c["puntaje"] - (c["calculo_cp"] + 40.0 * math.log(c["probabilidad"]))) <= 1
+
+
+def test_explicar_decision_marca_una_sola_elegida_y_es_la_de_mayor_puntaje() -> None:
+    tablero = chess.Board("r2q1rk1/pp2bppp/2n1pn2/3p4/3P4/2NBPN2/PP3PPP/R2QK2R w KQ - 0 9")
+    probabilidades = {j: 0.05 for j in tablero.legal_moves}
+
+    desglose = explicar_decision(tablero, probabilidades, profundidad=2, tiempo_limite=None)
+
+    elegidas = [c for c in desglose["candidatas"] if c["elegida"]]
+    puntajes = [c["puntaje"] for c in desglose["candidatas"]]
+    assert len(elegidas) == 1 and elegidas[0]["jugada"] == desglose["jugada"] and puntajes == sorted(puntajes, reverse=True)
+    assert len(desglose["candidatas"]) <= 6 and desglose["nodos"] > 0 and desglose["tiempo_ms"] >= 0
+
+
+def test_explicar_decision_detecta_el_mate_en_uno() -> None:
+    tablero = chess.Board("6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1")
+    probabilidades = {j: 0.05 for j in tablero.legal_moves}
+
+    desglose = explicar_decision(tablero, probabilidades, profundidad=2, tiempo_limite=None)
+
+    assert desglose["jugada"] == "Ra8#" and desglose["candidatas"][0]["mate"]
+
+
+def test_explicar_decision_si_la_red_acierta_no_hay_correccion() -> None:
+    tablero = chess.Board()
+    probabilidades = {j: 0.001 for j in tablero.legal_moves}
+    probabilidades[_jugada(tablero, "e4")] = 0.6
+
+    desglose = explicar_decision(tablero, probabilidades, profundidad=2, tiempo_limite=None, peso_red=200)
+
+    assert desglose["jugada"] == "e4" and not desglose["corrige_a_la_red"]

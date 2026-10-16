@@ -26,6 +26,18 @@ def _numero_de_entorno(nombre: str, por_defecto: float, tipo: type = float):
         return por_defecto
 
 
+def parametros_de_busqueda() -> tuple[int, float, float]:
+    """`(profundidad, tiempo en segundos, peso de la red)` de la búsqueda de Turing, con las variables de entorno aplicadas.
+
+    Profundidad 0 significa búsqueda desactivada. Los mismos valores los usan la jugada real y el panel de Razonamiento.
+    """
+    return (
+        _numero_de_entorno("AJEDREZ_TURING_PROFUNDIDAD", PROFUNDIDAD_BUSQUEDA_POR_DEFECTO, int),
+        _numero_de_entorno("AJEDREZ_TURING_TIEMPO", TIEMPO_BUSQUEDA_POR_DEFECTO),
+        _numero_de_entorno("AJEDREZ_TURING_PESO_RED", PESO_RED_POR_DEFECTO),
+    )
+
+
 class EstrategiaJugada(ABC):
     """Interfaz común para cualquier forma de decidir la jugada de respuesta."""
 
@@ -80,7 +92,7 @@ class EstrategiaModelo(EstrategiaJugada):
         self.profundidad_busqueda = (
             profundidad_busqueda
             if profundidad_busqueda is not None
-            else _numero_de_entorno("AJEDREZ_TURING_PROFUNDIDAD", PROFUNDIDAD_BUSQUEDA_POR_DEFECTO, int)
+            else parametros_de_busqueda()[0]
         )
 
     def _usa_busqueda(self) -> bool:
@@ -97,11 +109,6 @@ class EstrategiaModelo(EstrategiaJugada):
         if self._usa_busqueda():
             from backend.servicios.aprendizaje.busqueda_turing import elegir_jugada_con_busqueda
 
-            return elegir_jugada_con_busqueda(
-                fen,
-                ruta,
-                self.profundidad_busqueda,
-                _numero_de_entorno("AJEDREZ_TURING_TIEMPO", TIEMPO_BUSQUEDA_POR_DEFECTO),
-                _numero_de_entorno("AJEDREZ_TURING_PESO_RED", PESO_RED_POR_DEFECTO),
-            )
+            _, tiempo, peso_red = parametros_de_busqueda()
+            return elegir_jugada_con_busqueda(fen, ruta, self.profundidad_busqueda, tiempo, peso_red)
         return predecir_jugada_maestra(fen, ruta, nivel=self.nivel)

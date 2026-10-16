@@ -167,6 +167,10 @@ class _Buscador:
         return mejor
 
 
+PROBABILIDAD_MINIMA = 1e-4
+"""Piso de probabilidad que usa `buscar` (evita `ln(0)`); se usa el mismo para recuperar el cálculo puro."""
+
+
 @dataclass
 class ResultadoBusqueda:
     """Lo que decidió la búsqueda y con qué datos."""
@@ -207,7 +211,7 @@ def buscar(
     uniforme = 1.0 / len(legales)
 
     def probabilidad(jugada: chess.Move) -> float:
-        return max(probabilidades.get(jugada, uniforme if not probabilidades else 1e-4), 1e-4)
+        return max(probabilidades.get(jugada, uniforme if not probabilidades else PROBABILIDAD_MINIMA), PROBABILIDAD_MINIMA)
 
     # Candidatas: las que más le gustan a la red + jugadas tácticas (capturas, jaques) que la red podría subestimar.
     por_red = sorted(legales, key=probabilidad, reverse=True)
@@ -263,3 +267,60 @@ def elegir_jugada_con_busqueda(
     probabilidades = probabilidades_legales(tablero, ruta_checkpoint or RUTA_CHECKPOINT_POR_DEFECTO)
     resultado = buscar(tablero, probabilidades, profundidad, tiempo_limite, peso_red)
     return tablero.san(resultado.jugada)
+
+
+def explicar_decision(
+    tablero: chess.Board,
+    probabilidades: dict[chess.Move, float],
+    profundidad: int = 3,
+    tiempo_limite: float | None = 1.0,
+    peso_red: float = 40.0,
+    maximo_candidatas: int = 6,
+) -> dict:
+    """Decide con `buscar` y devuelve el desglose de la decisión, para mostrarlo en el panel de Razonamiento Neuronal.
+
+    Cada candidata trae la probabilidad de la red, el cálculo puro (centipeones, desde quien mueve) y el puntaje final
+    `cálculo + peso_red * ln(probabilidad)`; el cálculo se recupera restando el aporte de la red al puntaje final, así
+    que no se calcula nada dos veces. Son datos reales de la búsqueda: nada se inventa ni se estima aparte.
+
+    Returns:
+        Diccionario con `jugada`/`jugada_uci` (la elegida), `jugada_red_sola` (la preferida por la red), `corrige_a_la_red`,
+        `profundidad`, `nodos`, `tiempo_ms`, `peso_red` y `candidatas` (mejores primero, hasta `maximo_candidatas`).
+
+    Raises:
+        ValueError: si la posición no tiene jugadas legales.
+    """
+    inicio = time.perf_counter()
+    resultado = buscar(tablero, probabilidades, profundidad, tiempo_limite, peso_red)
+    tiempo_ms = (time.perf_counter() - inicio) * 1000
+
+    def probabilidad_de(jugada: chess.Move) -> float:
+        return probabilidades.get(jugada, 0.0)
+
+    mejor_de_la_red = max(tablero.legal_moves, key=probabilidad_de) if probabilidades else resultado.jugada
+    candidatas = []
+    for posicion, (jugada, puntaje) in enumerate(resultado.candidatas[:maximo_candidatas]):
+        piso = max(probabilidad_de(jugada), PROBABILIDAD_MINIMA)
+        calculo = puntaje - peso_red * math.log(piso)
+        candidatas.append(
+            {
+                "jugada": tablero.san(jugada),
+                "jugada_uci": jugada.uci(),
+                "probabilidad": probabilidad_de(jugada),
+                "calculo_cp": round(calculo),
+                "puntaje": round(puntaje),
+                "mate": abs(calculo) > MATE - 1000,
+                "elegida": posicion == 0,
+            }
+        )
+    return {
+        "jugada": tablero.san(resultado.jugada),
+        "jugada_uci": resultado.jugada.uci(),
+        "jugada_red_sola": tablero.san(mejor_de_la_red),
+        "corrige_a_la_red": resultado.jugada != mejor_de_la_red,
+        "profundidad": resultado.profundidad,
+        "nodos": resultado.nodos,
+        "tiempo_ms": tiempo_ms,
+        "peso_red": peso_red,
+        "candidatas": candidatas,
+    }

@@ -7,6 +7,8 @@ import chess
 from fastapi import APIRouter, HTTPException
 
 from backend.esquemas.aprendizaje_esquema import (
+    CalculoTuring,
+    CandidataCalculo,
     CandidataDetallada,
     CandidataModelo,
     ComparacionStockfish,
@@ -20,7 +22,10 @@ from backend.servicios.aprendizaje.inferencia import (
     estado_modelo,
     explicar_top_candidatas,
     predecir_top_jugadas,
+    probabilidades_legales,
 )
+from backend.servicios.aprendizaje.busqueda_turing import explicar_decision
+from backend.servicios.estrategias.estrategia_jugada import parametros_de_busqueda
 from backend.servicios.motor.motor_ajedrez import analizar_posicion
 
 router = APIRouter(prefix="/aprendizaje", tags=["aprendizaje"])
@@ -68,13 +73,44 @@ def inferencia_endpoint(request: InferenciaModeloRequest) -> InferenciaModeloRes
     try:
         inicio = time.perf_counter()
         candidatas_tuplas = predecir_top_jugadas(request.fen, top_n=3)
-        latencia_ms = (time.perf_counter() - inicio) * 1000
 
         candidatas = [
             CandidataModelo(jugada=jugada, probabilidad=prob)
             for jugada, prob in candidatas_tuplas
         ]
         jugada_elegida = candidatas[0].jugada if candidatas else ""
+
+        # Misma decisión que toma Turing al jugar en modo maestro: la red propone y el cálculo de variantes corrige.
+        # Stockfish no interviene (solo se usa más abajo para comparar).
+        calculo = None
+        profundidad, tiempo_busqueda, peso_red = parametros_de_busqueda()
+        if profundidad > 0 and candidatas:
+            tablero_inicial = chess.Board(request.fen)
+            desglose = explicar_decision(
+                tablero_inicial, probabilidades_legales(tablero_inicial), profundidad, tiempo_busqueda, peso_red
+            )
+            jugada_elegida = desglose["jugada"]
+            calculo = CalculoTuring(
+                jugada_red_sola=desglose["jugada_red_sola"],
+                corrige_a_la_red=desglose["corrige_a_la_red"],
+                profundidad=desglose["profundidad"],
+                nodos=desglose["nodos"],
+                tiempo_ms=desglose["tiempo_ms"],
+                peso_red=desglose["peso_red"],
+                candidatas=[
+                    CandidataCalculo(
+                        jugada=c["jugada"],
+                        jugada_uci=c["jugada_uci"],
+                        probabilidad=min(1.0, max(0.0, c["probabilidad"])),
+                        calculo_cp=c["calculo_cp"],
+                        puntaje=c["puntaje"],
+                        mate=c["mate"],
+                        elegida=c["elegida"],
+                    )
+                    for c in desglose["candidatas"]
+                ],
+            )
+        latencia_ms = (time.perf_counter() - inicio) * 1000
 
         saliencia = calcular_saliencia(request.fen)
         atencion_por_bloque = calcular_atencion(request.fen)
@@ -130,7 +166,7 @@ def inferencia_endpoint(request: InferenciaModeloRequest) -> InferenciaModeloRes
                     da_jaque_mate=info["da_jaque_mate"],
                     rival_tiene_mate_en_1=info["rival_tiene_mate_en_1"],
                     pieza_colgada=info["pieza_colgada"],
-                    elegida=info["elegida"],
+                    elegida=(info["jugada"] == jugada_elegida) if calculo else info["elegida"],
                     evaluacion_stockfish_cp=eval_resultante_candidata_cp,
                     diferencia_cp=diferencia_candidata_cp,
                 )
@@ -145,6 +181,7 @@ def inferencia_endpoint(request: InferenciaModeloRequest) -> InferenciaModeloRes
             comparacion_stockfish=comparacion,
             saliencia=saliencia,
             atencion_por_bloque=atencion_por_bloque,
+            calculo=calculo,
         )
     except FileNotFoundError:
         raise HTTPException(

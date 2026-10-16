@@ -44,6 +44,32 @@ class CandidataDetallada(BaseModel):
     diferencia_cp: int = 0
 
 
+class CandidataCalculo(BaseModel):
+    """Una candidata tal como la ve la búsqueda: lo que opina la red, lo que calcula Turing y el puntaje que las junta."""
+
+    jugada: str
+    jugada_uci: str = ""
+    probabilidad: float = Field(ge=0.0, le=1.0)
+    # Cálculo puro en centipeones, desde quien mueve (100 = un peón de ventaja). Con `mate` es un mate forzado.
+    calculo_cp: int
+    # `calculo_cp + peso_red * ln(probabilidad)`: lo que decide cuál se juega.
+    puntaje: int
+    mate: bool = False
+    elegida: bool = False
+
+
+class CalculoTuring(BaseModel):
+    """Desglose de la decisión de Turing cuando combina la red con la búsqueda de variantes (nunca consulta a Stockfish)."""
+
+    jugada_red_sola: str
+    corrige_a_la_red: bool
+    profundidad: int
+    nodos: int
+    tiempo_ms: float
+    peso_red: float
+    candidatas: list[CandidataCalculo] = Field(default_factory=list)
+
+
 class InferenciaModeloRequest(BaseModel):
     """Cuerpo de entrada para /inferencia."""
 
@@ -62,6 +88,8 @@ class InferenciaModeloResponse(BaseModel):
     comparacion_stockfish: ComparacionStockfish
     saliencia: list[float] = Field(min_length=64, max_length=64)
     atencion_por_bloque: list[float] = Field(default_factory=list)
+    # `None` si la búsqueda está desactivada (AJEDREZ_TURING_PROFUNDIDAD=0): entonces decide la red sola.
+    calculo: CalculoTuring | None = None
 
 
 class EstadoModeloResponse(BaseModel):
