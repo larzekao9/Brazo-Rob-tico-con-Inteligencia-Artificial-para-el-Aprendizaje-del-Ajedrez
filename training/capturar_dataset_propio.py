@@ -121,7 +121,10 @@ def capturar_muestras(fen_piezas: str, ruta_imagen: str | None = None) -> int:
 
 
 def capturar_muestras_con_id(
-    fen_piezas: str, ruta_imagen: str | None = None, imagen: np.ndarray | None = None
+    fen_piezas: str,
+    ruta_imagen: str | None = None,
+    imagen: np.ndarray | None = None,
+    solo_piezas: bool = False,
 ) -> tuple[str, int]:
     """Guarda las 64 casillas ya etiquetadas de una foto del tablero real.
 
@@ -133,6 +136,8 @@ def capturar_muestras_con_id(
             `CAMARA_FUENTE`.
         imagen: foto ya decodificada (BGR); tiene prioridad sobre `ruta_imagen`
             y la cámara. La usa el endpoint de fotos subidas a mano.
+        solo_piezas: si es True guarda únicamente las casillas ocupadas según el FEN (ninguna "vacia"); sirve para
+            enseñar una clase de pieza sin inundar el dataset de casillas vacías.
 
     Returns:
         `(captura_id, guardadas)`: el id (solo dígitos, prefijo de los nombres
@@ -140,12 +145,14 @@ def capturar_muestras_con_id(
         casillas guardadas (64, salvo error de escritura).
 
     Raises:
-        ValueError: si `fen_piezas` es inválido, si `ruta_imagen` no se pudo
+        ValueError: si `fen_piezas` es inválido, si `solo_piezas` y el FEN no tiene ninguna pieza, si `ruta_imagen` no se pudo
             leer, o si no se detectó el tablero en la foto (mismo error que
             `detectar_esquinas_tablero`).
         RuntimeError: si no se pudo capturar la foto (cámara en vivo).
     """
     ocupacion_esperada = fen_piezas_a_ocupacion(fen_piezas)
+    if solo_piezas and not ocupacion_esperada:
+        raise ValueError("Con solo_piezas el FEN debe tener al menos una pieza")
 
     if imagen is not None:
         pass
@@ -171,6 +178,8 @@ def capturar_muestras_con_id(
     marca_tiempo = time.time_ns() // 1_000_000
     guardadas = 0
     for nombre_casilla, recorte in casillas.items():
+        if solo_piezas and nombre_casilla not in ocupacion_esperada:
+            continue
         clase = ocupacion_esperada.get(nombre_casilla, CLASE_VACIA)
         carpeta_clase = CARPETA_DATASET / clase
         carpeta_clase.mkdir(parents=True, exist_ok=True)

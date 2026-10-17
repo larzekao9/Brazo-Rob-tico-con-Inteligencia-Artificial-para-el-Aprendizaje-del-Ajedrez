@@ -23,10 +23,16 @@ celular:
 from __future__ import annotations
 
 import os
+import threading
 import time
 
 import cv2
 import numpy as np
+
+
+# Una cámara solo la puede abrir un proceso a la vez: la vista en vivo, el estado y el reconocimiento llegan en paralelo
+# y, sin esto, el segundo `VideoCapture` falla con "no se pudo abrir" (503) mientras el primero la tiene tomada.
+_CERROJO_CAMARA = threading.Lock()
 
 
 def _fuente_por_defecto() -> int | str:
@@ -64,6 +70,12 @@ def capturar_foto_tablero(fuente: int | str | None = None) -> np.ndarray:
     Raises:
         RuntimeError: si no se pudo abrir la cámara/fuente o capturar un frame.
     """
+    with _CERROJO_CAMARA:
+        return _capturar_sin_cerrojo(fuente)
+
+
+def _capturar_sin_cerrojo(fuente: int | str | None) -> np.ndarray:
+    """Cuerpo de `capturar_foto_tablero`, ya con la cámara reservada para esta llamada."""
     fuente_resuelta = fuente if fuente is not None else _fuente_por_defecto()
     api = _api_por_defecto() if isinstance(fuente_resuelta, int) else None
     camara = cv2.VideoCapture(fuente_resuelta, api) if api is not None else cv2.VideoCapture(fuente_resuelta)

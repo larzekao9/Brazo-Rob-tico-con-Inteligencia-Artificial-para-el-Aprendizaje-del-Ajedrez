@@ -122,6 +122,34 @@ def test_subir_foto_tablero_guarda_64_casillas_y_control(cliente, monkeypatch) -
     assert cliente.get("/vision/dataset/control").status_code == 200
 
 
+def test_foto_solo_piezas_no_guarda_vacias(cliente) -> None:
+    r = cliente.post("/vision/dataset/foto", json={"fen_piezas": "8/8/8/8/8/8/8/R3K3", "solo_piezas": True})
+    assert r.status_code == 200
+    cuerpo = r.json()
+    assert cuerpo["guardadas"] == 2 and cuerpo["total"] == 2 and cuerpo["captura_id"].isdigit()
+    assert cliente.get("/vision/dataset/resumen").json()["por_clase"] == {"white-rook": 1, "white-king": 1}
+    assert cliente.get("/vision/dataset/control").status_code == 200
+
+
+def test_foto_solo_piezas_sin_piezas_es_422(cliente) -> None:
+    r = cliente.post("/vision/dataset/foto", json={"fen_piezas": FEN, "solo_piezas": True})
+    assert r.status_code == 422
+    assert cliente.get("/vision/dataset/resumen").json()["total"] == 0
+
+
+def test_foto_tablero_solo_piezas(cliente) -> None:
+    foto = {"foto": ("t.png", _png(), "image/png")}
+    r = cliente.post(
+        "/vision/dataset/foto-tablero", data={"fen_piezas": "8/8/8/8/8/8/8/R7", "solo_piezas": "true"}, files=foto
+    )
+    assert r.status_code == 200 and r.json()["guardadas"] == 1
+    assert cliente.get("/vision/dataset/resumen").json()["por_clase"] == {"white-rook": 1}
+    vacio = cliente.post(
+        "/vision/dataset/foto-tablero", data={"fen_piezas": FEN, "solo_piezas": "true"}, files=foto
+    )
+    assert vacio.status_code == 422
+
+
 def test_subir_foto_tablero_errores_422(cliente, monkeypatch) -> None:
     foto = {"foto": ("t.png", _png(), "image/png")}
     assert cliente.post("/vision/dataset/foto-tablero", data={"fen_piezas": "xyz"}, files=foto).status_code == 422

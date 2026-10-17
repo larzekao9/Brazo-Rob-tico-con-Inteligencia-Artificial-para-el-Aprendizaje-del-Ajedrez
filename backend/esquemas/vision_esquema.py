@@ -46,6 +46,7 @@ class CapturaDatasetRequest(BaseModel):
     """Cuerpo de entrada para POST /vision/dataset/foto: solo el campo de piezas del FEN."""
 
     fen_piezas: str
+    solo_piezas: bool = False
 
 
 class FotosPiezaResponse(BaseModel):

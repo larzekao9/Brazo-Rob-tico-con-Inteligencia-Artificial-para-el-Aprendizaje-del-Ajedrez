@@ -33,20 +33,22 @@ def _carpeta() -> Path:
     return Path(capturar_dataset_propio.CARPETA_DATASET)
 
 
-def capturar_foto_etiquetada(fen_piezas: str) -> dict[str, int | str]:
+def capturar_foto_etiquetada(fen_piezas: str, solo_piezas: bool = False) -> dict[str, int | str]:
     """Saca una foto de la cámara fija y guarda las 64 casillas etiquetadas según `fen_piezas`.
 
+    Con `solo_piezas` guarda únicamente las casillas ocupadas (ninguna "vacia").
+
     Raises:
-        ValueError: FEN de piezas inválido o tablero no detectado.
+        ValueError: FEN de piezas inválido, `solo_piezas` sin ninguna pieza en el FEN o tablero no detectado.
         RuntimeError: la cámara no está disponible.
     """
     from training.capturar_dataset_propio import capturar_muestras_con_id
 
-    captura_id, guardadas = capturar_muestras_con_id(fen_piezas)
+    captura_id, guardadas = capturar_muestras_con_id(fen_piezas, solo_piezas=solo_piezas)
     return {"captura_id": captura_id, "guardadas": guardadas, "total": resumen()["total"]}
 
 
-def guardar_foto_tablero_subida(fen_piezas: str, imagen) -> dict[str, int | str]:
+def guardar_foto_tablero_subida(fen_piezas: str, imagen, solo_piezas: bool = False) -> dict[str, int | str]:
     """Guarda las 64 casillas etiquetadas de una foto del tablero subida a mano (misma lógica que la cámara).
 
     Raises:
@@ -54,7 +56,7 @@ def guardar_foto_tablero_subida(fen_piezas: str, imagen) -> dict[str, int | str]
     """
     from training.capturar_dataset_propio import capturar_muestras_con_id
 
-    captura_id, guardadas = capturar_muestras_con_id(fen_piezas, imagen=imagen)
+    captura_id, guardadas = capturar_muestras_con_id(fen_piezas, imagen=imagen, solo_piezas=solo_piezas)
     return {"captura_id": captura_id, "guardadas": guardadas, "total": resumen()["total"]}
 
 

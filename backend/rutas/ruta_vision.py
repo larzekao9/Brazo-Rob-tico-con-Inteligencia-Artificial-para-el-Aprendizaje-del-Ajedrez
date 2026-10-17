@@ -227,7 +227,7 @@ def capturar_foto_dataset(
 ) -> CapturaDatasetResponse:
     """Saca una foto de la cámara fija y guarda las 64 casillas etiquetadas con el FEN de piezas dado."""
     try:
-        resultado = dataset_propio.capturar_foto_etiquetada(cuerpo.fen_piezas)
+        resultado = dataset_propio.capturar_foto_etiquetada(cuerpo.fen_piezas, cuerpo.solo_piezas)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     except RuntimeError as error:
@@ -262,13 +262,14 @@ async def subir_fotos_pieza(
 @router.post("/dataset/foto-tablero", response_model=CapturaDatasetResponse)
 async def subir_foto_tablero_dataset(
     fen_piezas: str = Form(...),
+    solo_piezas: bool = Form(False),
     foto: UploadFile = File(...),
     _facilitador_id: int = Depends(get_current_facilitador),
 ) -> CapturaDatasetResponse:
     """Como /dataset/foto pero con una foto del tablero subida a mano en vez de la cámara fija."""
     imagen = await _leer_foto_subida(foto)
     try:
-        resultado = dataset_propio.guardar_foto_tablero_subida(fen_piezas, imagen)
+        resultado = dataset_propio.guardar_foto_tablero_subida(fen_piezas, imagen, solo_piezas)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     return CapturaDatasetResponse(**resultado)
