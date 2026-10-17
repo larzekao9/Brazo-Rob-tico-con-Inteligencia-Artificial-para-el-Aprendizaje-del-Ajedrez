@@ -5,6 +5,7 @@ import pytest
 
 from backend.modelos.partida import Partida
 from backend.servicios.brazo import servicio_brazo
+from backend.servicios.brazo.calibracion_brazo import ParametrosAgarre
 
 
 @pytest.fixture(autouse=True)
@@ -104,14 +105,35 @@ def test_obtener_ejecutor_modo_real_lee_host_de_variable_de_entorno(
         llamadas.append((modo, kwargs))
         return MagicMock()
 
+    parametros = ParametrosAgarre(z_tope=100.0)
     monkeypatch.setattr(servicio_brazo, "crear_ejecutor_movimiento", _crear_ejecutor_fake)
+    monkeypatch.setattr(
+        servicio_brazo,
+        "_calibracion_del_brazo",
+        lambda: {"posiciones_casillas": {}, "orientacion": (-180.0, 0.0, -120.0), "angulos_cero": None, "parametros": parametros},
+    )
     monkeypatch.setenv("AJEDREZ_MODO_BRAZO", "real")
     monkeypatch.setenv("AJEDREZ_BRAZO_HOST", "192.0.2.1")
     monkeypatch.delenv("AJEDREZ_BRAZO_PUERTO_DASHBOARD", raising=False)
 
-    servicio_brazo._obtener_ejecutor()
+    ejecutor = servicio_brazo._obtener_ejecutor()
 
-    assert llamadas == [("real", {"host": "192.0.2.1"})]
+    modo, kwargs = llamadas[0]
+    assert modo == "real" and kwargs["host"] == "192.0.2.1" and kwargs["parametros"] is parametros
+    ejecutor.conectar.assert_called_once_with()
+
+
+def test_obtener_ejecutor_modo_real_sin_calibracion_falla_y_no_deja_ejecutor_cacheado(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(servicio_brazo, "cargar_calibracion_brazo", lambda: None)
+    monkeypatch.setattr(servicio_brazo, "cargar_parametros_agarre", lambda: None)
+    monkeypatch.setenv("AJEDREZ_MODO_BRAZO", "real")
+    monkeypatch.setenv("AJEDREZ_BRAZO_HOST", "192.0.2.1")
+
+    with pytest.raises(RuntimeError, match="calibrado"):
+        servicio_brazo._obtener_ejecutor()
+    assert servicio_brazo._ejecutor is None
 
 
 def test_obtener_ejecutor_cachea_la_instancia_entre_llamadas(

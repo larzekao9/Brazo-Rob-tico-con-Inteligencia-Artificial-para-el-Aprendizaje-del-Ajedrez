@@ -16,12 +16,34 @@ import os
 import chess
 
 from backend.modelos.partida import Partida
+from backend.servicios.brazo.calibracion_brazo import cargar_calibracion_brazo, cargar_parametros_agarre
 from backend.servicios.brazo.ejecutor_movimiento import EjecutorMovimiento
 from backend.servicios.brazo.fabrica_ejecutores import crear_ejecutor_movimiento
 
 logger = logging.getLogger(__name__)
 
 _ejecutor: EjecutorMovimiento | None = None
+
+
+def _calibracion_del_brazo() -> dict:
+    """Argumentos de `EjecutorReal` que salen de la calibración local (`calibracion_local/brazo.json`).
+
+    Raises:
+        RuntimeError: si todavía no se calibró el brazo (no se mueve nada sin calibración).
+    """
+    calibracion = cargar_calibracion_brazo()
+    parametros = cargar_parametros_agarre()
+    if calibracion is None or parametros is None:
+        raise RuntimeError(
+            "El brazo real no está calibrado: corré scripts/importar_puntos_dobotstudio.py y guardá los parámetros de agarre "
+            "(ver docs/bitacora_brazo_robotico.md)."
+        )
+    return {
+        "posiciones_casillas": calibracion.posiciones_casillas,
+        "orientacion": calibracion.orientacion,
+        "angulos_cero": calibracion.angulos_cero,
+        "parametros": parametros,
+    }
 
 
 def _obtener_ejecutor() -> EjecutorMovimiento:
@@ -46,7 +68,11 @@ def _obtener_ejecutor() -> EjecutorMovimiento:
         puerto_dashboard = os.environ.get("AJEDREZ_BRAZO_PUERTO_DASHBOARD")
         if puerto_dashboard is not None:
             kwargs["puerto_dashboard"] = int(puerto_dashboard)
-    _ejecutor = crear_ejecutor_movimiento(modo, **kwargs)
+        kwargs.update(_calibracion_del_brazo())
+    ejecutor = crear_ejecutor_movimiento(modo, **kwargs)
+    if modo == "real":
+        ejecutor.conectar()
+    _ejecutor = ejecutor
     return _ejecutor
 
 

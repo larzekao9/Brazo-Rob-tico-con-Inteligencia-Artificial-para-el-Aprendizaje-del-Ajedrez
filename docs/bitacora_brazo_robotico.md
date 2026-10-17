@@ -444,3 +444,20 @@ flageado como tarea de entorno aparte.
 **Cámara.** Webcam USB fija (fuente 5, backend MSMF). Esquinas del área de juego marcadas una vez con `scripts/calibrar_esquinas_tablero.py`. El clasificador de piezas pasó de 10,4 % a 95,3 % de acierto en 3 fotos apartadas (192 casillas) tras reentrenar con 18 fotos propias; falla la dama negra (0 de 3) y el caballo blanco (4 de 6).
 
 **Pendiente.** Modelo de la pinza y su control, medidas de piezas y dedos, capturas/enroque/captura al paso/coronación, más fotos de dama, caballo y alfil.
+
+## 2026-10-17: pinza DH PGE-50-26 y primeras piezas movidas con el brazo real
+
+**Pinza.** Se comanda por Modbus a través del controlador (`SetTool485(115200,"N",1)` y `ModbusCreate("127.0.0.1",60000,1,1)`), módulo `backend/servicios/brazo/pinza_dh.py`. Registros usados: 0x0100 inicialización (1, o 0xA5 para recalibrar), 0x0101 fuerza, 0x0103 posición (0 cerrada a 1000 abierta), 0x0104 velocidad, 0x0200 estado de inicialización, 0x0201 estado de agarre (0 moviéndose, 1 llegó, 2 sostiene, 3 se cayó) y 0x0202 posición actual. La inicialización devuelve la fuerza y la velocidad a 100 %, por eso el código las vuelve a fijar.
+
+**Dedos impresos.** Dedos largos en PLA (generador en `scripts/generar_dedos_pinza.py`, Blender sin ventana). Al cambiarlos hay que recalibrar la pinza (`inicializar(recalibrar=True)`): con el cero de antes, los dedos quedaban separados a posición 0, la pieza entraba en ese hueco y la pinza nunca marcaba agarre = 2 (síntoma: agarre = 1 y posición = 0 con la pieza adentro, igual con fuerza 40 % y 60 %). Tras recalibrar, los dedos se tocan a posición 0.
+
+**Agarre medido.** Altura con las puntas apoyadas en el tablero: z = 223,65 mm (cerca de a4); se agarra 3 mm por encima (226,65). Los dedos bajan girados 45° (rz = −75°): en la diagonal entre casillas hay lugar entre las piezas vecinas. Apertura de bajada del peón: 560 de 1000. Fuerza 40 %, velocidad de pinza 20 %, brazo al 20 %. Altura segura de traslado: +80 mm sobre el agarre.
+
+**Errores encontrados y corregidos.**
+1. Después de ordenar un movimiento, el estado de la pinza sigue informando "llegó" del movimiento anterior unos instantes; el código lo tomaba como cierre terminado y abría la pinza a mitad de cierre. Ahora espera a verla moverse (o 1 s si ya estaba en destino).
+2. Se bajó sobre un caballo con la apertura del peón y la pinza chocó con la cabeza y rompió la pieza. Ahora cada tipo de pieza tiene su propia apertura (`aperturas_por_pieza`); si falta, el ejecutor no mueve nada. Se mide a mano con `scripts/ajustar_apertura_pieza.py`: el brazo baja a una casilla vacía y se mete la pieza entre los dedos hasta que pase con un poco de luz. Caballo: 860 (hueco de unos 22 mm entre dedos).
+3. El archivo de tests del ejecutor tenía un `importorskip("pybullet")` a mitad del archivo y se omitía entero; los tests del simulador pasaron a `test_ejecutor_simulado.py`.
+
+**Pruebas con el brazo real** (`scripts/probar_jugada_brazo.py`, sin capturas): peón e2→e4 movido y soltado correctamente; caballo b1→c3 con apertura 860, tres corridas seguidas sin error, y la dama (apertura medida con el script de ajuste) movida con posición inicial sin el peón de d2. Scripts de diagnóstico: `--solo-bajar`, `--solo-cerrar` (imprime posición y estado cada 0,1 s), `--fuerza`, `--margen-agarre`, `--fen`; y `scripts/probar_agarre_pinza.py` para la pinza sola.
+
+**Pendiente.** Aperturas medidas de alfil, torre y rey; verificar la altura Z en las cuatro esquinas con los dedos nuevos; pegar goma fina en los dedos; capturas, enroque, captura al paso y coronación; verificar la jugada con la cámara.

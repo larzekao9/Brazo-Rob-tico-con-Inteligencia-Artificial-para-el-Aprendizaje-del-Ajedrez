@@ -4,6 +4,9 @@ import json
 import pytest
 
 from backend.servicios.brazo.calibracion_brazo import (
+    ParametrosAgarre,
+    cargar_parametros_agarre,
+    guardar_parametros_agarre,
     cargar_calibracion_brazo,
     construir_calibracion,
     guardar_calibracion_brazo,
@@ -222,3 +225,24 @@ def test_un_archivo_que_no_es_de_dobotstudio_da_error_claro(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="DobotStudio"):
         puntos_desde_dobotstudio(ruta)
+
+
+def test_parametros_de_agarre_se_guardan_junto_a_la_calibracion_y_sobreviven_a_recalibrar(tmp_path) -> None:
+    ruta = tmp_path / "brazo.json"
+    guardar_calibracion_brazo(CERO, PUNTOS, ruta)
+    assert cargar_parametros_agarre(ruta) is None
+
+    guardar_parametros_agarre(ParametrosAgarre(z_tope=223.65, apertura_aproximacion=560), ruta)
+    guardar_calibracion_brazo(CERO, PUNTOS, ruta)  # recalibrar el tablero
+
+    parametros = cargar_parametros_agarre(ruta)
+    assert parametros.z_tope == pytest.approx(223.65) and parametros.z_agarre == pytest.approx(226.65)
+    assert cargar_calibracion_brazo(ruta).angulos_cero == CERO
+
+
+def test_parametros_de_agarre_dañados_se_rechazan(tmp_path) -> None:
+    ruta = tmp_path / "brazo.json"
+    ruta.write_text(json.dumps({"agarre": {"campo_que_no_existe": 1}}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="dañados"):
+        cargar_parametros_agarre(ruta)

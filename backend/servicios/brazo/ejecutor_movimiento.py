@@ -8,7 +8,9 @@ from abc import ABC, abstractmethod
 
 import chess
 
+from backend.servicios.brazo.calibracion_brazo import ParametrosAgarre
 from backend.servicios.brazo.cliente_dobot import ClienteDobot
+from backend.servicios.brazo.pinza_dh import AGARRE_SOSTIENE, PinzaDH
 
 
 class EjecutorMovimiento(ABC):
@@ -86,19 +88,24 @@ class EjecutorSimulado(EjecutorMovimiento):
         cerrar_escena(self.client_id)
 
 
+class PiezaNoAgarrada(RuntimeError):
+    """La pinza cerró y no sintió ninguna pieza (cerró en el aire) o se le cayó mientras la subía."""
+
+
 class EjecutorReal(EjecutorMovimiento):
-    """Ejecuta movimientos contra el brazo físico real, un Dobot CR5AS (colaborativo, 6 ejes), por TCP/IP.
+    """Mueve una pieza con el brazo físico real, un Dobot CR5AS con la pinza DH PGE-50-26, por TCP/IP.
 
-    Usa `ClienteDobot` (`cliente_dobot.py`), que habla el protocolo del controlador V4 por el puerto 29999 con la sintaxis del
-    manual (`MovJ(pose={x,y,z,rx,ry,rz},a=..,v=..)`) y espera a que termine cada movimiento antes de mandar el siguiente.
-    Está implementado con el módulo estándar `socket`, sin el SDK oficial, para no sumar una dependencia nueva.
+    Usa `ClienteDobot` (comandos del controlador V4 y espera a que termine cada movimiento) y `PinzaDH` (la pinza por Modbus).
+    Secuencia de una jugada sin captura, a baja velocidad, con los dedos girados en diagonal (`ParametrosAgarre`):
+    abre la pinza a la apertura de aproximación, va sobre la casilla de origen a altura segura, baja hasta 3 mm del tablero, cierra
+    hasta sentir la pieza (agarre = 2), sube y comprueba que la sigue sosteniendo, se traslada a altura segura, baja, suelta, sube y
+    vuelve a la posición cero. Si la pinza no agarró nada, la abre, sube y lanza `PiezaNoAgarrada`.
 
-    Requisitos antes de mover (el ejecutor falla explícitamente si falta alguno, nunca inventa valores):
-    - `posiciones_casillas`: calibración del tablero (`calcular_posiciones_casillas`), con las coordenadas XYZ reales.
-    - `orientacion`: `(rx, ry, rz)` de la herramienta con la pinza apuntando al tablero, tomada de `GetPose()` en el robot real.
-    - el brazo ya encendido y habilitado (esta clase no manda `PowerOn` ni `EnableRobot`).
+    Requisitos antes de mover (falla de forma explícita si falta alguno, nunca inventa valores):
+    - `posiciones_casillas` (calibración del tablero), `orientacion` `(rx, ry, rz)` de la herramienta y `parametros.z_tope`.
+    - el brazo encendido y habilitado en modo TCP, y la pinza inicializada (`conectar()` la inicializa si hace falta).
 
-    Todavía no resuelve capturas (retirar la pieza que ocupa el destino), enroque, captura al paso ni coronación.
+    Todavía no resuelve capturas (retirar la pieza del destino), enroque, captura al paso ni coronación.
     """
 
     def __init__(
@@ -107,87 +114,107 @@ class EjecutorReal(EjecutorMovimiento):
         puerto_dashboard: int = 29999,
         timeout_segundos: float = 5.0,
         posiciones_casillas: dict[str, tuple[float, float, float]] | None = None,
-        altura_segura_mm: float = 50.0,
-        pin_efector_do: int = 1,
         orientacion: tuple[float, float, float] | None = None,
         angulos_cero: tuple[float, ...] | None = None,
         velocidad_global: int = 20,
+        parametros: ParametrosAgarre | None = None,
         cliente: ClienteDobot | None = None,
+        pinza: PinzaDH | None = None,
     ):
         """
         Args:
-            host: IP del Dobot en la red local (192.168.5.1 por defecto de fábrica en LAN 1).
-            posiciones_casillas: resultado de `calcular_posiciones_casillas`, con las coordenadas reales medidas en el sitio.
-            altura_segura_mm: cuánto sube sobre una casilla antes de trasladarse, para no arrastrar piezas. El valor de
-                partida **no está verificado contra las piezas reales**: se ajusta con la pieza más alta (el rey).
-            pin_efector_do: salida digital `DO(índice, estado)` que activa el efector. Es un **placeholder** hasta confirmar
-                cómo está comandada la pinza DH (salida digital o Modbus RS485).
-            orientacion: `(rx, ry, rz)` fijo de la herramienta durante toda la jugada.
-            angulos_cero: ángulos de las 6 articulaciones de la posición cero, a la que vuelve al terminar. `None` = no vuelve.
+            host: IP del controlador del Dobot (192.168.5.1 de fábrica en LAN 1).
+            posiciones_casillas: resultado de `calcular_posiciones_casillas`; solo se usan X e Y (la altura sale de `parametros`).
+            orientacion: `(rx, ry, rz)` de la herramienta con la pinza apuntando al tablero; al `rz` se le suma el giro en diagonal.
+            angulos_cero: ángulos de la posición cero, adonde vuelve al terminar. `None` = no vuelve.
             velocidad_global: `SpeedFactor` al conectar (1 a 100); bajo por seguridad.
-            cliente: cliente ya armado (para pruebas); si no, se crea uno con `host` y `puerto_dashboard`.
+            parametros: alturas, giro y apertura de agarre (ver `ParametrosAgarre`).
+            cliente, pinza: ya armados (para pruebas); si no, se crean con `host`.
         """
+        self.parametros = parametros or ParametrosAgarre()
         self.cliente = cliente or ClienteDobot(host, puerto_dashboard, timeout_segundos, velocidad_global)
+        self.pinza = pinza or PinzaDH(self.cliente, self.parametros.fuerza, self.parametros.velocidad_pinza)
         self.posiciones_casillas = posiciones_casillas
-        self.altura_segura_mm = altura_segura_mm
-        self.pin_efector_do = pin_efector_do
         self.orientacion = orientacion
         self.angulos_cero = angulos_cero
 
-    def conectar(self) -> None:
-        """Abre la conexión y fija la velocidad global. No enciende ni habilita el brazo."""
+    def conectar(self, inicializar_pinza: bool = True) -> None:
+        """Abre la conexión con el brazo y con la pinza, y la inicializa si hace falta (los dedos se mueven unos segundos: libres)."""
         self.cliente.conectar()
+        self.pinza.conectar()
+        if inicializar_pinza and not self.pinza.estado().inicializada:
+            self.pinza.inicializar()
 
     def desconectar(self) -> None:
-        """Cierra la conexión (el brazo queda habilitado, como estaba)."""
+        """Cierra las conexiones (el brazo queda habilitado, como estaba)."""
+        self.pinza.desconectar()
         self.cliente.cerrar()
 
-    def _efector(self, activo: bool) -> None:
-        """Cierra (`True`) o abre (`False`) el efector y espera a que se ejecute."""
-        self.cliente.enviar(f"DO({self.pin_efector_do},{1 if activo else 0})")
-        self.cliente.esperar_fin()
+    def _pose(self, casilla: str, sobre_mm: float = 0.0) -> tuple[float, ...]:
+        """Pose de la herramienta sobre `casilla`: altura de agarre más `sobre_mm`, con el giro en diagonal."""
+        x, y, _ = self.posiciones_casillas[casilla]
+        rx, ry, rz = self.orientacion
+        return (x, y, self.parametros.z_agarre + sobre_mm, rx, ry, rz + self.parametros.giro_diagonal_grados)
 
-    def _pose(self, casilla: str, sobre_la_casilla_mm: float = 0.0) -> tuple[float, ...]:
-        x, y, z = self.posiciones_casillas[casilla]
-        return (x, y, z + sobre_la_casilla_mm, *self.orientacion)
+    def bajar_a(self, casilla: str, tipo_pieza: str = "p") -> None:
+        """Baja con la pinza abierta (a la apertura de aproximación de `tipo_pieza`) hasta la altura de agarre sobre `casilla`, sin cerrarla.
+
+        Sirve para ver si los dedos quedan bien centrados alrededor de la pieza antes de probar un agarre. Se sube con `subir_de`.
+        """
+        self.pinza.mover_a(self.parametros.apertura_para(tipo_pieza))
+        self.cliente.mover_a_pose(self._pose(casilla, self.parametros.altura_segura_mm))
+        self.cliente.mover_a_pose(self._pose(casilla), lineal=True)
+
+    def subir_de(self, casilla: str, tipo_pieza: str = "p") -> None:
+        """Sube a altura segura sobre `casilla` con la pinza abierta (el paso inverso de `bajar_a`)."""
+        self._retirarse(casilla, self.parametros.apertura_para(tipo_pieza))
+
+    def _retirarse(self, casilla: str, apertura: int) -> None:
+        """Deja la pinza abierta a `apertura` y sube a altura segura, para no arrastrar piezas si algo salió mal."""
+        self.pinza.mover_a(apertura)
+        self.cliente.mover_a_pose(self._pose(casilla, self.parametros.altura_segura_mm), lineal=True)
 
     def ejecutar_movimiento(self, tablero_antes: chess.Board, jugada: chess.Move) -> None:
-        """Ejecuta un movimiento simple (sin captura) en el brazo físico real.
-
-        `origen`, `destino` y `captura` se derivan de `tablero_antes`/`jugada`, nunca de un tablero guardado entre llamadas.
-
-        Secuencia (cada paso espera a que el brazo termine): sobre el origen a altura segura (`MovJ`), baja hasta la pieza
-        (`MovL`), cierra el efector, sube, se traslada sobre el destino (`MovJ`), baja, abre el efector, sube y, si hay
-        `angulos_cero`, vuelve a la posición cero.
+        """Mueve la pieza de `jugada` (sin captura) y deja el brazo en la posición cero.
 
         Raises:
-            RuntimeError: si falta la calibración del tablero o la orientación de la herramienta.
-            NotImplementedError: si `jugada` captura una pieza (retirar la capturada es el siguiente paso, no implementado).
+            RuntimeError: si falta la calibración, la orientación o la altura del tablero, o la pinza no está inicializada.
+            NotImplementedError: si `jugada` captura una pieza (retirar la capturada es el siguiente paso).
+            PiezaNoAgarrada: si la pinza cierra sin sentir una pieza o la pierde al subirla.
         """
         if self.posiciones_casillas is None:
-            raise RuntimeError(
-                "No se cargó la calibración del tablero todavía — llamá calcular_posiciones_casillas() con puntos medidos primero."
-            )
+            raise RuntimeError("No se cargó la calibración del tablero todavía — llamá calcular_posiciones_casillas() con puntos medidos primero.")
         if self.orientacion is None:
-            raise RuntimeError(
-                "Falta la orientación (rx, ry, rz) de la herramienta: tomala de GetPose() con la pinza apuntando al tablero."
-            )
+            raise RuntimeError("Falta la orientación (rx, ry, rz) de la herramienta: tomala de GetPose() con la pinza apuntando al tablero.")
+        _ = self.parametros.z_agarre  # falla con un mensaje claro si falta la altura del tablero
         if tablero_antes.is_capture(jugada):
-            raise NotImplementedError(
-                "Retirar piezas capturadas del tablero físico es el siguiente paso, no implementado todavía."
-            )
+            raise NotImplementedError("Retirar piezas capturadas del tablero físico es el siguiente paso, no implementado todavía.")
+        self.parametros.apertura_para(tablero_antes.piece_at(jugada.from_square).symbol())  # falla si falta medirla
+        if not self.pinza.estado().inicializada:
+            raise RuntimeError("La pinza no está inicializada: llamá a conectar() o a pinza.inicializar() antes de mover piezas.")
 
         origen = chess.square_name(jugada.from_square)
         destino = chess.square_name(jugada.to_square)
-        segura = self.altura_segura_mm
+        seguro = self.parametros.altura_segura_mm
+        apertura = self.parametros.apertura_para(tablero_antes.piece_at(jugada.from_square).symbol())
 
-        self.cliente.mover_a_pose(self._pose(origen, segura))
+        self.pinza.mover_a(apertura)
+        self.cliente.mover_a_pose(self._pose(origen, seguro))
         self.cliente.mover_a_pose(self._pose(origen), lineal=True)
-        self._efector(True)
-        self.cliente.mover_a_pose(self._pose(origen, segura), lineal=True)
-        self.cliente.mover_a_pose(self._pose(destino, segura))
+        cierre = self.pinza.cerrar()
+        if cierre.agarre != AGARRE_SOSTIENE:
+            self._retirarse(origen, apertura)
+            raise PiezaNoAgarrada(
+                f"La pinza cerró en {origen} y no sintió ninguna pieza (agarre={cierre.agarre}, posición={cierre.posicion}): "
+                "¿está en esa casilla?"
+            )
+        self.cliente.mover_a_pose(self._pose(origen, seguro), lineal=True)
+        if self.pinza.estado().agarre != AGARRE_SOSTIENE:
+            self._retirarse(origen, apertura)
+            raise PiezaNoAgarrada(f"Se le cayó la pieza de {origen} al subirla")
+        self.cliente.mover_a_pose(self._pose(destino, seguro), lineal=True)
         self.cliente.mover_a_pose(self._pose(destino), lineal=True)
-        self._efector(False)
-        self.cliente.mover_a_pose(self._pose(destino, segura), lineal=True)
+        self.pinza.mover_a(apertura)  # soltar
+        self.cliente.mover_a_pose(self._pose(destino, seguro), lineal=True)
         if self.angulos_cero is not None:
             self.cliente.mover_a_angulos(self.angulos_cero)

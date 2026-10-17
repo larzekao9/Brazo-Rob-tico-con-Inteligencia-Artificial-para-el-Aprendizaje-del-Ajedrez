@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from backend.servicios.brazo.calibracion_tablero import PuntoCalibracion, calcular_posiciones_casillas
@@ -101,10 +101,14 @@ def guardar_calibracion_brazo(
     calibracion = construir_calibracion(angulos_cero, puntos)
     destino = Path(ruta or ARCHIVO_CALIBRACION_BRAZO)
     destino.parent.mkdir(parents=True, exist_ok=True)
-    destino.write_text(
-        json.dumps({"angulos_cero": list(angulos_cero), "puntos": {c: list(p) for c, p in puntos.items()}}, indent=2),
-        encoding="utf-8",
-    )
+    datos = {"angulos_cero": list(angulos_cero), "puntos": {c: list(p) for c, p in puntos.items()}}
+    try:  # recalibrar el tablero no debe borrar los parámetros de agarre ya medidos
+        agarre = json.loads(destino.read_text(encoding="utf-8")).get("agarre") if destino.exists() else None
+    except json.JSONDecodeError:
+        agarre = None
+    if agarre is not None:
+        datos["agarre"] = agarre
+    destino.write_text(json.dumps(datos, indent=2), encoding="utf-8")
     return calibracion
 
 
@@ -162,3 +166,72 @@ def puntos_desde_dobotstudio(ruta: Path) -> tuple[tuple[float, ...], dict[str, t
         puntos[casilla] = tuple(float(v) for v in registro["pose"])
     angulos_cero = tuple(float(v) for v in por_alias[ALIAS_POSICION_CERO]["joint"])
     return angulos_cero, puntos
+
+
+@dataclass
+class ParametrosAgarre:
+    """Valores medidos en el laboratorio con los dedos largos y la pinza real (2026-10-16); se guardan junto a la calibración.
+
+    `z_tope` es la altura Z del brazo con las puntas de los dedos APOYADAS en el tablero (se mide una sola vez, leyendo `GetPose()`):
+    nada puede bajar más que eso. El agarre se hace `margen_agarre_mm` por encima, tomando la pieza por la base. Los dedos bajan
+    girados `giro_diagonal_grados` sobre su eje, porque en la diagonal entre casillas hay más lugar entre las piezas vecinas.
+    """
+
+    z_tope: float | None = None
+    margen_agarre_mm: float = 3.0
+    giro_diagonal_grados: float = 45.0
+    apertura_aproximacion: int = 560
+    """Posición de la pinza (0 a 1000) al bajar sobre un PEÓN: la apertura que dejó holgura a los lados sin rozar las vecinas."""
+    aperturas_por_pieza: dict[str, int] = field(default_factory=dict)
+    """Apertura de bajada de cada tipo de pieza (`"n"`, `"b"`, `"r"`, `"q"`, `"k"`): depende de su ancho máximo, y cada una se mide."""
+    altura_segura_mm: float = 80.0
+    """Altura sobre el agarre para trasladarse: los dedos pasan por encima del rey, la pieza más alta."""
+    fuerza: int = 20
+    velocidad_pinza: int = 20
+
+    def apertura_para(self, tipo_pieza: str) -> int:
+        """Apertura de la pinza al bajar sobre una pieza de `tipo_pieza` (`"p"`, `"n"`, `"b"`, `"r"`, `"q"`, `"k"`).
+
+        El peón usa `apertura_aproximacion`; cada una de las demás tiene que estar medida en `aperturas_por_pieza`.
+
+        Raises:
+            RuntimeError: si falta la apertura de esa pieza (bajar con una apertura chica puede romperla).
+        """
+        tipo = tipo_pieza.lower()
+        if tipo in self.aperturas_por_pieza:
+            return self.aperturas_por_pieza[tipo]
+        if tipo == "p":
+            return self.apertura_aproximacion
+        raise RuntimeError(f"Falta la apertura de la pinza para la pieza '{tipo}': medí su ancho máximo y agregala a aperturas_por_pieza")
+
+    @property
+    def z_agarre(self) -> float:
+        """Altura Z de trabajo de la punta de los dedos al agarrar o soltar. Falla si todavía no se midió el tope."""
+        if self.z_tope is None:
+            raise RuntimeError("Falta la altura del tablero (z_tope): apoyá las puntas de los dedos en el tablero y guardala con guardar_parametros_agarre")
+        return self.z_tope + self.margen_agarre_mm
+
+
+def guardar_parametros_agarre(parametros: ParametrosAgarre, ruta: Path | None = None) -> None:
+    """Guarda los parámetros de agarre en el mismo archivo de la calibración (clave `agarre`), sin tocar el resto."""
+    destino = Path(ruta or ARCHIVO_CALIBRACION_BRAZO)
+    datos = json.loads(destino.read_text(encoding="utf-8")) if destino.exists() else {}
+    datos["agarre"] = asdict(parametros)
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    destino.write_text(json.dumps(datos, indent=2), encoding="utf-8")
+
+
+def cargar_parametros_agarre(ruta: Path | None = None) -> ParametrosAgarre | None:
+    """Los parámetros de agarre guardados, o `None` si todavía no se guardaron.
+
+    Raises:
+        ValueError: si el archivo existe pero está dañado o tiene campos que no corresponden.
+    """
+    origen = Path(ruta or ARCHIVO_CALIBRACION_BRAZO)
+    if not origen.exists():
+        return None
+    try:
+        datos = json.loads(origen.read_text(encoding="utf-8")).get("agarre")
+        return None if datos is None else ParametrosAgarre(**datos)
+    except (TypeError, json.JSONDecodeError) as error:
+        raise ValueError(f"Los parámetros de agarre de {origen} están dañados: volvé a guardarlos") from error
