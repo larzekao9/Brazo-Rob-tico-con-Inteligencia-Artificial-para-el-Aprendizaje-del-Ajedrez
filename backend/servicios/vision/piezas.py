@@ -36,6 +36,13 @@ def _cargar_modelo() -> tuple[RedClasificadoraPiezas, list[str]]:
     return _modelo, _clases
 
 
+def invalidar_modelo() -> None:
+    """Descarta el clasificador cacheado: el próximo `clasificar_pieza` recarga el checkpoint (tras un reentrenamiento)."""
+    global _modelo, _clases
+    _modelo = None
+    _clases = None
+
+
 def clasificar_pieza(recorte_casilla: np.ndarray) -> str:
     """Predice qué hay en una casilla: "vacia" o una pieza (ej. "white-knight").
 

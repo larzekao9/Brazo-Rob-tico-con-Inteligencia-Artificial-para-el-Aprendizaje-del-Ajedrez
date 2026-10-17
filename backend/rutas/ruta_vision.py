@@ -2,13 +2,29 @@
 el tablero (HU1, RF06/RF10)."""
 from __future__ import annotations
 
+import json
+import math
+import time
+
 import cv2
 import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 
-from backend.esquemas.vision_esquema import ReconocerTableroResponse
-from backend.rutas.ruta_auth import get_current_user
-from backend.servicios.vision.camara import capturar_foto_tablero
+from backend.esquemas.vision_esquema import (
+    BorrarCapturaResponse,
+    CapturaDatasetRequest,
+    CapturaDatasetResponse,
+    EstadoReentrenamientoResponse,
+    ReentrenarResponse,
+    ResumenDatasetResponse,
+    CalibracionTableroRequest,
+    CalibracionTableroResponse,
+    EstadoCamaraResponse,
+    ReconocerTableroResponse,
+)
+from backend.rutas.ruta_auth import get_current_facilitador, get_current_user
+from backend.servicios.vision.camara import _fuente_por_defecto, capturar_foto_tablero
+from backend.servicios.vision import dataset_propio, tablero
 from backend.servicios.vision.reconocimiento import generar_imagen_grilla_debug, reconocer_tablero
 
 # Todas las rutas exigen token: capturan la cámara fija y devuelven su imagen,
@@ -35,13 +51,40 @@ async def _leer_foto_subida(foto_subida: UploadFile) -> np.ndarray:
     return imagen
 
 
+@router.get("/estado", response_model=EstadoCamaraResponse)
+def estado_camara(_facilitador_id: int = Depends(get_current_facilitador)) -> EstadoCamaraResponse:
+    """Estado de la cámara fija: captura una foto de prueba y mide la latencia.
+
+    Nunca devuelve 500: si la captura falla, `disponible=false` y el motivo en `error`.
+    """
+    fuente = str(_fuente_por_defecto())
+    inicio = time.perf_counter()
+    try:
+        imagen = capturar_foto_tablero()
+    except Exception as error:
+        return EstadoCamaraResponse(fuente=fuente, disponible=False, error=str(error) or type(error).__name__)
+    latencia_ms = (time.perf_counter() - inicio) * 1000
+    alto, ancho = imagen.shape[:2]
+    return EstadoCamaraResponse(
+        fuente=fuente, disponible=True, ancho=int(ancho), alto=int(alto), latencia_ms=round(latencia_ms, 1)
+    )
+
+
 @router.get("/foto")
-def foto(_usuario_id: int = Depends(get_current_user)) -> Response:
-    """Captura una foto de la cámara fija y la devuelve como JPEG."""
+def foto(grilla: bool = False, _usuario_id: int = Depends(get_current_user)) -> Response:
+    """Captura una foto de la cámara fija y la devuelve como JPEG.
+
+    Con `grilla=true` devuelve la foto enderezada con la grilla 8x8 dibujada encima.
+    """
     try:
         imagen = capturar_foto_tablero()
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
+    if grilla:
+        try:
+            imagen = generar_imagen_grilla_debug(imagen)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
     exito, buffer = cv2.imencode(".jpg", imagen)
     if not exito:
         raise HTTPException(status_code=500, detail="No se pudo codificar la foto capturada")
@@ -106,3 +149,128 @@ async def grilla_debug(
     if not exito:
         raise HTTPException(status_code=500, detail="No se pudo codificar la imagen de grilla")
     return Response(content=buffer.tobytes(), media_type="image/jpeg")
+
+
+AREA_MINIMA_CALIBRACION_PX2 = 1000.0
+
+
+def _validar_esquinas(esquinas: dict[str, list[float]]) -> dict[str, tuple[float, float]]:
+    """Valida las 4 esquinas y devuelve `{nombre: (x, y)}`; lanza 422 en español si algo no cierra."""
+    if set(esquinas) != set(tablero.ORDEN_DE_CLICS):
+        raise HTTPException(status_code=422, detail="Hacen falta exactamente las esquinas a1, h1, h8 y a8")
+    puntos: dict[str, tuple[float, float]] = {}
+    for nombre in tablero.ORDEN_DE_CLICS:
+        coordenada = esquinas[nombre]
+        if len(coordenada) != 2 or not all(math.isfinite(v) and v >= 0 for v in coordenada):
+            raise HTTPException(
+                status_code=422, detail=f"La esquina {nombre} debe ser [x, y] con números finitos mayores o iguales a 0"
+            )
+        puntos[nombre] = (float(coordenada[0]), float(coordenada[1]))
+
+    ciclo = [puntos[nombre] for nombre in tablero.ORDEN_DE_CLICS]
+    productos = []
+    area_doble = 0.0
+    for i in range(4):
+        (x1, y1), (x2, y2), (x3, y3) = ciclo[i], ciclo[(i + 1) % 4], ciclo[(i + 2) % 4]
+        productos.append((x2 - x1) * (y3 - y2) - (y2 - y1) * (x3 - x2))
+        area_doble += x1 * y2 - x2 * y1
+    convexo = all(p > 0 for p in productos) or all(p < 0 for p in productos)
+    if not convexo or abs(area_doble) / 2 <= AREA_MINIMA_CALIBRACION_PX2:
+        raise HTTPException(
+            status_code=422,
+            detail="Las esquinas no forman un cuadrilátero convexo de tamaño razonable: marcalas en orden a1, h1, h8, a8",
+        )
+    return puntos
+
+
+def _estado_calibracion() -> CalibracionTableroResponse:
+    ruta = tablero.ARCHIVO_ESQUINAS
+    if not ruta.exists():
+        return CalibracionTableroResponse(calibrada=False, esquinas=None)
+    try:
+        datos = json.loads(ruta.read_text(encoding="utf-8"))
+        esquinas = {nombre: [float(datos[nombre][0]), float(datos[nombre][1])] for nombre in tablero.ORDEN_DE_CLICS}
+    except (ValueError, KeyError, TypeError, IndexError):
+        return CalibracionTableroResponse(calibrada=False, esquinas=None)
+    return CalibracionTableroResponse(calibrada=True, esquinas=esquinas)
+
+
+@router.get("/calibracion", response_model=CalibracionTableroResponse)
+def obtener_calibracion(_facilitador_id: int = Depends(get_current_facilitador)) -> CalibracionTableroResponse:
+    """Esquinas del tablero calibradas a mano (píxeles de la foto), o `calibrada=false` si se usa la detección automática."""
+    return _estado_calibracion()
+
+
+@router.put("/calibracion", response_model=CalibracionTableroResponse)
+def guardar_calibracion(
+    cuerpo: CalibracionTableroRequest, _facilitador_id: int = Depends(get_current_facilitador)
+) -> CalibracionTableroResponse:
+    """Guarda las 4 esquinas marcadas por el facilitador."""
+    puntos = _validar_esquinas(cuerpo.esquinas)
+    tablero.guardar_esquinas_calibradas(puntos)
+    return _estado_calibracion()
+
+
+@router.delete("/calibracion", response_model=CalibracionTableroResponse)
+def borrar_calibracion(_facilitador_id: int = Depends(get_current_facilitador)) -> CalibracionTableroResponse:
+    """Borra la calibración manual y vuelve a la detección automática."""
+    tablero.ARCHIVO_ESQUINAS.unlink(missing_ok=True)
+    return _estado_calibracion()
+
+
+@router.post("/dataset/foto", response_model=CapturaDatasetResponse)
+def capturar_foto_dataset(
+    cuerpo: CapturaDatasetRequest, _facilitador_id: int = Depends(get_current_facilitador)
+) -> CapturaDatasetResponse:
+    """Saca una foto de la cámara fija y guarda las 64 casillas etiquetadas con el FEN de piezas dado."""
+    try:
+        resultado = dataset_propio.capturar_foto_etiquetada(cuerpo.fen_piezas)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    return CapturaDatasetResponse(**resultado)
+
+
+@router.get("/dataset/control")
+def imagen_control_dataset(_facilitador_id: int = Depends(get_current_facilitador)) -> Response:
+    """Última imagen de control (tablero enderezado con la grilla) como JPEG."""
+    ruta = dataset_propio.ruta_imagen_control()
+    if ruta is None:
+        raise HTTPException(status_code=404, detail="Todavía no hay imagen de control")
+    return Response(content=ruta.read_bytes(), media_type="image/jpeg")
+
+
+@router.get("/dataset/resumen", response_model=ResumenDatasetResponse)
+def resumen_dataset(_facilitador_id: int = Depends(get_current_facilitador)) -> ResumenDatasetResponse:
+    """Muestras por clase del dataset propio."""
+    return ResumenDatasetResponse(**dataset_propio.resumen())
+
+
+@router.delete("/dataset/captura/{captura_id}", response_model=BorrarCapturaResponse)
+def borrar_captura_dataset(
+    captura_id: str, _facilitador_id: int = Depends(get_current_facilitador)
+) -> BorrarCapturaResponse:
+    """Deshace una captura borrando sus PNG."""
+    try:
+        return BorrarCapturaResponse(borradas=dataset_propio.borrar_captura(captura_id))
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@router.post("/dataset/reentrenar", response_model=ReentrenarResponse)
+def reentrenar_clasificador(_facilitador_id: int = Depends(get_current_facilitador)) -> ReentrenarResponse:
+    """Lanza el reentrenamiento del clasificador en segundo plano."""
+    try:
+        dataset_propio.iniciar_reentrenamiento()
+    except RuntimeError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return ReentrenarResponse(estado="en_curso")
+
+
+@router.get("/dataset/reentrenar/estado", response_model=EstadoReentrenamientoResponse)
+def estado_reentrenamiento(_facilitador_id: int = Depends(get_current_facilitador)) -> EstadoReentrenamientoResponse:
+    """Estado del reentrenamiento y las últimas líneas de su salida."""
+    return EstadoReentrenamientoResponse(**dataset_propio.estado_reentrenamiento())

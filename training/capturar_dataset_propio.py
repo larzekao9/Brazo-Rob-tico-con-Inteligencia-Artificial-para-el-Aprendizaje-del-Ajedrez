@@ -112,6 +112,14 @@ def fen_piezas_a_ocupacion(fen_piezas: str) -> dict[str, str]:
 
 
 def capturar_muestras(fen_piezas: str, ruta_imagen: str | None = None) -> int:
+    """Guarda las 64 casillas ya etiquetadas de una foto del tablero real y devuelve cuántas se guardaron.
+
+    Es la versión de siempre (solo el conteo); ver `capturar_muestras_con_id` para obtener también el id de la captura.
+    """
+    return capturar_muestras_con_id(fen_piezas, ruta_imagen)[1]
+
+
+def capturar_muestras_con_id(fen_piezas: str, ruta_imagen: str | None = None) -> tuple[str, int]:
     """Guarda las 64 casillas ya etiquetadas de una foto del tablero real.
 
     Args:
@@ -122,7 +130,9 @@ def capturar_muestras(fen_piezas: str, ruta_imagen: str | None = None) -> int:
             `CAMARA_FUENTE`.
 
     Returns:
-        Cantidad de casillas guardadas (64, salvo error de escritura).
+        `(captura_id, guardadas)`: el id (solo dígitos, prefijo de los nombres
+        de archivo de la captura, sirve para deshacerla) y la cantidad de
+        casillas guardadas (64, salvo error de escritura).
 
     Raises:
         ValueError: si `fen_piezas` es inválido, si `ruta_imagen` no se pudo
@@ -151,7 +161,7 @@ def capturar_muestras(fen_piezas: str, ruta_imagen: str | None = None) -> int:
 
     casillas = dividir_en_casillas(plano, margen)
 
-    marca_tiempo = int(time.time())
+    marca_tiempo = time.time_ns() // 1_000_000
     guardadas = 0
     for nombre_casilla, recorte in casillas.items():
         clase = ocupacion_esperada.get(nombre_casilla, CLASE_VACIA)
@@ -160,7 +170,7 @@ def capturar_muestras(fen_piezas: str, ruta_imagen: str | None = None) -> int:
         ruta = carpeta_clase / f"{marca_tiempo}_{nombre_casilla}.png"
         if cv2.imwrite(str(ruta), recorte):
             guardadas += 1
-    return guardadas
+    return str(marca_tiempo), guardadas
 
 
 if __name__ == "__main__":

@@ -29,3 +29,10 @@ def test_clasificar_pieza_devuelve_una_clase_valida() -> None:
     recorte = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
     etiqueta = piezas.clasificar_pieza(recorte)
     assert etiqueta in CLASES
+
+
+def test_invalidar_modelo_descarta_el_cache() -> None:
+    piezas._modelo = object()
+    piezas._clases = ["vacia"]
+    piezas.invalidar_modelo()
+    assert piezas._modelo is None and piezas._clases is None
