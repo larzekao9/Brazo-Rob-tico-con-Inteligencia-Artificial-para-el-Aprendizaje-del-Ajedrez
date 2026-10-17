@@ -15,6 +15,7 @@ from backend.esquemas.vision_esquema import (
     CapturaDatasetRequest,
     CapturaDatasetResponse,
     EstadoReentrenamientoResponse,
+    FotosPiezaResponse,
     ReentrenarResponse,
     ResumenDatasetResponse,
     CalibracionTableroRequest,
@@ -25,6 +26,7 @@ from backend.esquemas.vision_esquema import (
 from backend.rutas.ruta_auth import get_current_facilitador, get_current_user
 from backend.servicios.vision.camara import _fuente_por_defecto, capturar_foto_tablero
 from backend.servicios.vision import dataset_propio, tablero
+from backend.servicios.vision.modelo_piezas import CLASES
 from backend.servicios.vision.reconocimiento import generar_imagen_grilla_debug, reconocer_tablero
 
 # Todas las rutas exigen token: capturan la cámara fija y devuelven su imagen,
@@ -34,6 +36,7 @@ router = APIRouter(prefix="/vision", tags=["vision"])
 # Tope de una foto subida a mano. Una foto de celular ronda los pocos MB; sin
 # tope, una subida enorme se carga entera en memoria y puede tumbar el backend.
 TAMANO_MAXIMO_FOTO_BYTES = 10 * 1024 * 1024
+MAXIMO_FOTOS_PIEZA = 20
 
 
 async def _leer_foto_subida(foto_subida: UploadFile) -> np.ndarray:
@@ -229,6 +232,45 @@ def capturar_foto_dataset(
         raise HTTPException(status_code=422, detail=str(error)) from error
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
+    return CapturaDatasetResponse(**resultado)
+
+
+@router.post("/dataset/pieza", response_model=FotosPiezaResponse)
+async def subir_fotos_pieza(
+    clase: str = Form(...),
+    fotos: list[UploadFile] = File(...),
+    _facilitador_id: int = Depends(get_current_facilitador),
+) -> FotosPiezaResponse:
+    """Sube fotos de una pieza (o casilla vacía) de una clase; se guardan tal cual, sin enderezar ni recortar."""
+    if clase not in CLASES:
+        raise HTTPException(status_code=422, detail=f"Clase inválida: {clase!r}")
+    if not 1 <= len(fotos) <= MAXIMO_FOTOS_PIEZA:
+        raise HTTPException(status_code=422, detail=f"Se aceptan de 1 a {MAXIMO_FOTOS_PIEZA} fotos por pedido")
+    imagenes = []
+    for foto_subida in fotos:
+        try:
+            imagenes.append(await _leer_foto_subida(foto_subida))
+        except HTTPException as error:
+            if error.status_code == 422:
+                raise HTTPException(
+                    status_code=422, detail=f"No se pudo leer la imagen: {foto_subida.filename}"
+                ) from error
+            raise
+    return FotosPiezaResponse(**dataset_propio.guardar_fotos_pieza(clase, imagenes))
+
+
+@router.post("/dataset/foto-tablero", response_model=CapturaDatasetResponse)
+async def subir_foto_tablero_dataset(
+    fen_piezas: str = Form(...),
+    foto: UploadFile = File(...),
+    _facilitador_id: int = Depends(get_current_facilitador),
+) -> CapturaDatasetResponse:
+    """Como /dataset/foto pero con una foto del tablero subida a mano en vez de la cámara fija."""
+    imagen = await _leer_foto_subida(foto)
+    try:
+        resultado = dataset_propio.guardar_foto_tablero_subida(fen_piezas, imagen)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     return CapturaDatasetResponse(**resultado)
 
 

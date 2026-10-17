@@ -12,8 +12,11 @@ import re
 import subprocess
 import sys
 import threading
+import time
 from collections import deque
 from pathlib import Path
+
+import cv2
 
 from backend.servicios.vision import piezas
 
@@ -43,6 +46,38 @@ def capturar_foto_etiquetada(fen_piezas: str) -> dict[str, int | str]:
     return {"captura_id": captura_id, "guardadas": guardadas, "total": resumen()["total"]}
 
 
+def guardar_foto_tablero_subida(fen_piezas: str, imagen) -> dict[str, int | str]:
+    """Guarda las 64 casillas etiquetadas de una foto del tablero subida a mano (misma lógica que la cámara).
+
+    Raises:
+        ValueError: FEN de piezas inválido o tablero no detectado.
+    """
+    from training.capturar_dataset_propio import capturar_muestras_con_id
+
+    captura_id, guardadas = capturar_muestras_con_id(fen_piezas, imagen=imagen)
+    return {"captura_id": captura_id, "guardadas": guardadas, "total": resumen()["total"]}
+
+
+def guardar_fotos_pieza(clase: str, imagenes: list) -> dict[str, int]:
+    """Guarda tal cual (PNG) fotos de una pieza o casilla vacía en `<dataset>/<clase>/sub_<ms>_<i>.png`.
+
+    Raises:
+        ValueError: `clase` no es una de las 13 clases del clasificador, o una imagen no se pudo escribir.
+    """
+    from backend.servicios.vision.modelo_piezas import CLASES
+
+    if clase not in CLASES:
+        raise ValueError(f"Clase inválida: {clase!r}")
+    carpeta_clase = _carpeta() / clase
+    carpeta_clase.mkdir(parents=True, exist_ok=True)
+    marca_tiempo = time.time_ns() // 1_000_000
+    guardadas = 0
+    for indice, imagen in enumerate(imagenes):
+        if cv2.imwrite(str(carpeta_clase / f"sub_{marca_tiempo}_{indice}.png"), imagen):
+            guardadas += 1
+    return {"guardadas": guardadas, "total_clase": len(list(carpeta_clase.glob("*.png")))}
+
+
 def ruta_imagen_control() -> Path | None:
     """Ruta de la última imagen de control con grilla, o `None` si todavía no hay."""
     ruta = _carpeta() / "_ultima_captura.jpg"
@@ -60,7 +95,9 @@ def resumen() -> dict:
                 continue
             archivos = list(sub.glob("*.png"))
             por_clase[sub.name] = len(archivos)
-            ids.update(archivo.name.split("_", 1)[0] for archivo in archivos)
+            ids.update(
+                    id_captura for archivo in archivos if (id_captura := archivo.name.split("_", 1)[0]).isdigit()
+                )
     return {
         "por_clase": por_clase,
         "total": sum(por_clase.values()),

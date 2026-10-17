@@ -48,6 +48,13 @@ class CapturaDatasetRequest(BaseModel):
     fen_piezas: str
 
 
+class FotosPiezaResponse(BaseModel):
+    """Cuerpo de salida para POST /vision/dataset/pieza."""
+
+    guardadas: int
+    total_clase: int
+
+
 class CapturaDatasetResponse(BaseModel):
     """Cuerpo de salida para POST /vision/dataset/foto."""
 

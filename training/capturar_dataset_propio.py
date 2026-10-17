@@ -58,6 +58,7 @@ import time
 from pathlib import Path
 
 import cv2
+import numpy as np
 from dotenv import load_dotenv
 
 from backend.servicios.vision.camara import capturar_foto_tablero
@@ -119,7 +120,9 @@ def capturar_muestras(fen_piezas: str, ruta_imagen: str | None = None) -> int:
     return capturar_muestras_con_id(fen_piezas, ruta_imagen)[1]
 
 
-def capturar_muestras_con_id(fen_piezas: str, ruta_imagen: str | None = None) -> tuple[str, int]:
+def capturar_muestras_con_id(
+    fen_piezas: str, ruta_imagen: str | None = None, imagen: np.ndarray | None = None
+) -> tuple[str, int]:
     """Guarda las 64 casillas ya etiquetadas de una foto del tablero real.
 
     Args:
@@ -128,6 +131,8 @@ def capturar_muestras_con_id(fen_piezas: str, ruta_imagen: str | None = None) ->
             una foto ya sacada con la cámara normal del celular). Si no,
             saca una foto nueva de la cámara en vivo configurada por
             `CAMARA_FUENTE`.
+        imagen: foto ya decodificada (BGR); tiene prioridad sobre `ruta_imagen`
+            y la cámara. La usa el endpoint de fotos subidas a mano.
 
     Returns:
         `(captura_id, guardadas)`: el id (solo dígitos, prefijo de los nombres
@@ -142,7 +147,9 @@ def capturar_muestras_con_id(fen_piezas: str, ruta_imagen: str | None = None) ->
     """
     ocupacion_esperada = fen_piezas_a_ocupacion(fen_piezas)
 
-    if ruta_imagen is not None:
+    if imagen is not None:
+        pass
+    elif ruta_imagen is not None:
         print(f"Leyendo foto: {ruta_imagen}")
         imagen = cv2.imread(ruta_imagen)
         if imagen is None:
