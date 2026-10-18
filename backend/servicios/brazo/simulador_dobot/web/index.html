@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulador del brazo</title>
+<style>
+:root {
+  --fondo: #f4f5f7; --panel: #ffffff; --texto: #1c2430; --suave: #5b6675; --borde: #d5dae1;
+  --acento: #1d6fd8; --ok: #1f8f4e; --aviso: #b7791f; --mal: #c0392b;
+  --casilla-clara: #ecd9b0; --casilla-oscura: #a87c52; --pieza-blanca: #fbfaf5; --pieza-negra: #2a2d33;
+  --metal: #8a95a5; --tcp: #1d6fd8;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-tema="claro"]) {
+    --fondo: #12161c; --panel: #1b212a; --texto: #e6eaf0; --suave: #9aa6b6; --borde: #2f3846;
+    --acento: #5aa2ff; --ok: #4cc27d; --aviso: #e0a94a; --mal: #ef6b5b;
+    --casilla-clara: #c9b384; --casilla-oscura: #7c5a3a; --metal: #aab5c5;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--fondo); color: var(--texto); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--borde); background: var(--panel); }
+h1 { font-size: 18px; margin: 0; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--suave); margin: 0 0 8px; }
+#conexion { font-size: 13px; color: var(--suave); }
+#conexion.mal { color: var(--mal); font-weight: 600; }
+main { display: grid; gap: 12px; padding: 12px 16px 24px; grid-template-columns: minmax(0, 1fr); max-width: 1500px; margin: 0 auto; }
+@media (min-width: 900px) { main { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); } }
+@media (min-width: 1400px) { main { grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.9fr) minmax(0, 0.9fr); } }
+section { background: var(--panel); border: 1px solid var(--borde); border-radius: 10px; padding: 12px; min-width: 0; }
+.columna { display: grid; gap: 12px; align-content: start; min-width: 0; }
+canvas { display: block; width: 100%; height: auto; border-radius: 6px; background: transparent; }
+#cenital { aspect-ratio: 1 / 1; }
+#lateral { aspect-ratio: 4 / 3; }
+dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 0; }
+dt { color: var(--suave); }
+dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.insignia { display: inline-block; padding: 1px 10px; border-radius: 999px; font-weight: 600; color: #fff; background: var(--suave); }
+.insignia.a0 { background: var(--aviso); } .insignia.a1 { background: var(--acento); } .insignia.a2 { background: var(--ok); } .insignia.a3 { background: var(--mal); }
+.barra { height: 8px; border-radius: 4px; background: var(--borde); overflow: hidden; margin-top: 2px; }
+.barra > i { display: block; height: 100%; background: var(--acento); width: 0; }
+.controles { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+button, input, select { font: inherit; color: var(--texto); }
+button { min-height: 44px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--borde); background: var(--panel); cursor: pointer; }
+button:hover { border-color: var(--acento); }
+button.primario { background: var(--acento); border-color: var(--acento); color: #fff; }
+button[aria-pressed="true"] { background: var(--mal); border-color: var(--mal); color: #fff; }
+input[type="text"] { min-height: 44px; flex: 1 1 200px; min-width: 0; padding: 0 10px; border-radius: 8px; border: 1px solid var(--borde); background: var(--fondo); }
+input[type="range"] { flex: 1 1 140px; min-width: 100px; min-height: 44px; }
+.fallos { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.fallos button { text-align: left; padding: 6px 12px; line-height: 1.2; }
+#log { margin: 0; height: 240px; overflow: auto; font: 12px/1.35 ui-monospace, "SF Mono", Menlo, Consolas, monospace; background: var(--fondo); border-radius: 6px; padding: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+#log .sim, #log .pinza { color: var(--aviso); } #log .fallo { color: var(--mal); } #log .rx { color: var(--suave); }
+.nota { color: var(--suave); font-size: 12px; margin: 8px 0 0; }
+.aviso { color: var(--mal); font-weight: 600; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Simulador del brazo Dobot CR5AS y pinza DH</h1>
+  <span id="conexion">conectando...</span>
+</header>
+<main>
+  <div class="columna">
+    <section>
+      <h2>Vista cenital</h2>
+      <canvas id="cenital" aria-label="Vista cenital del tablero, las piezas y la pinza"></canvas>
+      <p class="nota">Tablero visto desde arriba con a1 abajo a la izquierda. Azul: dedos de la pinza. Rojo: pieza dañada o volcada. La vista 3D queda pendiente.</p>
+    </section>
+    <section>
+      <h2>Vista lateral (junto a los dedos)</h2>
+      <canvas id="lateral" aria-label="Vista lateral de la pinza y las piezas cercanas"></canvas>
+      <p class="nota" id="notaLateral"></p>
+    </section>
+  </div>
+  <div class="columna">
+    <section>
+      <h2>Estado</h2>
+      <dl>
+        <dt>Modo</dt><dd id="modo">-</dd>
+        <dt>Pose (mm, °)</dt><dd id="pose">-</dd>
+        <dt>Articulaciones</dt><dd id="angulos">-</dd>
+        <dt>Punta sobre el tablero</dt><dd id="altura">-</dd>
+        <dt>Cola de movimientos</dt><dd id="cola">-</dd>
+        <dt>Apertura</dt><dd><span id="apertura">-</span><div class="barra"><i id="barraApertura"></i></div></dd>
+        <dt>Fuerza / velocidad</dt><dd id="fuerza">-</dd>
+        <dt>Fuerza sobre la pieza</dt><dd id="contacto">-</dd>
+        <dt>Agarre (0-3)</dt><dd><span id="agarre" class="insignia">-</span> <span id="agarreTexto"></span></dd>
+        <dt>Tiempo simulado</dt><dd id="tiempo">-</dd>
+      </dl>
+      <p class="aviso" id="avisoChoque" hidden>La pinza está chocando con algo: no llega a la pose pedida.</p>
+    </section>
+    <section>
+      <h2>Escena</h2>
+      <div class="controles">
+        <button id="reiniciar" class="primario">Reiniciar escena</button>
+        <button id="pausa" aria-pressed="false">Pausar</button>
+      </div>
+      <div class="controles" style="margin-top:8px">
+        <input type="text" id="fen" aria-label="FEN" placeholder="FEN, por ejemplo 8/8/8/8/4P3/8/8/8 w - - 0 1" spellcheck="false">
+        <button id="cargarFen">Cargar FEN</button>
+      </div>
+      <div class="controles" style="margin-top:8px">
+        <label for="escala">Velocidad de la simulación</label>
+        <input type="range" id="escala" min="0.25" max="10" step="0.25" value="1">
+        <output id="escalaTexto">1x</output>
+      </div>
+      <p class="nota" id="efectiva"></p>
+      <p class="nota">Pausar congela todo: un script que esté esperando puede dar tiempo agotado.</p>
+    </section>
+    <section>
+      <h2>Fallos para probar</h2>
+      <div class="fallos">
+        <button data-disparo="pieza_cae">Soltar la pieza (afloja los dedos)</button>
+        <button data-fallo="dedos_resbaladizos" aria-pressed="false">Dedos resbaladizos</button>
+        <button data-fallo="pinza_no_responde" aria-pressed="false">La pinza no responde</button>
+        <button data-contador="error_proximo_movimiento" aria-pressed="false">Error en el próximo movimiento</button>
+        <button data-fallo="alarma" aria-pressed="false">Alarma (modo 9)</button>
+        <button data-fallo="colision" aria-pressed="false">Colisión (modo 11)</button>
+        <button data-fallo="no_tcp" aria-pressed="false">Modo distinto de TCP</button>
+      </div>
+      <p class="nota">Alarma y colisión se limpian con <code>ClearError()</code> o apagando el botón.</p>
+    </section>
+  </div>
+  <div class="columna">
+    <section>
+      <h2>Comandos recibidos</h2>
+      <div class="controles" style="margin-bottom:8px">
+        <label><input type="checkbox" id="verLecturas"> ver lecturas (RobotMode, GetPose...)</label>
+        <button id="limpiarLog">Limpiar</button>
+      </div>
+      <pre id="log" aria-live="off"></pre>
+    </section>
+  </div>
+</main>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const MODOS = {3: "apagado", 4: "deshabilitado", 5: "habilitado y libre", 6: "arrastre", 7: "en movimiento", 9: "alarma", 10: "en pausa", 11: "colisión"};
+const AGARRES = {0: "moviéndose", 1: "llegó a la posición", 2: "sostiene un objeto", 3: "se cayó el objeto"};
+const GLIFOS = {K: "♔", Q: "♕", R: "♖", B: "♗", N: "♘", P: "♙", k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟"};
+const LECTURAS = /RobotMode|GetPose|GetAngle|GetErrorID|GetCurrentCommandID|GetHoldRegs/;
+let estado = null, ultimoOk = 0, enviandoEscala = false;
+
+function css(nombre) { return getComputedStyle(document.documentElement).getPropertyValue(nombre).trim(); }
+
+async function enviar(ruta, cuerpo) {
+  try {
+    await fetch(ruta, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(cuerpo || {})});
+  } catch (e) { /* el sondeo mostrará que no hay conexión */ }
+  sondear(true);
+}
+
+function ajustarLienzo(canvas) {
+  const proporcion = window.devicePixelRatio || 1, caja = canvas.getBoundingClientRect();
+  const ancho = Math.max(1, Math.round(caja.width * proporcion)), alto = Math.max(1, Math.round(caja.height * proporcion));
+  if (canvas.width !== ancho || canvas.height !== alto) { canvas.width = ancho; canvas.height = alto; }
+  const c = canvas.getContext("2d");
+  c.setTransform(proporcion, 0, 0, proporcion, 0, 0);
+  return [c, caja.width, caja.height];
+}
+
+function aTablero(t, x, y) {
+  const [ux, uy] = t.paso_u, [vx, vy] = t.paso_v, det = ux * vy - uy * vx;
+  const dx = x - t.origen_a1[0], dy = y - t.origen_a1[1];
+  return [(dx * vy - dy * vx) / det, (ux * dy - uy * dx) / det];
+}
+function vectorATablero(t, x, y) {
+  const [ux, uy] = t.paso_u, [vx, vy] = t.paso_v, det = ux * vy - uy * vx;
+  return [(x * vy - y * vx) / det, (ux * y - uy * x) / det];
+}
+
+function dibujarCenital(e) {
+  const [c, W, H] = ajustarLienzo($("cenital")), t = e.tablero;
+  c.clearRect(0, 0, W, H);
+  const lado = Math.min(W, H), margen = lado * 0.06, celda = (lado - 2 * margen) / 8;
+  const px = (col) => margen + (col + 0.5) * celda, py = (fila) => margen + (7.5 - fila) * celda;
+  const paso = Math.hypot(t.paso_u[0], t.paso_u[1]), mm = celda / paso;
+  for (let f = 0; f < 8; f++) for (let col = 0; col < 8; col++) {
+    c.fillStyle = (col + f) % 2 === 0 ? css("--casilla-oscura") : css("--casilla-clara");
+    c.fillRect(margen + col * celda, margen + (7 - f) * celda, celda, celda);
+  }
+  c.fillStyle = css("--suave"); c.font = `${Math.max(9, celda * 0.28)}px system-ui`; c.textAlign = "center"; c.textBaseline = "middle";
+  for (let i = 0; i < 8; i++) { c.fillText("abcdefgh"[i], px(i), margen * 0.5); c.fillText(String(i + 1), margen * 0.5, py(i)); }
+  const anguloU = t.angulo_u * Math.PI / 180;
+  const brazo = e.brazo.map((p) => aTablero(t, p[0], p[1]));
+  c.strokeStyle = css("--metal"); c.lineWidth = Math.max(3, celda * 0.18); c.lineCap = "round"; c.lineJoin = "round";
+  c.beginPath(); brazo.forEach((p, i) => { const X = px(p[0]), Y = py(p[1]); i ? c.lineTo(X, Y) : c.moveTo(X, Y); }); c.stroke();
+  c.fillStyle = css("--metal"); const base = brazo[0]; c.beginPath(); c.arc(px(base[0]), py(base[1]), celda * 0.28, 0, 7); c.fill();
+  for (const p of e.piezas) {
+    const [col, fila] = aTablero(t, p.x, p.y), r = Math.max(celda * 0.16, p.ancho * mm / 2 * 1.15);
+    const blanca = p.simbolo === p.simbolo.toUpperCase();
+    c.fillStyle = blanca ? css("--pieza-blanca") : css("--pieza-negra");
+    c.strokeStyle = p.danada || p.volcada ? css("--mal") : css("--borde"); c.lineWidth = p.danada || p.volcada ? 3 : 1;
+    c.beginPath(); c.arc(px(col), py(fila), r, 0, 7); c.fill(); c.stroke();
+    c.fillStyle = blanca ? "#222" : "#f3f3f3"; c.font = `${celda * 0.5}px system-ui`;
+    c.fillText(GLIFOS[p.simbolo] || p.simbolo, px(col), py(fila) + celda * 0.02);
+  }
+  const h = e.herramienta, [pc, pf] = aTablero(t, h.punta[0], h.punta[1]);
+  const dir = vectorATablero(t, Math.cos(h.yaw * Math.PI / 180), Math.sin(h.yaw * Math.PI / 180));
+  const largoDir = Math.hypot(dir[0], dir[1]), ang = Math.atan2(-dir[1], dir[0]);
+  const mitad = e.pinza.ancho_mm / 2, grosor = h.grosor, ancho = h.ancho;
+  c.save(); c.translate(px(pc), py(pf)); c.rotate(ang);
+  c.fillStyle = css("--tcp"); c.globalAlpha = 0.85;
+  for (const lado of [-1, 1]) c.fillRect(lado > 0 ? mitad * mm : -(mitad + grosor) * mm, -ancho * mm / 2, grosor * mm, ancho * mm);
+  c.restore();
+  c.globalAlpha = 1; c.strokeStyle = css("--tcp"); c.lineWidth = 2; c.beginPath(); c.arc(px(pc), py(pf), celda * 0.08, 0, 7); c.stroke();
+}
+
+function dibujarLateral(e) {
+  const [c, W, H] = ajustarLienzo($("lateral")), t = e.tablero, h = e.herramienta;
+  c.clearRect(0, 0, W, H);
+  const ventana = 110, mm = W / ventana, zBase = H - 28, [tx, ty, tz] = h.punta;
+  const piso = Math.max(t.z, tz - 25), X = (u) => W / 2 + u * mm, Y = (z) => zBase - (z - piso) * mm;
+  const rad = h.yaw * Math.PI / 180, ejeX = Math.cos(rad), ejeY = Math.sin(rad);
+  if (t.z >= piso) { c.fillStyle = css("--casilla-oscura"); c.fillRect(0, Y(t.z), W, H - Y(t.z)); }
+  c.strokeStyle = css("--borde"); c.lineWidth = 1; c.fillStyle = css("--suave"); c.font = "11px system-ui"; c.textAlign = "left";
+  const primera = Math.ceil((piso - t.z) / 10) * 10;
+  for (let z = primera; Y(t.z + z) > 0; z += 10) {
+    c.globalAlpha = z % 50 === 0 ? 0.6 : 0.2; c.beginPath(); c.moveTo(0, Y(t.z + z)); c.lineTo(W, Y(t.z + z)); c.stroke(); c.globalAlpha = 1;
+    if (z % 20 === 0) c.fillText(z + " mm", 4, Y(t.z + z) - 2);
+  }
+  const vistas = [];
+  for (const p of e.piezas) {
+    const dx = p.x - tx, dy = p.y - ty, u = dx * ejeX + dy * ejeY, lateral = -dx * ejeY + dy * ejeX;
+    if (Math.abs(lateral) > 30 || Math.abs(u) > ventana / 2 + 15) continue;
+    vistas.push(p);
+    const perfil = e.perfiles[p.simbolo.toLowerCase()], rel = (p.yaw - h.yaw) * Math.PI / 180;
+    c.fillStyle = p.simbolo === p.simbolo.toUpperCase() ? css("--pieza-blanca") : css("--pieza-negra");
+    c.strokeStyle = p.danada || p.volcada ? css("--mal") : css("--borde"); c.lineWidth = p.danada || p.volcada ? 2.5 : 1;
+    c.save(); c.translate(X(u), Y(p.z)); c.rotate(-(p.inclinacion * Math.PI / 180) * Math.sign(lateral || 1));
+    for (const [z0, z1, ax, ay] of perfil) {
+      const w = ay === null ? ax : Math.abs(ax * Math.cos(rel)) + Math.abs(ay * Math.sin(rel));
+      c.fillRect(-w * mm / 2, -z1 * mm, w * mm, (z1 - z0) * mm); c.strokeRect(-w * mm / 2, -z1 * mm, w * mm, (z1 - z0) * mm);
+    }
+    c.restore();
+  }
+  const mitad = e.pinza.ancho_mm / 2, grosor = h.grosor, largo = h.largo, punta = Y(tz);
+  c.fillStyle = css("--tcp"); c.globalAlpha = 0.85;
+  c.fillRect(X(-mitad - grosor), punta - largo * mm, grosor * mm, largo * mm);
+  c.fillRect(X(mitad), punta - largo * mm, grosor * mm, largo * mm);
+  c.fillStyle = css("--metal"); c.fillRect(X(-22), punta - (largo + 20) * mm, 44 * mm, 20 * mm);
+  c.globalAlpha = 1; c.fillStyle = css("--texto"); c.textAlign = "right";
+  c.fillText(`punta a ${(tz - t.z).toFixed(1)} mm del tablero, apertura ${e.pinza.ancho_mm.toFixed(1)} mm`, W - 6, 14);
+  $("notaLateral").textContent = vistas.length ? "Se ven las piezas a menos de 30 mm de la línea de los dedos." : "No hay piezas cerca de la pinza.";
+}
+
+function actualizarTextos(e) {
+  const f = (v) => v.toFixed(1);
+  $("modo").textContent = `${e.modo} (${MODOS[e.modo] || "?"})`;
+  $("pose").textContent = e.pose.map(f).join(", ");
+  $("angulos").textContent = e.angulos.map(f).join(", ") + (e.con_fisica ? "" : "  [sin física]");
+  $("altura").textContent = `${(e.herramienta.punta[2] - e.tablero.z).toFixed(1)} mm`;
+  $("cola").textContent = e.cola;
+  const p = e.pinza;
+  $("apertura").textContent = `${p.posicion} / 1000  (${p.ancho_mm.toFixed(1)} mm, pedida ${p.objetivo})${p.inicializada ? "" : "  sin inicializar"}`;
+  $("barraApertura").style.width = (p.posicion / 10) + "%";
+  $("fuerza").textContent = `${p.fuerza_pct} %  /  ${p.velocidad_pct} %`;
+  $("contacto").textContent = `${p.fuerza_contacto_n.toFixed(1)} N`;
+  $("agarre").textContent = p.agarre; $("agarre").className = "insignia a" + p.agarre;
+  $("agarreTexto").textContent = AGARRES[p.agarre];
+  $("tiempo").textContent = `${e.tiempo.toFixed(1)} s`;
+  $("efectiva").textContent = e.pausado ? "En pausa." : `Corriendo a ${e.velocidad_efectiva ? e.velocidad_efectiva.toFixed(1) : "?"}x de lo pedido (${e.escala_tiempo}x).`;
+  $("avisoChoque").hidden = !e.choque;
+  $("pausa").setAttribute("aria-pressed", e.pausado); $("pausa").textContent = e.pausado ? "Reanudar" : "Pausar";
+  if (!enviandoEscala && document.activeElement !== $("escala")) { $("escala").value = e.escala_tiempo; $("escalaTexto").textContent = e.escala_tiempo + "x"; }
+  for (const b of document.querySelectorAll("[data-fallo]")) b.setAttribute("aria-pressed", !!e.fallos[b.dataset.fallo]);
+  for (const b of document.querySelectorAll("[data-contador]")) b.setAttribute("aria-pressed", e.fallos.errores_proximo_movimiento > 0);
+  const ver = $("verLecturas").checked, caja = $("log"), pegado = caja.scrollTop + caja.clientHeight >= caja.scrollHeight - 8;
+  caja.innerHTML = e.log.filter((l) => ver || !(l.origen === "->" || l.origen === "<-") || !LECTURAS.test(l.texto))
+    .map((l) => `<span class="${l.origen === "->" || l.origen === "<-" ? "rx" : l.origen}">${l.t.toFixed(2).padStart(7)}  ${l.origen.padEnd(5)} ${l.texto.replace(/[<>&]/g, "")}</span>`).join("\n");
+  if (pegado) caja.scrollTop = caja.scrollHeight;
+}
+
+function dibujar() { if (estado) { dibujarCenital(estado); dibujarLateral(estado); } }
+
+async function sondear(unaVez) {
+  try {
+    const r = await fetch("/api/estado", {cache: "no-store"});
+    estado = await r.json(); ultimoOk = Date.now();
+    $("conexion").textContent = `conectado, ${estado.con_fisica ? "con física (PyBullet)" : "sin física"}`; $("conexion").className = "";
+    actualizarTextos(estado); dibujar();
+  } catch (e) {
+    $("conexion").textContent = "sin conexión con el simulador"; $("conexion").className = "mal";
+  }
+  if (unaVez !== true) setTimeout(sondear, 120);
+}
+
+$("reiniciar").onclick = () => enviar("/api/reiniciar", {fen: $("fen").value.trim() || null});
+$("cargarFen").onclick = () => enviar("/api/fen", {fen: $("fen").value.trim()});
+$("pausa").onclick = () => enviar("/api/pausa", {pausado: !(estado && estado.pausado)});
+$("limpiarLog").onclick = () => enviar("/api/limpiar_log");
+$("escala").oninput = () => { enviandoEscala = true; $("escalaTexto").textContent = $("escala").value + "x"; };
+$("escala").onchange = async () => { await enviar("/api/velocidad", {escala: parseFloat($("escala").value)}); enviandoEscala = false; };
+$("verLecturas").onchange = () => estado && actualizarTextos(estado);
+for (const b of document.querySelectorAll("[data-disparo]")) b.onclick = () => enviar("/api/fallo", {tipo: b.dataset.disparo, valor: true});
+for (const b of document.querySelectorAll("[data-fallo]")) b.onclick = () => enviar("/api/fallo", {tipo: b.dataset.fallo, valor: b.getAttribute("aria-pressed") !== "true"});
+for (const b of document.querySelectorAll("[data-contador]")) b.onclick = () => enviar("/api/fallo", {tipo: b.dataset.contador, valor: b.getAttribute("aria-pressed") === "true" ? 0 : 1});
+window.addEventListener("resize", dibujar);
+sondear();
+</script>
+</body>
+</html>
