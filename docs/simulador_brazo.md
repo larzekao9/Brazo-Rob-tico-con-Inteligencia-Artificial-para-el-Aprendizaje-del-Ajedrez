@@ -7,15 +7,24 @@ Modbus, más una física de la pinza y las piezas (PyBullet) y un front web para
 
 ## Cómo arrancarlo
 
-Con el entorno conda `ajedrez` (el que trae PyBullet):
+Con el entorno conda `ajedrez` (el que trae PyBullet y python-chess). Lo más fácil:
 
 ```bash
-python scripts/simulador_brazo.py            # dashboard 127.0.0.1:29999, front http://127.0.0.1:8765
+./scripts/simulador_brazo.sh                 # busca solo el Python del entorno `ajedrez`
+# o, con el entorno activado:  python scripts/simulador_brazo.py
 ```
+
+Abre el dashboard TCP en 127.0.0.1:29999 y la API HTTP + página de respaldo en http://127.0.0.1:8765. Si se corre con un Python sin
+`chess` o sin `pybullet`, el script lo avisa y dice cuál usar. Desde el front React se hace todo por la API HTTP (ver más abajo); los scripts
+de terminal siguen sirviendo con el mismo simulador.
 
 Opciones: `--puerto-dashboard`, `--puerto-http`, `--host-escucha` (por defecto solo esta máquina), `--sin-fisica` (sin PyBullet: sin
 choques ni vuelcos), `--calibracion RUTA` (lee un `brazo.json`, solo lectura), `--usar-calibracion-local` (lee `calibracion_local/brazo.json`,
-solo lectura), `--fen`, `--escala-tiempo`.
+solo lectura), `--fen`, `--escala-tiempo`, `--restablecer-ejemplo` (vuelve a escribir la calibración de ejemplo y descarta lo guardado desde el front).
+
+Los parámetros que se editan desde el front (`z_tope`, aperturas por pieza, fuerza...) se guardan en `calibracion_local/simulador/brazo_ejemplo.json`
+(con `--calibracion`/`--usar-calibracion-local`, en `calibracion_local/simulador/agarre_simulador.json`) y se recuperan al reiniciar el
+simulador. Nunca se escribe en `calibracion_local/brazo.json`: el simulador se niega.
 
 Sin `--calibracion` usa una calibración de EJEMPLO y la escribe en `calibracion_local/simulador/brazo_ejemplo.json` (no toca el
 `brazo.json` real). En otra terminal:
@@ -29,6 +38,37 @@ python scripts/ajustar_apertura_pieza.py --host 127.0.0.1 --pieza n
 
 Los scripts usan el puerto 29999 fijo: si está ocupado, el simulador puede escuchar en otro (`--puerto-dashboard 30000`), pero entonces
 hay que armar el `ClienteDobot` a mano con ese puerto.
+
+## API HTTP para el front
+
+Base `http://127.0.0.1:8765`. Todo con CORS (`Access-Control-Allow-Origin: *`, métodos `GET,POST,OPTIONS`, cabecera `Content-Type`; las
+peticiones `OPTIONS` responden 204). Cuerpos y respuestas JSON; un error es `{"error": "mensaje"}` con código 4xx/5xx (400 datos inválidos,
+409 hay otra tarea en curso o no corresponde ahora, 502 la pinza no respondió, 503 el servidor no conoce el puerto del dashboard TCP).
+Las operaciones largas se conectan como cliente al propio dashboard TCP y usan `EjecutorReal` / `PinzaDH`, o sea el mismo código que con el brazo real.
+Hay una sola tarea larga a la vez.
+
+| Método y ruta | Cuerpo | Respuesta |
+|---|---|---|
+| `GET /api/estado` | | Todo para dibujar (pose, ángulos, brazo, pinza, piezas, perfiles, log, fallos...) más `tarea`, `apertura`, `parametros`, `fen` (lo que hay apoyado ahora), `fen_inicial`, `tablero_piezas` `{casilla: símbolo}`, `apertura_actual` y `pinza {agarre, posicion, fuerza, ...}`. |
+| `POST /api/jugada` | `{uci, modo?: completa\|solo_bajar\|solo_cerrar, fuerza?, margen_agarre?, velocidad?}` | 202 y corre en un hilo (velocidad por defecto 20, como el script). 400 si no es legal, no hay pieza, es una captura o falta la apertura de esa pieza. 409 si hay una tarea. El resultado queda en `estado.tarea`. |
+| `POST /api/ensayo` | `{uci}` | 200 con apertura, `z_agarre` y las poses `agarre`/`segura` de origen y destino. No mueve nada. |
+| `POST /api/continuar` | | Libera una tarea `solo_bajar`/`solo_cerrar`/ajuste que espera: abre, sube y vuelve a cero. 409 si no hay ninguna esperando. |
+| `POST /api/cancelar` | | Frena el brazo donde está y la tarea queda en `error` (`cancelada: true`). Si estaba esperando abajo, hace el retiro normal. |
+| `POST /api/pinza` | `{accion: abrir\|cerrar\|mover, valor?: 0-1000, fuerza?: 20-100}` | Inicializa la pinza si hace falta, ejecuta y espera: `{pinza: {agarre, posicion, inicializada, fuerza}}`. |
+| `POST /api/pieza_en_pinza` | `{tipo: p\|n\|b\|r\|q\|k\|null}` | Pone a mano esa pieza entre los dedos (sujeta, como la mano del usuario) o la retira con `null`. 409 si la pinza está demasiado cerrada para que entre (cabeza incluida). |
+| `POST /api/apertura/iniciar` | `{pieza, inicial?: 700, casilla?: "c5", velocidad?}` | 202. Baja con la pinza abierta a una casilla vacía (400 si tiene pieza). `estado.apertura` trae `lista` cuando ya está abajo. |
+| `POST /api/apertura/mover` | `{valor}` o `{delta}` | `{apertura, mm, ancho_pieza_mm, luz_mm, veredicto: no_pasa\|roza\|pasa\|sobra, pasa, roza}`. `pasa` si la luz entre dedos y la parte más ancha de la pieza es al menos 0,5 mm; `roza` es lo contrario (abrir más). |
+| `POST /api/apertura/guardar` | `{holgura?: 40}` | Guarda `apertura + holgura` en `aperturas_por_pieza` del JSON DEL SIMULADOR. |
+| `POST /api/apertura/terminar` | | Sube con la apertura que quedó y vuelve a cero. |
+| `GET /api/parametros` | | `z_tope, margen_agarre_mm, giro_diagonal_grados, altura_segura_mm, fuerza, velocidad_pinza, aperturas_por_pieza, apertura_aproximacion` (planos y también dentro de `parametros`), más `z_agarre` y `aperturas_efectivas`. |
+| `POST /api/parametros` | cualquiera de esos campos (`aperturas_por_pieza` se mezcla; un valor `null` borra esa pieza) | Los valida, los guarda y devuelve el resultado. Cambiar `z_tope` rearma la escena conservando las piezas. 409 con una tarea en curso. |
+| `POST /api/jog` | `{dx, dy, dz}` en mm | Movimiento lineal relativo (máximo 300 mm por eje); `{pose}`. 400 si el simulador lo rechaza (fuera de alcance o más bajo que el tablero). |
+| `POST /api/reiniciar`, `/api/fen`, `/api/pausa`, `/api/velocidad`, `/api/fallo`, `/api/limpiar_log` | como antes | Reiniciar y cargar FEN cancelan la tarea en curso. |
+
+`estado.tarea` es `{nombre, estado: libre\|corriendo\|ok\|error, mensaje, error}` y, mientras corre, además `esperando` (a la espera de
+`/api/continuar`), `detalle` (`pose_abajo`; con `solo_cerrar`, `muestras` `[{t, agarre, posicion}]` cada 0,1 s de tiempo simulado durante 5 s)
+y `cancelada`. El "pasa o roza" del ajuste de apertura sale de las mismas medidas de pieza que usa la física (`parametros.py`), no de un
+contacto simulado en vivo.
 
 ## Qué simula
 
@@ -50,7 +90,7 @@ hay que armar el `ClienteDobot` a mano con ese puerto.
   empujan a las vecinas. El registro de estado de agarre se queda con el valor viejo 0,15 s tras una orden, como el real.
 - **Fallos para probar** (front): soltar la pieza (afloja los dedos), dedos resbaladizos, la pinza no responde (Modbus da error), error en el
   próximo movimiento, alarma (modo 9), colisión (modo 11), modo distinto de TCP (`Control Mode Is Not Tcp`).
-- **Front** (`http://127.0.0.1:8765`, sin build): vista cenital con piezas, brazo esquemático y dedos; vista lateral junto a los dedos; pose,
+- **Front** (`http://127.0.0.1:8765`, sin build): vista cenital con piezas, brazo esquemático y dedos; vista lateral junto a los dedos (página de respaldo; el front del proyecto usa la API de arriba); pose,
   apertura, fuerza, agarre 0 a 3; log de comandos; reiniciar, cargar FEN, pausar y velocidad de la simulación. Responsive (verificado a 360, 800 y 1920 px de ancho). La vista 3D queda **pendiente**.
 
 ## Qué NO simula

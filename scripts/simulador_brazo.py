@@ -2,6 +2,8 @@
 
     python scripts/simulador_brazo.py                       (dashboard en 127.0.0.1:29999, front en http://127.0.0.1:8765)
 
+Más fácil: ./scripts/simulador_brazo.sh (usa el Python del entorno conda `ajedrez`, que trae PyBullet y python-chess).
+
 En otra terminal, apuntando a la calibración de ejemplo que este script escribe (no toca calibracion_local/brazo.json):
 
     export CALIBRACION_BRAZO_ARCHIVO=calibracion_local/simulador/brazo_ejemplo.json
@@ -12,31 +14,58 @@ Con el brazo real se corre lo mismo cambiando solo `--host` (y sin `CALIBRACION_
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
 
-import chess
-
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ))
 
-from backend.servicios.brazo.calibracion_brazo import (  # noqa: E402
-    ARCHIVO_CALIBRACION_BRAZO,
-    cargar_calibracion_brazo,
-    cargar_parametros_agarre,
-)
-from backend.servicios.brazo.simulador_dobot.calibracion_ejemplo import (  # noqa: E402
-    calibracion_ejemplo,
-    escribir_calibracion_ejemplo,
-    parametros_agarre_ejemplo,
-)
-from backend.servicios.brazo.simulador_dobot.nucleo import Simulador  # noqa: E402
-from backend.servicios.brazo.simulador_dobot.protocolo import ProtocoloDobot  # noqa: E402
-from backend.servicios.brazo.simulador_dobot.servidor_http import ServidorWeb  # noqa: E402
-from backend.servicios.brazo.simulador_dobot.servidor_tcp import ServidorDashboard  # noqa: E402
+
+def _pythons_del_entorno() -> list[Path]:
+    """Dónde suele estar el Python del entorno conda `ajedrez`, para sugerirlo cuando falta un módulo."""
+    bases = [Path(os.environ[v]).parent.parent for v in ("CONDA_EXE", "_CONDA_EXE") if os.environ.get(v)]
+    bases += [Path("/opt/homebrew/Caskroom/miniforge/base"), *(Path.home() / n for n in ("miniforge3", "miniconda3", "anaconda3", "mambaforge"))]
+    return [b / "envs" / "ajedrez" / "bin" / "python" for b in bases if (b / "envs" / "ajedrez" / "bin" / "python").exists()]
+
+
+def _explicar_modulo_faltante(error: ModuleNotFoundError) -> int:
+    sugeridos = _pythons_del_entorno()
+    print(f"Este Python ({sys.executable}) no tiene el módulo '{error.name}'.")
+    print("El simulador necesita el entorno conda `ajedrez` (trae python-chess y PyBullet). Opciones:")
+    print("  - ./scripts/simulador_brazo.sh")
+    print("  - conda activate ajedrez && python scripts/simulador_brazo.py")
+    if sugeridos:
+        print(f"  - {sugeridos[0]} scripts/simulador_brazo.py")
+    print("Sin PyBullet se puede probar igual con --sin-fisica (python-chess sigue haciendo falta).")
+    return 1
+
+
+try:
+    import chess
+
+    from backend.servicios.brazo.calibracion_brazo import (
+        ARCHIVO_CALIBRACION_BRAZO,
+        cargar_calibracion_brazo,
+        cargar_parametros_agarre,
+    )
+    from backend.servicios.brazo.simulador_dobot.calibracion_ejemplo import (
+        calibracion_ejemplo,
+        escribir_calibracion_ejemplo,
+        parametros_agarre_ejemplo,
+    )
+    from backend.servicios.brazo.simulador_dobot.nucleo import Simulador
+    from backend.servicios.brazo.simulador_dobot.protocolo import ProtocoloDobot
+    from backend.servicios.brazo.simulador_dobot.servidor_http import ServidorWeb
+    from backend.servicios.brazo.simulador_dobot.servidor_tcp import ServidorDashboard
+except ModuleNotFoundError as error:
+    if __name__ == "__main__":
+        sys.exit(_explicar_modulo_faltante(error))
+    raise
 
 RUTA_EJEMPLO = RAIZ / "calibracion_local" / "simulador" / "brazo_ejemplo.json"
+RUTA_AGARRE_PROPIO = RAIZ / "calibracion_local" / "simulador" / "agarre_simulador.json"
 
 
 def main() -> int:
@@ -49,6 +78,7 @@ def main() -> int:
     p.add_argument("--usar-calibracion-local", action="store_true", help=f"leer {ARCHIVO_CALIBRACION_BRAZO} (solo lectura) en vez del ejemplo")
     p.add_argument("--fen", default=chess.STARTING_FEN, help="posición inicial de las piezas (por defecto la inicial)")
     p.add_argument("--escala-tiempo", type=float, default=1.0, help="veces más rápido que el tiempo real (se cambia también desde el front)")
+    p.add_argument("--restablecer-ejemplo", action="store_true", help="vuelve a escribir la calibración de ejemplo y descarta los parámetros guardados desde el front")
     argumentos = p.parse_args()
 
     ruta = argumentos.calibracion or (ARCHIVO_CALIBRACION_BRAZO if argumentos.usar_calibracion_local else None)
@@ -58,20 +88,30 @@ def main() -> int:
             print(f"{ruta} no tiene calibración y parámetros de agarre completos (con z_tope).")
             return 1
         origen = f"calibración de {ruta}"
+        persistencia = RUTA_AGARRE_PROPIO
+        guardado = cargar_parametros_agarre(persistencia)
+        if guardado is not None and guardado.z_tope is not None:
+            agarre = guardado
+            origen += f" (parámetros de agarre de {persistencia.relative_to(RAIZ)})"
     else:
         calibracion, agarre = calibracion_ejemplo(), parametros_agarre_ejemplo()
-        escribir_calibracion_ejemplo(RUTA_EJEMPLO)
-        origen = f"calibración de EJEMPLO (escrita en {RUTA_EJEMPLO.relative_to(RAIZ)})"
+        persistencia = RUTA_EJEMPLO
+        guardado = None if argumentos.restablecer_ejemplo else cargar_parametros_agarre(persistencia)
+        if guardado is not None and guardado.z_tope is not None:
+            agarre = guardado
+            origen = f"calibración de EJEMPLO con los parámetros guardados en {RUTA_EJEMPLO.relative_to(RAIZ)}"
+        else:
+            escribir_calibracion_ejemplo(RUTA_EJEMPLO)
+            origen = f"calibración de EJEMPLO (escrita en {RUTA_EJEMPLO.relative_to(RAIZ)})"
 
     con_fisica = not argumentos.sin_fisica
     if con_fisica:
         try:
             import pybullet  # noqa: F401
         except ImportError:
-            print("PyBullet no está instalado en este Python: usá el entorno conda `ajedrez` o agregá --sin-fisica.")
-            return 1
+            return _explicar_modulo_faltante(ModuleNotFoundError("PyBullet no está instalado", name="pybullet"))
 
-    simulador = Simulador(calibracion, agarre, argumentos.fen, con_fisica, escala_tiempo=argumentos.escala_tiempo)
+    simulador = Simulador(calibracion, agarre, argumentos.fen, con_fisica, escala_tiempo=argumentos.escala_tiempo, ruta_persistencia=persistencia)
     try:
         dashboard = ServidorDashboard(ProtocoloDobot(simulador), argumentos.host_escucha, argumentos.puerto_dashboard)
     except OSError as error:
@@ -79,7 +119,7 @@ def main() -> int:
         simulador.cerrar()
         return 1
     try:
-        web = ServidorWeb(simulador, argumentos.host_escucha, argumentos.puerto_http)
+        web = ServidorWeb(simulador, argumentos.host_escucha, argumentos.puerto_http, puerto_dashboard=dashboard.puerto)
     except OSError as error:
         print(f"No pude abrir el puerto {argumentos.puerto_http} del front ({error}). Probá con --puerto-http 8766.")
         dashboard.detener()
@@ -91,7 +131,8 @@ def main() -> int:
     web.iniciar()
     print(f"Simulador del Dobot CR5AS + pinza DH PGE-50-26 ({'PyBullet' if con_fisica else 'sin física'}), {origen}.")
     print(f"  Dashboard TCP : {argumentos.host_escucha}:{dashboard.puerto}  (host de los scripts: 127.0.0.1)")
-    print(f"  Front web     : http://{argumentos.host_escucha}:{web.puerto}")
+    print(f"  Front web     : http://{argumentos.host_escucha}:{web.puerto}  (página de respaldo; la API para el front React está en /api/*)")
+    print(f"  Parámetros    : se guardan en {persistencia.relative_to(RAIZ)} (nunca en calibracion_local/brazo.json)")
     if ruta is None:
         print(f"  Para los scripts: export CALIBRACION_BRAZO_ARCHIVO={RUTA_EJEMPLO.relative_to(RAIZ)}")
     if dashboard.puerto != 29999:

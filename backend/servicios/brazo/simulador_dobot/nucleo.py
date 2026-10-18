@@ -5,17 +5,19 @@ estado se protege con `cerrojo`; los servidores TCP y HTTP solo llaman a los mé
 """
 from __future__ import annotations
 
+import dataclasses
 import math
 import threading
 import time
 from collections import deque
 from dataclasses import dataclass
+from pathlib import Path
 
 import chess
 
-from backend.servicios.brazo.calibracion_brazo import CalibracionBrazo, ParametrosAgarre
+from backend.servicios.brazo.calibracion_brazo import CalibracionBrazo, ParametrosAgarre, guardar_parametros_agarre
 from backend.servicios.brazo.simulador_dobot import cinematica
-from backend.servicios.brazo.simulador_dobot.mundo import GeometriaTablero, MundoFisico, MundoGeometrico
+from backend.servicios.brazo.simulador_dobot.mundo import CASILLA_MANO, GeometriaTablero, MundoFisico, MundoGeometrico
 from backend.servicios.brazo.simulador_dobot.parametros import PERFILES_PIEZAS, ParametrosSimulador
 from backend.servicios.brazo.simulador_dobot.pinza_simulada import PinzaSimulada
 
@@ -24,6 +26,10 @@ MODO_ALARMA, MODO_PAUSA, MODO_COLISION = 9, 10, 11
 Pose = tuple[float, float, float, float, float, float]
 MAXIMO_PASOS_POR_CICLO = 200
 UMBRAL_CHOQUE_MM = 2.0
+CALIBRACION_REAL = Path(__file__).resolve().parents[4] / "calibracion_local" / "brazo.json"
+"""Calibración del brazo REAL: el simulador nunca escribe en ella."""
+TIPOS_PIEZA = "pnbrqk"
+HOLGURA_MINIMA_PIEZA_EN_MANO_MM = 0.2
 
 
 class ErrorDeComando(Exception):
@@ -66,6 +72,14 @@ class Fallos:
         return dict(self.__dict__)
 
 
+def _numero(valor, nombre: str, minimo: float, maximo: float) -> float:
+    if isinstance(valor, bool) or not isinstance(valor, (int, float)):
+        raise ValueError(f"{nombre} tiene que ser un número")
+    if not minimo <= valor <= maximo:
+        raise ValueError(f"{nombre} tiene que estar entre {minimo:g} y {maximo:g}")
+    return valor
+
+
 def _minimo_jerk(tau: float) -> float:
     return tau**3 * (10 - 15 * tau + 6 * tau**2)
 
@@ -86,9 +100,13 @@ class Simulador:
         parametros: ParametrosSimulador | None = None,
         escala_tiempo: float = 1.0,
         tiempo_real: bool = True,
+        ruta_persistencia: Path | None = None,
     ):
         from backend.servicios.brazo.simulador_dobot.calibracion_ejemplo import Z_TOPE_EJEMPLO
 
+        if ruta_persistencia is not None and Path(ruta_persistencia).resolve() == CALIBRACION_REAL.resolve():
+            raise ValueError(f"El simulador no puede guardar sus parámetros en la calibración real ({CALIBRACION_REAL})")
+        self.ruta_persistencia = Path(ruta_persistencia) if ruta_persistencia is not None else None
         self.parametros = parametros or ParametrosSimulador()
         self.calibracion, self.agarre = calibracion, agarre
         self.z_tope = agarre.z_tope if agarre.z_tope is not None else Z_TOPE_EJEMPLO
@@ -165,6 +183,111 @@ class Simulador:
         with self.cerrojo:
             if self.mundo is not None:
                 self.mundo.cerrar()
+
+    # --- parámetros de agarre y pieza a mano ------------------------------------------------------------------------------------
+    def tablero_piezas(self) -> dict[str, str]:
+        """`{casilla: símbolo}` de las piezas apoyadas en el tablero ahora (no cuenta las que están en el aire, volcadas ni la puesta a mano)."""
+        with self.cerrojo:
+            g, f = self.geometria, self.parametros.fisicos
+            resultado = {}
+            for pieza in self.mundo.piezas():
+                casilla = g.casilla_en(pieza.x, pieza.y)
+                apoyada = abs(pieza.z - g.z_superficie) < 3.0 and pieza.inclinacion_grados <= f.inclinacion_pieza_caida_grados
+                if casilla is not None and apoyada and pieza.casilla_inicial != CASILLA_MANO:
+                    resultado[casilla] = pieza.simbolo
+            return resultado
+
+    def fen_actual(self) -> str:
+        """FEN de lo que hay apoyado en el tablero ahora (turno de las blancas, sin enroques)."""
+        tablero = chess.Board(None)
+        for casilla, simbolo in self.tablero_piezas().items():
+            tablero.set_piece_at(chess.parse_square(casilla), chess.Piece.from_symbol(simbolo))
+        return tablero.fen()
+
+    def parametros_agarre_dict(self) -> dict:
+        """Parámetros de agarre editables, tal como los ve el front."""
+        a = self.agarre
+        return {
+            "z_tope": self.z_tope, "margen_agarre_mm": a.margen_agarre_mm, "giro_diagonal_grados": a.giro_diagonal_grados,
+            "altura_segura_mm": a.altura_segura_mm, "fuerza": a.fuerza, "velocidad_pinza": a.velocidad_pinza,
+            "aperturas_por_pieza": dict(a.aperturas_por_pieza), "apertura_aproximacion": a.apertura_aproximacion,
+            "z_agarre": self.z_tope + a.margen_agarre_mm,
+        }
+
+    def actualizar_parametros(self, cambios: dict) -> dict:
+        """Cambia parámetros de agarre (se guardan en `ruta_persistencia`). Cambiar `z_tope` rearma la escena con las piezas que hay.
+
+        Raises:
+            ValueError: si un campo no existe o su valor no es válido (no se cambia nada).
+        """
+        conocidos = {"z_tope", "margen_agarre_mm", "giro_diagonal_grados", "altura_segura_mm", "fuerza", "velocidad_pinza", "aperturas_por_pieza", "apertura_aproximacion"}
+        desconocidos = sorted(set(cambios) - conocidos)
+        if desconocidos:
+            raise ValueError(f"parámetros desconocidos: {', '.join(desconocidos)}")
+        with self.cerrojo:
+            nuevos: dict = {}
+            for clave, valor in cambios.items():
+                if clave == "aperturas_por_pieza":
+                    if not isinstance(valor, dict):
+                        raise ValueError("aperturas_por_pieza tiene que ser un objeto {pieza: apertura}")
+                    aperturas = dict(self.agarre.aperturas_por_pieza)
+                    for tipo, apertura in valor.items():
+                        if str(tipo).lower() not in TIPOS_PIEZA:
+                            raise ValueError(f"pieza desconocida en aperturas_por_pieza: {tipo}")
+                        if apertura is None:
+                            aperturas.pop(str(tipo).lower(), None)
+                        else:
+                            aperturas[str(tipo).lower()] = int(_numero(apertura, f"apertura de {tipo}", 0, 1000))
+                    nuevos[clave] = aperturas
+                    continue
+                rangos = {
+                    "z_tope": (50.0, 700.0), "margen_agarre_mm": (0.0, 30.0), "giro_diagonal_grados": (-180.0, 180.0),
+                    "altura_segura_mm": (10.0, 300.0), "fuerza": (20, 100), "velocidad_pinza": (1, 100), "apertura_aproximacion": (0, 1000),
+                }
+                minimo, maximo = rangos[clave]
+                numero = _numero(valor, clave, minimo, maximo)
+                nuevos[clave] = int(numero) if clave in ("fuerza", "velocidad_pinza", "apertura_aproximacion") else float(numero)
+            z_tope = nuevos.pop("z_tope", self.z_tope)
+            agarre = dataclasses.replace(self.agarre, z_tope=z_tope, **nuevos)
+            if z_tope != self.z_tope or "altura_segura_mm" in nuevos or "margen_agarre_mm" in nuevos:
+                z_alto = z_tope + agarre.margen_agarre_mm + agarre.altura_segura_mm
+                fuera = [c for c, (x, y, _) in self.calibracion.posiciones_casillas.items() if not cinematica.esta_al_alcance(x, y, z_alto)]
+                if fuera:
+                    raise ValueError(f"con esos valores el brazo no llega a la altura segura sobre {len(fuera)} casillas (por ejemplo {fuera[0]})")
+            cambio_tope = z_tope != self.z_tope
+            self.agarre = agarre
+            if self.ruta_persistencia is not None:
+                guardar_parametros_agarre(self.agarre, self.ruta_persistencia)
+            if cambio_tope:
+                fen = self.fen_actual()
+                self.z_tope = z_tope
+                self.geometria = GeometriaTablero.desde_posiciones(
+                    self.calibracion.posiciones_casillas, z_tope - self.parametros.fisicos.longitud_punta_mm
+                )
+                self.reiniciar(fen)
+            self.registrar("sim", f"parámetros de agarre cambiados: {', '.join(sorted(cambios))}")
+            return self.parametros_agarre_dict()
+
+    def pieza_en_pinza(self, tipo: str | None) -> None:
+        """Pone (o quita, con `None`) una pieza `tipo` entre los dedos como la sostendría una mano.
+
+        Raises:
+            ValueError: si el tipo no existe o la pinza está demasiado cerrada para que entre la pieza entera (cabeza incluida).
+        """
+        with self.cerrojo:
+            if tipo is None:
+                if self.mundo.quitar_pieza_en_mano():
+                    self.registrar("sim", "pieza retirada de entre los dedos")
+                return
+            if str(tipo).lower() not in TIPOS_PIEZA or len(str(tipo)) != 1:
+                raise ValueError(f"tipo de pieza desconocido: {tipo!r} (p, n, b, r, q o k)")
+            perfil = PERFILES_PIEZAS[str(tipo).lower()]
+            if self.pinza.ancho_mm < perfil.ancho_maximo_mm + HOLGURA_MINIMA_PIEZA_EN_MANO_MM:
+                raise ValueError(
+                    f"la pinza está abierta {self.pinza.ancho_mm:.1f} mm y el {perfil.nombre} mide {perfil.ancho_maximo_mm:.1f} mm en lo más ancho: abrila más"
+                )
+            self.mundo.poner_pieza_en_mano(str(tipo).upper())
+            self.registrar("sim", f"{perfil.nombre} puesto a mano entre los dedos")
 
     # --- hilo -------------------------------------------------------------------------------------------------------------
     def iniciar_hilo(self) -> None:
@@ -419,7 +542,7 @@ class Simulador:
                     "inicializada": self.pinza.inicializada, "ancho_mm": round(self.pinza.ancho_mm, 2), "posicion": self.pinza.posicion_actual,
                     "objetivo": self.pinza.posicion_objetivo, "fuerza_pct": self.pinza.fuerza_pct, "velocidad_pct": self.pinza.velocidad_pct,
                     "agarre": self.pinza._agarre_visible, "agarre_real": self.pinza.agarre,
-                    "fuerza_contacto_n": round(self.pinza.fuerza_contacto_n, 2),
+                    "fuerza_contacto_n": round(self.pinza.fuerza_contacto_n, 2), "fuerza": self.pinza.fuerza_pct,
                 },
                 "herramienta": {"punta": [round(v, 2) for v in self._punta(self.pose)], "yaw": round(self._yaw_dedos(self.pose), 2), "largo": f.dedo_largo_mm,
                                 "grosor": f.dedo_grosor_mm, "ancho": f.dedo_ancho_mm},
@@ -429,5 +552,6 @@ class Simulador:
                 },
                 "piezas": piezas,
                 "perfiles": {k: [[s.z_inferior, s.z_superior, s.ancho_x, s.ancho_y] for s in v.segmentos] for k, v in PERFILES_PIEZAS.items()},
-                "fallos": self.fallos.como_dict(), "fen": self.fen, "log": list(self.log)[-150:],
+                "fallos": self.fallos.como_dict(), "fen": self.fen_actual(), "fen_inicial": self.fen, "tablero_piezas": self.tablero_piezas(),
+                "parametros": self.parametros_agarre_dict(), "apertura_actual": self.pinza.posicion_actual, "log": list(self.log)[-150:],
             }

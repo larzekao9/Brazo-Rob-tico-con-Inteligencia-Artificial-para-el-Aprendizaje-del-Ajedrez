@@ -33,6 +33,10 @@ FUERZA_BRAZO_MAXIMA = 100.0 * NEWTON
 dedo), la pinza se queda atrás en vez de atravesarlo. ESTIMADO."""
 FUERZA_SOSTEN_N = 60.0
 """Fuerza con la que cada dedo se queda quieto una vez en su posición (no es la de agarre): no se abre por inercia. ESTIMADO."""
+FUERZA_MANO_MAXIMA = 500.0 * NEWTON
+"""Fuerza con la que la "mano" sujeta una pieza puesta entre los dedos: más que la de la pinza, para que no ceda al apretarla."""
+CASILLA_MANO = "mano"
+"""Marca de origen de la pieza que se puso a mano entre los dedos."""
 PASOS_VENTANA = 24
 """Pasos de física (0,1 s) sobre los que se mide si un dedo avanza."""
 PASOS_ARRANQUE = 24
@@ -123,6 +127,8 @@ class MundoFisico:
         )
         self._friccion_dedos = fisicos.friccion_dedos
         self._ids_piezas: dict[int, tuple[str, str]] = {}
+        self._cuerpo_mano: int | None = None
+        self._restriccion_mano = None
         self._aflojar_hasta_paso = 0
         self._paso = 0
         self._empujando: dict[int, float | None] = {0: None, 1: None}
@@ -188,6 +194,12 @@ class MundoFisico:
         self._punta, self._yaw = punta, yaw_grados
 
     def _crear_pieza(self, casilla: str, simbolo: str) -> int:
+        x, y = self.geometria.centro_casilla(casilla)
+        mira_adelante = 0.0 if simbolo.isupper() else 180.0
+        yaw = self.geometria.angulo_u_grados + 90.0 + mira_adelante
+        return self._crear_pieza_en(simbolo, x, y, self.geometria.z_superficie, yaw)
+
+    def _crear_pieza_en(self, simbolo: str, x: float, y: float, z_base: float, yaw_grados: float) -> int:
         p, f = self._p, self.fisicos
         perfil: PerfilPieza = PERFILES_PIEZAS[simbolo.lower()]
         centro_masa = perfil.alto_mm * 0.38
@@ -197,13 +209,10 @@ class MundoFisico:
             lengths=[(s.z_superior - s.z_inferior) * MM for s in perfil.segmentos],
             collisionFramePositions=[[0, 0, ((s.z_inferior + s.z_superior) / 2 - centro_masa) * MM] for s in perfil.segmentos], physicsClientId=self.cliente,
         )
-        x, y = self.geometria.centro_casilla(casilla)
-        mira_adelante = 0.0 if simbolo.isupper() else 180.0
-        yaw = math.radians(self.geometria.angulo_u_grados + 90.0 + mira_adelante)
         cuerpo = p.createMultiBody(
             baseMass=perfil.masa_g, baseCollisionShapeIndex=compuesta,
-            basePosition=[x * MM, y * MM, (self.geometria.z_superficie + centro_masa) * MM + 0.005],
-            baseOrientation=p.getQuaternionFromEuler([0, 0, yaw]),
+            basePosition=[x * MM, y * MM, (z_base + centro_masa) * MM + 0.005],
+            baseOrientation=p.getQuaternionFromEuler([0, 0, math.radians(yaw_grados)]),
             physicsClientId=self.cliente,
         )
         p.changeDynamics(
@@ -216,12 +225,38 @@ class MundoFisico:
 
     def cargar_fen(self, fen: str) -> None:
         """Reemplaza todas las piezas por las del FEN, apoyadas en sus casillas."""
+        self.quitar_pieza_en_mano()
         for cuerpo in list(self._ids_piezas):
             self._p.removeBody(cuerpo, physicsClientId=self.cliente)
         self._ids_piezas.clear()
         for casilla, simbolo in piezas_de_fen(fen):
             self._ids_piezas[self._crear_pieza(casilla, simbolo)] = (simbolo, casilla)
         self.avanzar(30)
+
+    def poner_pieza_en_mano(self, simbolo: str) -> None:
+        """Pone una pieza entre los dedos, sujeta como si la sostuviera una mano (no cae ni se mueve) hasta `quitar_pieza_en_mano`."""
+        self.quitar_pieza_en_mano()
+        p = self._p
+        x, y, z = self._punta
+        yaw = self._yaw + 90.0
+        cuerpo = self._crear_pieza_en(simbolo, x, y, max(z, self.geometria.z_superficie), yaw)
+        posicion, orientacion = p.getBasePositionAndOrientation(cuerpo, physicsClientId=self.cliente)
+        self._restriccion_mano = p.createConstraint(
+            cuerpo, -1, -1, -1, p.JOINT_FIXED, [0, 0, 0], [0, 0, 0], list(posicion), childFrameOrientation=orientacion, physicsClientId=self.cliente
+        )
+        p.changeConstraint(self._restriccion_mano, maxForce=FUERZA_MANO_MAXIMA, physicsClientId=self.cliente)
+        self._ids_piezas[cuerpo] = (simbolo, CASILLA_MANO)
+        self._cuerpo_mano = cuerpo
+
+    def quitar_pieza_en_mano(self) -> bool:
+        """Retira la pieza que sostiene la mano; `False` si no había."""
+        if self._cuerpo_mano is None:
+            return False
+        self._p.removeConstraint(self._restriccion_mano, physicsClientId=self.cliente)
+        self._p.removeBody(self._cuerpo_mano, physicsClientId=self.cliente)
+        self._ids_piezas.pop(self._cuerpo_mano, None)
+        self._cuerpo_mano = self._restriccion_mano = None
+        return True
 
     # --- comandos ----------------------------------------------------------------------------------------------------
     def fijar_herramienta(self, punta: tuple[float, float, float], yaw_grados: float) -> None:
@@ -358,6 +393,21 @@ class MundoGeometrico:
             x, y = self.geometria.centro_casilla(casilla)
             self._piezas[numero] = EstadoPieza(numero, simbolo, x, y, self.geometria.z_superficie, 0.0, casilla)
 
+    def poner_pieza_en_mano(self, simbolo: str) -> None:
+        self.quitar_pieza_en_mano()
+        numero = max(self._piezas, default=0) + 1
+        x, y, z = self._punta
+        self._piezas[numero] = EstadoPieza(numero, simbolo, x, y, max(z, self.geometria.z_superficie), 0.0, CASILLA_MANO)
+
+    def quitar_pieza_en_mano(self) -> bool:
+        numero = next((n for n, pieza in self._piezas.items() if pieza.casilla_inicial == CASILLA_MANO), None)
+        if numero is None:
+            return False
+        if self._sostenida == numero:
+            self._sostenida = None
+        del self._piezas[numero]
+        return True
+
     def fijar_herramienta(self, punta: tuple[float, float, float], yaw_grados: float) -> None:
         self._punta, self._yaw = punta, yaw_grados
         if self._sostenida is not None:
@@ -368,8 +418,13 @@ class MundoGeometrico:
     def fijar_dedos(self, ancho_mm: float, fuerza_total_n: float, velocidad_mm_s: float) -> None:
         self._objetivo, self._velocidad = ancho_mm, velocidad_mm_s
 
+    def _soltar(self) -> None:
+        if self._sostenida is not None:
+            self._piezas[self._sostenida].z = self.geometria.z_superficie
+            self._sostenida = None
+
     def aflojar_dedos(self, segundos: float) -> None:
-        self._sostenida = None
+        self._soltar()
 
     def fijar_friccion_dedos(self, friccion: float) -> None:
         pass
@@ -396,7 +451,7 @@ class MundoGeometrico:
         else:
             self._ancho += avance
             if self._sostenida is not None and self._ancho > ancho_pieza + 0.3:
-                self._sostenida = None
+                self._soltar()
 
     def desviacion_herramienta_mm(self) -> float:
         return 0.0
