@@ -26,6 +26,8 @@ from backend.servicios.brazo.pinza_dh import REG_POSICION  # noqa: E402
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--host", default="192.168.5.1", help="IP del controlador del Dobot")
+    p.add_argument("--puerto", type=int, default=29999, help="puerto del dashboard (por defecto 29999)")
+    p.add_argument("--auto", action="store_true", help="omitir confirmación manual de Enter (para emulador o pruebas)")
     p.add_argument("--jugada", default="e2e4", help="jugada en UCI, sin captura (por defecto e2e4)")
     p.add_argument("--fen", default=chess.STARTING_FEN,
                    help="posición desde la que se juega (por defecto la inicial): sirve para jugar con piezas que ahí están bloqueadas")
@@ -56,6 +58,7 @@ def main() -> int:
 
     ejecutor = EjecutorReal(
         host=argumentos.host,
+        puerto_dashboard=argumentos.puerto,
         posiciones_casillas=calibracion.posiciones_casillas,
         orientacion=calibracion.orientacion,
         angulos_cero=calibracion.angulos_cero,
@@ -71,7 +74,8 @@ def main() -> int:
     if argumentos.ensayo:
         return 0
 
-    input("Mano en la parada de emergencia y la pieza en el origen. Enter para mover (Ctrl+C cancela)... ")
+    if not argumentos.auto:
+        input("Mano en la parada de emergencia y la pieza en el origen. Enter para mover (Ctrl+C cancela)... ")
     ejecutor.conectar()
     try:
         if argumentos.solo_cerrar:
