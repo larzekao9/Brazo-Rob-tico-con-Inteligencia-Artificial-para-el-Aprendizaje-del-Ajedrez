@@ -23,7 +23,7 @@ frontend/node_modules/
 frontend/dist/
 
 # App móvil (Flutter)
-app_movil/.dart_tool/
+app_movil/
 app_movil/.flutter-plugins
 app_movil/.flutter-plugins-dependencies
 app_movil/build/
