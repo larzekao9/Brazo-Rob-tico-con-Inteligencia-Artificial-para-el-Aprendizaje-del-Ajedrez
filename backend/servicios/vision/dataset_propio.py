@@ -12,7 +12,9 @@ import re
 import subprocess
 import sys
 import threading
+import tempfile
 import time
+import zipfile
 from collections import deque
 from pathlib import Path
 
@@ -124,6 +126,91 @@ def borrar_captura(captura_id: str) -> int:
         archivo.unlink()
         borradas += 1
     return borradas
+
+
+def vista_previa(casillas: list[str], imagen=None) -> bytes:
+    """JPEG de lo que se guardaría ahora: el tablero con el marco y las `casillas` en verde, y debajo el recorte exacto de cada una.
+
+    Saca una foto de la cámara fija (no guarda nada). Con esquinas calibradas el tablero lleva marco y letras.
+
+    Raises:
+        ValueError: nombre de casilla inválido o tablero no detectado.
+        RuntimeError: la cámara no está disponible.
+    """
+    import numpy as np
+
+    from backend.servicios.vision.camara import capturar_foto_tablero
+    from backend.servicios.vision.reconocimiento import esquinas_y_margen
+    from backend.servicios.vision.tablero import dibujar_grilla_debug, dividir_en_casillas, enderezar_tablero, imagen_control_ampliada
+
+    validas = {f"{c}{f}" for c in "abcdefgh" for f in "12345678"}
+    elegidas = [c for c in casillas if c in validas][:8]
+    if len(elegidas) != len(casillas):
+        raise ValueError("Casilla inválida")
+    if imagen is None:
+        imagen = capturar_foto_tablero()
+    esquinas, margen = esquinas_y_margen(imagen)
+    plano = enderezar_tablero(imagen, esquinas)
+    tablero_vista = imagen_control_ampliada(imagen, esquinas, resaltar=tuple(elegidas)) if not margen else dibujar_grilla_debug(plano)
+    if elegidas:
+        recortes = dividir_en_casillas(plano, margen)
+        lado = 160
+        fila = np.full((lado + 24, tablero_vista.shape[1], 3), 30, dtype=np.uint8)
+        for i, nombre in enumerate(elegidas):
+            x = 8 + i * (lado + 8)
+            if x + lado > fila.shape[1]:
+                break
+            fila[24 : 24 + lado, x : x + lado] = cv2.resize(recortes[nombre], (lado, lado))
+            cv2.putText(fila, nombre, (x, 17), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+        tablero_vista = np.vstack([tablero_vista, fila])
+    exito, buffer = cv2.imencode(".jpg", tablero_vista)
+    if not exito:
+        raise RuntimeError("No se pudo codificar la vista previa")
+    return buffer.tobytes()
+
+
+def borrar_clase(clase: str) -> int:
+    """Borra todas las fotos de una clase (ej. "black-pawn") y devuelve cuántas borró.
+
+    Raises:
+        ValueError: si `clase` no es una de las 13 clases del clasificador.
+    """
+    from backend.servicios.vision.modelo_piezas import CLASES
+
+    if clase not in CLASES:
+        raise ValueError(f"Clase inválida: {clase!r}")
+    carpeta = _carpeta() / clase
+    borradas = 0
+    if carpeta.is_dir():
+        for archivo in carpeta.glob("*.png"):
+            archivo.unlink()
+            borradas += 1
+    return borradas
+
+
+def exportar_zip() -> Path:
+    """Empaqueta el dataset en un ZIP `<clase>/<archivo>.png` (+ `clases.json`) listo para subir a Colab y entrenar.
+
+    Devuelve la ruta de un archivo temporal; quien lo sirva debe borrarlo después.
+
+    Raises:
+        ValueError: si el dataset no tiene ninguna muestra.
+    """
+    import json
+
+    carpeta = _carpeta()
+    archivos = [a for sub in sorted(carpeta.iterdir()) if sub.is_dir() for a in sorted(sub.glob("*.png"))] if carpeta.exists() else []
+    if not archivos:
+        raise ValueError("Todavía no hay muestras para exportar")
+    descriptor, ruta_temporal = tempfile.mkstemp(suffix=".zip", prefix="dataset_piezas_")
+    os.close(descriptor)
+    por_clase: dict[str, int] = {}
+    with zipfile.ZipFile(ruta_temporal, "w", zipfile.ZIP_STORED) as zip_salida:
+        for archivo in archivos:
+            zip_salida.write(archivo, f"{archivo.parent.name}/{archivo.name}")
+            por_clase[archivo.parent.name] = por_clase.get(archivo.parent.name, 0) + 1
+        zip_salida.writestr("clases.json", json.dumps({"clases": sorted(por_clase), "muestras_por_clase": por_clase}, indent=2))
+    return Path(ruta_temporal)
 
 
 class _Reentrenamiento:

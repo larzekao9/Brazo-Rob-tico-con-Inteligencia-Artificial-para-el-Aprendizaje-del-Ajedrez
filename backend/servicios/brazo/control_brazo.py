@@ -1,0 +1,431 @@
+"""Control del brazo desde el front (sin DobotStudio): conexión, telemetría, parámetros, configuraciones guardadas y mover una pieza.
+
+Una sola conexión por proceso (`_estado`). Conectar NO habilita ni mueve el brazo: hace falta `habilitar()` explícito. Hay dos
+destinos: el brazo real (IP y puerto del controlador; usa la calibración y los parámetros de `calibracion_local/brazo.json`) y un
+emulador en memoria (el simulador del proyecto, sin física, con calibración de ejemplo) para probar todo sin hardware.
+`parar()` frena y cancela la secuencia en curso (ver `ClienteDobot.cancelar`) y funciona aunque haya una tarea corriendo.
+"""
+from __future__ import annotations
+
+import dataclasses
+import json
+import threading
+import time
+from pathlib import Path
+
+import chess
+
+from backend.servicios.brazo.calibracion_brazo import (
+    ARCHIVO_CALIBRACION_BRAZO,
+    CalibracionBrazo,
+    ParametrosAgarre,
+    cargar_calibracion_brazo,
+    cargar_parametros_agarre,
+    guardar_parametros_agarre,
+)
+from backend.servicios.brazo.cliente_dobot import MODOS_DE_FALLA, ErrorDobot
+from backend.servicios.brazo.ejecutor_movimiento import EjecutorReal
+from backend.servicios.brazo.pinza_dh import REG_FUERZA, REG_VELOCIDAD
+
+ARCHIVO_CONFIGURACIONES = Path(ARCHIVO_CALIBRACION_BRAZO).parent / "configuraciones_brazo.json"
+MODOS_TEXTO = {
+    1: "inicializando", 2: "freno liberado", 3: "sin energía (apagado)", 4: "deshabilitado", 5: "habilitado y libre",
+    6: "modo arrastre", 7: "ejecutando", 8: "movimiento individual", 9: "ALARMA", 10: "en pausa", 11: "colisión detectada",
+}
+VELOCIDAD_GLOBAL_INICIAL = 20
+
+
+class ErrorControl(Exception):
+    """Error del panel de control con un código tipo HTTP (409 = estado incorrecto, 422 = dato inválido, 503 = brazo)."""
+
+    def __init__(self, codigo: int, mensaje: str):
+        super().__init__(mensaje)
+        self.codigo, self.mensaje = codigo, mensaje
+
+
+class _Estado:
+    def __init__(self) -> None:
+        self.ejecutor: EjecutorReal | None = None
+        self.calibracion: CalibracionBrazo | None = None
+        self.emulador: tuple | None = None  # (simulador, servidor) si se conectó al emulador
+        self.destino: str = ""
+        self.tarea: dict = {"estado": "inactiva", "descripcion": "", "mensaje": "", "pasos": []}
+        self.hilo: threading.Thread | None = None
+        self.cerrojo = threading.RLock()
+
+
+_estado = _Estado()
+
+
+def _ejecutor() -> EjecutorReal:
+    if _estado.ejecutor is None:
+        raise ErrorControl(409, "No hay conexión con el brazo: conectá primero")
+    return _estado.ejecutor
+
+
+# --- conexión -------------------------------------------------------------------------------------------------------------
+def _crear_emulador() -> tuple[tuple, CalibracionBrazo, ParametrosAgarre, int]:
+    from backend.servicios.brazo.simulador_dobot import calibracion_ejemplo as ejemplo
+    from backend.servicios.brazo.simulador_dobot.nucleo import Simulador
+    from backend.servicios.brazo.simulador_dobot.protocolo import ProtocoloDobot
+    from backend.servicios.brazo.simulador_dobot.servidor_tcp import ServidorDashboard
+
+    calibracion, agarre = ejemplo.calibracion_ejemplo(), ejemplo.parametros_agarre_ejemplo()
+    simulador = Simulador(calibracion, agarre, chess.STARTING_FEN, False, escala_tiempo=10.0)
+    simulador.habilitado = False  # como el brazo real al encenderlo: hay que habilitarlo a propósito
+    servidor = ServidorDashboard(ProtocoloDobot(simulador), "127.0.0.1", 0)
+    servidor.iniciar()
+    simulador.iniciar_hilo()
+    return (simulador, servidor), calibracion, agarre, servidor.puerto
+
+
+def conectar(host: str = "192.168.5.1", puerto: int = 29999, emulador: bool = False) -> dict:
+    """Abre la conexión (no habilita ni mueve). Con `emulador` arranca el simulador en memoria y se conecta a él."""
+    with _estado.cerrojo:
+        if _estado.ejecutor is not None:
+            raise ErrorControl(409, "Ya hay una conexión abierta: desconectá primero")
+        simulado = None
+        try:
+            if emulador:
+                simulado, calibracion, agarre, puerto = _crear_emulador()
+                host = "127.0.0.1"
+            else:
+                calibracion, agarre = cargar_calibracion_brazo(), cargar_parametros_agarre() or ParametrosAgarre()
+            ejecutor = EjecutorReal(
+                host=host,
+                puerto_dashboard=puerto,
+                posiciones_casillas=calibracion.posiciones_casillas if calibracion else None,
+                orientacion=calibracion.orientacion if calibracion else None,
+                angulos_cero=calibracion.angulos_cero if calibracion else None,
+                velocidad_global=VELOCIDAD_GLOBAL_INICIAL,
+                parametros=agarre,
+            )
+            ejecutor.cliente.timeout_segundos = 5.0
+            ejecutor.conectar(inicializar_pinza=False)  # inicializar la pinza mueve los dedos: se hace a pedido
+        except (OSError, ErrorDobot, RuntimeError, ValueError) as error:
+            if simulado:
+                simulado[1].detener()
+                simulado[0].cerrar()
+            raise ErrorControl(503, f"No se pudo conectar con el brazo: {error}") from error
+        _estado.ejecutor, _estado.calibracion, _estado.emulador = ejecutor, calibracion, simulado
+        _estado.destino = "emulador" if emulador else f"{host}:{puerto}"
+        _estado.tarea = {"estado": "inactiva", "descripcion": "", "mensaje": "", "pasos": []}
+    return estado()
+
+
+def desconectar() -> dict:
+    with _estado.cerrojo:
+        if _estado.ejecutor is not None:
+            if _estado.hilo is not None and _estado.hilo.is_alive():
+                _estado.ejecutor.cliente.cancelar()
+                _estado.hilo.join(timeout=10)
+            try:
+                _estado.ejecutor.desconectar()
+            except Exception:  # noqa: BLE001 — cerrar siempre, aunque el brazo ya no conteste
+                pass
+        if _estado.emulador is not None:
+            _estado.emulador[1].detener()
+            _estado.emulador[0].cerrar()
+        _estado.ejecutor = _estado.calibracion = _estado.emulador = None
+        _estado.destino = ""
+    return estado()
+
+
+def estado() -> dict:
+    """Conexión, modo, pose, ángulos, pinza y tarea en curso (lecturas; nunca mueve nada)."""
+    ejecutor = _estado.ejecutor
+    base = {
+        "conectado": ejecutor is not None,
+        "destino": _estado.destino,
+        "emulador": _estado.emulador is not None,
+        "calibrado": bool(_estado.calibracion and _estado.calibracion.posiciones_casillas),
+        "tarea": dict(_estado.tarea),
+    }
+    if ejecutor is None:
+        return base
+    try:
+        modo = ejecutor.cliente.modo()
+        base.update(
+            modo=modo,
+            modo_texto=MODOS_TEXTO.get(modo, str(modo)),
+            falla=MODOS_DE_FALLA.get(modo),
+            pose=list(ejecutor.cliente.pose()),
+            angulos=list(ejecutor.cliente.angulos()),
+        )
+        try:
+            pinza = ejecutor.pinza.estado()
+            base["pinza"] = {"inicializada": pinza.inicializada, "posicion": pinza.posicion, "agarre": pinza.agarre}
+        except Exception:  # noqa: BLE001 — la pinza todavía no está conectada por Modbus
+            base["pinza"] = None
+        base["velocidad_global"] = ejecutor.cliente.velocidad_global
+    except (OSError, ErrorDobot, RuntimeError) as error:
+        base["error"] = str(error)
+    return base
+
+
+# --- seguridad ------------------------------------------------------------------------------------------------------------
+def habilitar() -> dict:
+    """`PowerOn` si está apagado y `EnableRobot`, y espera a que quede habilitado y libre (modo 5)."""
+    cliente = _ejecutor().cliente
+    try:
+        if cliente.modo() == 3:
+            cliente.enviar("PowerOn()")
+            _esperar_modo(cliente, lambda m: m != 3, 30)
+        cliente.enviar("EnableRobot()")
+        _esperar_modo(cliente, lambda m: m == 5, 20)
+    except (ErrorDobot, TimeoutError) as error:
+        raise ErrorControl(503, f"No se pudo habilitar: {error}") from error
+    return estado()
+
+
+def _esperar_modo(cliente, condicion, limite: float) -> None:
+    inicio = time.monotonic()
+    while time.monotonic() - inicio < limite:
+        if condicion(cliente.modo()):
+            return
+        time.sleep(0.3)
+    raise TimeoutError("el brazo no cambió de estado a tiempo")
+
+
+def deshabilitar() -> dict:
+    try:
+        _ejecutor().cliente.enviar("DisableRobot()")
+    except ErrorDobot as error:
+        raise ErrorControl(503, str(error)) from error
+    return estado()
+
+
+def limpiar_error() -> dict:
+    try:
+        _ejecutor().cliente.enviar("ClearError()")
+    except ErrorDobot as error:
+        raise ErrorControl(503, str(error)) from error
+    return estado()
+
+
+def parar() -> dict:
+    """Parada: frena el brazo y cancela la secuencia en curso. Disponible siempre que haya conexión."""
+    _ejecutor().cliente.cancelar()
+    return estado()
+
+
+# --- parámetros -----------------------------------------------------------------------------------------------------------
+_RANGOS = {
+    "velocidad_global": (1, 100), "aceleracion": (1, 100), "velocidad": (1, 100), "fuerza": (20, 100), "velocidad_pinza": (1, 100),
+    "apertura_aproximacion": (0, 1000), "altura_segura_mm": (20, 200), "margen_agarre_mm": (0, 30), "giro_diagonal_grados": (-180, 180),
+}
+
+
+def parametros() -> dict:
+    ejecutor = _ejecutor()
+    cliente, agarre = ejecutor.cliente, ejecutor.parametros
+    return {
+        "velocidad_global": cliente.velocidad_global, "aceleracion": cliente.aceleracion, "velocidad": cliente.velocidad,
+        "fuerza": agarre.fuerza, "velocidad_pinza": agarre.velocidad_pinza, "apertura_aproximacion": agarre.apertura_aproximacion,
+        "aperturas_por_pieza": dict(agarre.aperturas_por_pieza), "altura_segura_mm": agarre.altura_segura_mm,
+        "margen_agarre_mm": agarre.margen_agarre_mm, "giro_diagonal_grados": agarre.giro_diagonal_grados, "z_tope": agarre.z_tope,
+    }
+
+
+def actualizar_parametros(valores: dict, guardar: bool = False) -> dict:
+    """Valida y aplica los parámetros dados (los que no vienen quedan igual). Con `guardar` y brazo real, los deja en `brazo.json`."""
+    ejecutor = _ejecutor()
+    for clave, valor in valores.items():
+        if clave in _RANGOS:
+            minimo, maximo = _RANGOS[clave]
+            if not isinstance(valor, (int, float)) or not minimo <= valor <= maximo:
+                raise ErrorControl(422, f"{clave} debe estar entre {minimo} y {maximo}")
+        elif clave == "aperturas_por_pieza":
+            if not isinstance(valor, dict) or any(k not in "pnbrqk" or len(k) != 1 or not isinstance(v, int) or not 0 <= v <= 1000 for k, v in valor.items()):
+                raise ErrorControl(422, "aperturas_por_pieza: letras p n b r q k con valores de 0 a 1000")
+        elif clave == "z_tope":
+            if valor is not None and not isinstance(valor, (int, float)):
+                raise ErrorControl(422, "z_tope debe ser un número")
+        else:
+            raise ErrorControl(422, f"Parámetro desconocido: {clave}")
+    cliente = ejecutor.cliente
+    campos_agarre = {k: v for k, v in valores.items() if k in {f.name for f in dataclasses.fields(ParametrosAgarre)}}
+    for k in ("fuerza", "apertura_aproximacion", "velocidad_pinza"):
+        if k in campos_agarre:
+            campos_agarre[k] = int(campos_agarre[k])
+    ejecutor.parametros = dataclasses.replace(ejecutor.parametros, **campos_agarre)
+    ejecutor.pinza.fuerza, ejecutor.pinza.velocidad = ejecutor.parametros.fuerza, ejecutor.parametros.velocidad_pinza
+    try:
+        if "velocidad_global" in valores:
+            cliente.velocidad_global = int(valores["velocidad_global"])
+            cliente.enviar(f"SpeedFactor({cliente.velocidad_global})")
+        if "aceleracion" in valores:
+            cliente.aceleracion = int(valores["aceleracion"])
+        if "velocidad" in valores:
+            cliente.velocidad = int(valores["velocidad"])
+        if ("fuerza" in valores or "velocidad_pinza" in valores) and ejecutor.pinza._maestro is not None and ejecutor.pinza.estado().inicializada:
+            ejecutor.pinza.escribir(REG_FUERZA, ejecutor.pinza.fuerza)
+            ejecutor.pinza.escribir(REG_VELOCIDAD, ejecutor.pinza.velocidad)
+    except (ErrorDobot, RuntimeError) as error:
+        raise ErrorControl(503, f"Se guardó en memoria pero no se pudo aplicar al brazo: {error}") from error
+    if guardar and _estado.emulador is None:
+        guardar_parametros_agarre(ejecutor.parametros)
+    return parametros()
+
+
+def inicializar_pinza() -> dict:
+    """Conecta la pinza por Modbus y la inicializa (los dedos se abren y cierran unos segundos: libres)."""
+    ejecutor = _ejecutor()
+    try:
+        if ejecutor.pinza._maestro is None:
+            ejecutor.pinza.conectar()
+        ejecutor.pinza.inicializar()
+    except (ErrorDobot, RuntimeError) as error:
+        raise ErrorControl(503, f"No se pudo inicializar la pinza: {error}") from error
+    return estado()
+
+
+def mover_pinza(accion: str, ancho_mm: float | None = None) -> dict:
+    ejecutor = _ejecutor()
+    _exigir_habilitado(ejecutor)
+    try:
+        ejecutor.cliente.reanudar()
+        if ejecutor.pinza._maestro is None:
+            ejecutor.pinza.conectar()
+        if accion == "abrir":
+            ejecutor.pinza.abrir()
+        elif accion == "cerrar":
+            ejecutor.pinza.cerrar()
+        elif accion == "ancho" and ancho_mm is not None and 0 <= ancho_mm <= 60:
+            ejecutor.pinza.abrir_a_ancho_mm(ancho_mm)
+        else:
+            raise ErrorControl(422, "accion debe ser abrir, cerrar o ancho (0 a 60 mm)")
+    except (ErrorDobot, RuntimeError, ValueError) as error:
+        raise ErrorControl(503, f"Error en la pinza: {error}") from error
+    return estado()
+
+
+# --- configuraciones guardadas --------------------------------------------------------------------------------------------
+def _leer_configuraciones() -> dict:
+    if not ARCHIVO_CONFIGURACIONES.exists():
+        return {}
+    try:
+        return json.loads(ARCHIVO_CONFIGURACIONES.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise ErrorControl(409, "El archivo de configuraciones está dañado") from error
+
+
+def _escribir_configuraciones(datos: dict) -> None:
+    ARCHIVO_CONFIGURACIONES.parent.mkdir(parents=True, exist_ok=True)
+    ARCHIVO_CONFIGURACIONES.write_text(json.dumps(datos, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _validar_nombre(nombre: str) -> str:
+    nombre = nombre.strip()
+    if not nombre or len(nombre) > 60:
+        raise ErrorControl(422, "El nombre debe tener de 1 a 60 caracteres")
+    return nombre
+
+
+def listar_configuraciones() -> list[dict]:
+    return [{"nombre": n, **c} for n, c in sorted(_leer_configuraciones().items())]
+
+
+def guardar_configuracion(nombre: str, descripcion: str = "") -> list[dict]:
+    """Guarda los parámetros actuales del brazo con un nombre (sobrescribe si ya existe)."""
+    nombre = _validar_nombre(nombre)
+    datos = _leer_configuraciones()
+    datos[nombre] = {"descripcion": descripcion[:200], "parametros": parametros(), "guardada": time.strftime("%Y-%m-%d %H:%M")}
+    _escribir_configuraciones(datos)
+    return listar_configuraciones()
+
+
+def aplicar_configuracion(nombre: str) -> dict:
+    datos = _leer_configuraciones()
+    if nombre not in datos:
+        raise ErrorControl(404, f"No existe la configuración {nombre!r}")
+    return actualizar_parametros(datos[nombre]["parametros"])
+
+
+def borrar_configuracion(nombre: str) -> list[dict]:
+    datos = _leer_configuraciones()
+    if datos.pop(nombre, None) is None:
+        raise ErrorControl(404, f"No existe la configuración {nombre!r}")
+    _escribir_configuraciones(datos)
+    return listar_configuraciones()
+
+
+# --- mover una pieza ------------------------------------------------------------------------------------------------------
+def _exigir_habilitado(ejecutor: EjecutorReal) -> None:
+    try:
+        modo = ejecutor.cliente.modo()
+    except (OSError, ErrorDobot) as error:
+        raise ErrorControl(503, str(error)) from error
+    if modo != 5:
+        raise ErrorControl(409, f"El brazo no está habilitado y libre (modo {modo}: {MODOS_TEXTO.get(modo, '?')}): habilitalo primero")
+
+
+def _preparar_movimiento(origen: str, destino: str, tipo_pieza: str) -> tuple[EjecutorReal, chess.Board, chess.Move]:
+    ejecutor = _ejecutor()
+    try:
+        desde, hasta = chess.parse_square(origen.lower()), chess.parse_square(destino.lower())
+    except ValueError as error:
+        raise ErrorControl(422, "Casilla inválida: usá notación como e4") from error
+    if desde == hasta:
+        raise ErrorControl(422, "El origen y el destino son la misma casilla")
+    if tipo_pieza.lower() not in {"p", "n", "b", "r", "q", "k"}:
+        raise ErrorControl(422, "tipo_pieza debe ser p, n, b, r, q o k")
+    if ejecutor.posiciones_casillas is None or ejecutor.orientacion is None:
+        raise ErrorControl(409, "El brazo no tiene calibración del tablero (calibracion_local/brazo.json)")
+    try:
+        _ = ejecutor.parametros.z_agarre
+        ejecutor.parametros.apertura_para(tipo_pieza)
+    except RuntimeError as error:
+        raise ErrorControl(409, str(error)) from error
+    tablero = chess.Board(None)
+    tablero.set_piece_at(desde, chess.Piece(chess.PIECE_SYMBOLS.index(tipo_pieza.lower()), chess.WHITE))
+    return ejecutor, tablero, chess.Move(desde, hasta)
+
+
+def plan_de_movimiento(origen: str, destino: str, tipo_pieza: str = "p") -> list[dict]:
+    """ENSAYO: los pasos y poses por los que pasaría `ejecutar_movimiento` (misma secuencia), sin conectarse a nada que se mueva."""
+    ejecutor, _, _ = _preparar_movimiento(origen, destino, tipo_pieza)
+    p, seguro = ejecutor.parametros, ejecutor.parametros.altura_segura_mm
+    apertura = p.apertura_para(tipo_pieza)
+    o, d = origen.lower(), destino.lower()
+    return [
+        {"paso": f"Abrir la pinza a {apertura}", "pose": None},
+        {"paso": f"Ir sobre {o} (altura segura)", "pose": list(ejecutor._pose(o, seguro))},
+        {"paso": f"Bajar a {o}", "pose": list(ejecutor._pose(o))},
+        {"paso": "Cerrar la pinza y comprobar que agarró la pieza", "pose": None},
+        {"paso": "Subir con la pieza", "pose": list(ejecutor._pose(o, seguro))},
+        {"paso": f"Trasladar sobre {d}", "pose": list(ejecutor._pose(d, seguro))},
+        {"paso": f"Bajar a {d}", "pose": list(ejecutor._pose(d))},
+        {"paso": "Soltar la pieza", "pose": None},
+        {"paso": f"Subir de {d}", "pose": list(ejecutor._pose(d, seguro))},
+        {"paso": "Volver a la posición cero", "pose": None},
+    ]
+
+
+def mover_pieza(origen: str, destino: str, tipo_pieza: str = "p") -> dict:
+    """Lleva la pieza de `origen` a `destino` en un hilo (el estado se consulta en `estado()["tarea"]`). Una tarea a la vez."""
+    with _estado.cerrojo:
+        ejecutor, tablero, jugada = _preparar_movimiento(origen, destino, tipo_pieza)
+        if _estado.hilo is not None and _estado.hilo.is_alive():
+            raise ErrorControl(409, "Ya hay un movimiento en curso")
+        _exigir_habilitado(ejecutor)
+        pasos = plan_de_movimiento(origen, destino, tipo_pieza)
+        ejecutor.cliente.reanudar()
+        descripcion = f"Llevar {tipo_pieza.upper()} de {origen.lower()} a {destino.lower()}"
+        _estado.tarea = {"estado": "ejecutando", "descripcion": descripcion, "mensaje": "", "pasos": [p["paso"] for p in pasos]}
+
+        def trabajo() -> None:
+            try:
+                if ejecutor.pinza._maestro is None:
+                    ejecutor.pinza.conectar()
+                if not ejecutor.pinza.estado().inicializada:
+                    ejecutor.pinza.inicializar()
+                ejecutor.ejecutar_movimiento(tablero, jugada)
+                _estado.tarea.update(estado="terminada", mensaje="Listo")
+            except Exception as error:  # noqa: BLE001 — todo error va al panel
+                cancelado = ejecutor.cliente.cancelado
+                _estado.tarea.update(estado="cancelada" if cancelado else "error", mensaje="Cancelado por el usuario" if cancelado else str(error))
+
+        _estado.hilo = threading.Thread(target=trabajo, daemon=True, name="mover-pieza")
+        _estado.hilo.start()
+    return estado()

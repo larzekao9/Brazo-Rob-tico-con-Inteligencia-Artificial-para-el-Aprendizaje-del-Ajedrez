@@ -68,6 +68,7 @@ from backend.servicios.vision.tablero import (
     dibujar_grilla_debug,
     dividir_en_casillas,
     enderezar_tablero,
+    imagen_control_ampliada,
 )
 
 CARPETA_DATASET = Path("training/dataset_propio")
@@ -170,7 +171,9 @@ def capturar_muestras_con_id(
 
     CARPETA_DATASET.mkdir(parents=True, exist_ok=True)
     ruta_control = CARPETA_DATASET / "_ultima_captura.jpg"
-    cv2.imwrite(str(ruta_control), dibujar_grilla_debug(plano))
+    # Con esquinas calibradas (margen 0) la imagen de control incluye el marco y las letras que rodean el área de juego.
+    control = imagen_control_ampliada(imagen, esquinas) if not margen else dibujar_grilla_debug(plano)
+    cv2.imwrite(str(ruta_control), control)
     print(f"Imagen de control guardada en {ruta_control} — revisala antes de confiar en las casillas.")
 
     casillas = dividir_en_casillas(plano, margen)

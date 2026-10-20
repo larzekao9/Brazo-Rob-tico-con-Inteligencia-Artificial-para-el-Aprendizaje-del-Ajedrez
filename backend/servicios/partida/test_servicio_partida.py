@@ -295,6 +295,7 @@ def test_mover_desde_foto_detecta_y_aplica_la_jugada(monkeypatch: pytest.MonkeyP
     # Simula que la cámara/reconocimiento ya vieron la posición tras 1. e4 —
     # detectar_jugada no usa el turno de fen_despues, así que el valor exacto no importa acá.
     fen_despues_e4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
+    monkeypatch.setattr(servicio_partida, "_detectar_por_ocupacion", lambda fen: False)  # método de respaldo
     monkeypatch.setattr(servicio_partida, "capturar_foto_tablero", lambda: None)
     monkeypatch.setattr(servicio_partida, "reconocer_tablero", lambda imagen, turno: fen_despues_e4)
 
@@ -310,10 +311,26 @@ def test_mover_desde_foto_sin_jugada_legal_que_coincida_lanza_valueerror(
     partida = crear_partida(nivel=5)
     # Posición imposible de alcanzar con una sola jugada legal desde la inicial.
     fen_irreconciliable = "8/8/8/8/8/8/8/8 b - - 0 1"
+    monkeypatch.setattr(servicio_partida, "_detectar_por_ocupacion", lambda fen: False)  # método de respaldo
     monkeypatch.setattr(servicio_partida, "capturar_foto_tablero", lambda: None)
     monkeypatch.setattr(servicio_partida, "reconocer_tablero", lambda imagen, turno: fen_irreconciliable)
 
     with pytest.raises(ValueError):
+        mover_desde_foto(partida.id)
+
+
+def test_mover_desde_foto_por_ocupacion_aplica_la_jugada(monkeypatch: pytest.MonkeyPatch) -> None:
+    partida = crear_partida(nivel=5)
+    monkeypatch.setattr(servicio_partida, "_detectar_por_ocupacion", lambda fen: "e4")
+
+    assert mover_desde_foto(partida.id)["jugadas"][0] == "e4"
+
+
+def test_mover_desde_foto_por_ocupacion_sin_jugada_clara_pide_reintentar(monkeypatch: pytest.MonkeyPatch) -> None:
+    partida = crear_partida(nivel=5)
+    monkeypatch.setattr(servicio_partida, "_detectar_por_ocupacion", lambda fen: None)
+
+    with pytest.raises(ValueError, match="sacá la mano"):
         mover_desde_foto(partida.id)
 
 

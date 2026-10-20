@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import re
 import socket
+import threading
 import time
 from dataclasses import dataclass
 
 MODO_LIBRE = 5
 MODOS_EN_MOVIMIENTO = (7, 8)
+COMANDOS_BLOQUEADOS_AL_CANCELAR = ("Mov", "RelMov", "SetHoldRegs")
 MODOS_DE_FALLA = {9: "alarma activa", 10: "en pausa", 11: "colisión detectada"}
 PATRON_VALORES = re.compile(r"\{(.*?)\}(?:,|$)")  # solo el primer par de llaves: el comando eco puede traer `pose={...}`
 
@@ -73,6 +75,22 @@ class ClienteDobot:
         self.host, self.puerto, self.timeout_segundos = host, puerto, timeout_segundos
         self.velocidad_global, self.aceleracion, self.velocidad = velocidad_global, aceleracion, velocidad
         self._socket: socket.socket | None = None
+        self._cerrojo = threading.RLock()
+        """Un comando a la vez por el socket: el panel de control lee la telemetría mientras un hilo mueve el brazo."""
+        self.cancelado = False
+
+    def cancelar(self) -> None:
+        """Parada del usuario: frena con `Stop()` y rechaza todo movimiento o comando de pinza posterior hasta `reanudar()`.
+
+        Así una secuencia en curso (varios pasos en otro hilo) se corta de verdad: sin esto el siguiente paso volvería a mover el
+        brazo, o abriría la pinza soltando la pieza en el aire.
+        """
+        self.cancelado = True
+        self.detener()
+
+    def reanudar(self) -> None:
+        """Vuelve a aceptar movimientos (se llama al empezar una tarea nueva)."""
+        self.cancelado = False
 
     # --- conexión ------------------------------------------------------------------------------------------------
     def conectar(self) -> None:
@@ -95,19 +113,22 @@ class ClienteDobot:
 
     def enviar(self, comando: str) -> RespuestaDobot:
         """Manda un comando, espera la respuesta completa (termina en `;`) y falla si el `ErrorID` no es 0."""
-        if self._socket is None:
-            raise RuntimeError("No hay conexión con el Dobot: llamá a conectar() primero")
-        self._socket.sendall(comando.encode("ascii"))
-        recibido = b""
-        while not recibido.rstrip().endswith(b";"):
-            trozo = self._socket.recv(1024)
-            if not trozo:
-                raise ErrorDobot("El controlador cerró la conexión")
-            recibido += trozo
-        respuesta = interpretar_respuesta(recibido.decode("ascii", errors="replace"))
-        if respuesta.error_id != 0:
-            raise ErrorDobot(f"{comando} -> ErrorID {respuesta.error_id}")
-        return respuesta
+        if self.cancelado and comando.startswith(COMANDOS_BLOQUEADOS_AL_CANCELAR):
+            raise ErrorDobot("Cancelado por el usuario")
+        with self._cerrojo:
+            if self._socket is None:
+                raise RuntimeError("No hay conexión con el Dobot: llamá a conectar() primero")
+            self._socket.sendall(comando.encode("ascii"))
+            recibido = b""
+            while not recibido.rstrip().endswith(b";"):
+                trozo = self._socket.recv(1024)
+                if not trozo:
+                    raise ErrorDobot("El controlador cerró la conexión")
+                recibido += trozo
+            respuesta = interpretar_respuesta(recibido.decode("ascii", errors="replace"))
+            if respuesta.error_id != 0:
+                raise ErrorDobot(f"{comando} -> ErrorID {respuesta.error_id}")
+            return respuesta
 
     # --- lectura -------------------------------------------------------------------------------------------------
     def modo(self) -> int:

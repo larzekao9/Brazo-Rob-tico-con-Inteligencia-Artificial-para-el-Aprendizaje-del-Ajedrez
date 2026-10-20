@@ -58,3 +58,18 @@ def clasificar_pieza(recorte_casilla: np.ndarray) -> str:
     with torch.no_grad():
         indice = modelo(entrada).argmax(dim=1).item()
     return clases[indice]
+
+
+def clasificar_con_confianza(recortes: list[np.ndarray], cantidad: int = 3) -> list[list[tuple[str, float]]]:
+    """Para cada recorte, las `cantidad` clases más probables con su probabilidad (una sola pasada por la red)."""
+    if not recortes:
+        return []
+    modelo, clases = _cargar_modelo()
+    entradas = torch.stack([preprocesar_recorte(r) for r in recortes])
+    with torch.no_grad():
+        probabilidades = torch.softmax(modelo(entradas), dim=1)
+    mejores = probabilidades.topk(min(cantidad, len(clases)), dim=1)
+    return [
+        [(clases[i], float(p)) for p, i in zip(fila_p.tolist(), fila_i.tolist())]
+        for fila_p, fila_i in zip(mejores.values, mejores.indices)
+    ]

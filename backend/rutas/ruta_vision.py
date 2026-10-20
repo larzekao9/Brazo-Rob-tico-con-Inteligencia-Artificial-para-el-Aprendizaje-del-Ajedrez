@@ -9,6 +9,8 @@ import time
 import cv2
 import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
+from starlette.background import BackgroundTask
 
 from backend.esquemas.vision_esquema import (
     BorrarCapturaResponse,
@@ -24,8 +26,8 @@ from backend.esquemas.vision_esquema import (
     ReconocerTableroResponse,
 )
 from backend.rutas.ruta_auth import get_current_facilitador, get_current_user
-from backend.servicios.vision.camara import _fuente_por_defecto, capturar_foto_tablero
-from backend.servicios.vision import dataset_propio, tablero
+from backend.servicios.vision.camara import _fuente_por_defecto, capturar_foto_tablero, flujo_de_frames
+from backend.servicios.vision import dataset_propio, tablero, verificacion
 from backend.servicios.vision.modelo_piezas import CLASES
 from backend.servicios.vision.reconocimiento import generar_imagen_grilla_debug, reconocer_tablero
 
@@ -288,6 +290,116 @@ def imagen_control_dataset(_facilitador_id: int = Depends(get_current_facilitado
 def resumen_dataset(_facilitador_id: int = Depends(get_current_facilitador)) -> ResumenDatasetResponse:
     """Muestras por clase del dataset propio."""
     return ResumenDatasetResponse(**dataset_propio.resumen())
+
+
+FRONTERA_FLUJO = "cuadro"
+CALIDAD_FLUJO_JPEG = 80
+
+
+def _partes_del_flujo(modo: str, casillas: list[str]):
+    """Genera las partes multipart del flujo en vivo: cada una lleva un JPEG y, en modo `piezas`, las predicciones en `X-Casillas`."""
+    import json
+
+    for frame in flujo_de_frames():
+        cabecera_extra = ""
+        try:
+            if modo == "piezas":
+                vista, predicciones = verificacion.analizar_tablero(frame)
+                cabecera_extra = "X-Casillas: " + json.dumps([[c["casilla"], c["clase"], c["confianza"]] for c in predicciones], separators=(",", ":")) + "\r\n"
+                exito, buffer = cv2.imencode(".jpg", vista, [cv2.IMWRITE_JPEG_QUALITY, CALIDAD_FLUJO_JPEG])
+            elif modo == "vista":
+                exito, buffer = True, np.frombuffer(dataset_propio.vista_previa(casillas, frame), dtype=np.uint8)
+            else:
+                exito, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, CALIDAD_FLUJO_JPEG])
+        except (ValueError, FileNotFoundError) as error:
+            exito, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, CALIDAD_FLUJO_JPEG])
+            cabecera_extra = "X-Aviso: " + str(error).replace("\n", " ")[:200].encode("ascii", "replace").decode() + "\r\n"
+        if not exito:
+            continue
+        datos = buffer.tobytes()
+        yield (
+            f"--{FRONTERA_FLUJO}\r\nContent-Type: image/jpeg\r\nContent-Length: {len(datos)}\r\n{cabecera_extra}\r\n".encode() + datos + b"\r\n"
+        )
+
+
+@router.get("/flujo")
+def flujo_en_vivo(
+    modo: str = "camara", casillas: str = "", _usuario_id: int = Depends(get_current_user)
+) -> StreamingResponse:
+    """Video en vivo de la cámara fija (multipart/x-mixed-replace de JPEG, a la velocidad de la cámara).
+
+    `modo=camara`: imagen tal cual. `modo=piezas`: tablero enderezado con las piezas reconocidas (predicciones en el header
+    `X-Casillas` de cada parte). `modo=vista`: lo que se guardaría en el dataset para `casillas` (ej. `e4,f4`).
+    """
+    if modo not in {"camara", "piezas", "vista"}:
+        raise HTTPException(status_code=422, detail="modo inválido")
+    elegidas = [c for c in casillas.split(",") if c]
+    try:
+        generador = _partes_del_flujo(modo, elegidas)
+        primera = next(generador)  # abre la cámara aquí para devolver 503 como error normal si no se puede
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except StopIteration as error:
+        raise HTTPException(status_code=503, detail="La cámara no entrega imágenes") from error
+
+    def con_primera():
+        yield primera
+        yield from generador
+
+    return StreamingResponse(
+        con_primera(),
+        media_type=f"multipart/x-mixed-replace; boundary={FRONTERA_FLUJO}",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.get("/probar-piezas")
+def probar_piezas(_facilitador_id: int = Depends(get_current_facilitador)) -> dict:
+    """Saca una foto y devuelve qué pieza reconoce el modelo en cada casilla, con su confianza y una imagen anotada (no guarda nada)."""
+    try:
+        return verificacion.probar_tablero()
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=409, detail="Todavía no hay un modelo de piezas entrenado") from error
+
+
+@router.get("/dataset/vista-previa")
+def vista_previa_dataset(casillas: str = "", _facilitador_id: int = Depends(get_current_facilitador)) -> Response:
+    """Lo que se guardaría ahora (tablero con las casillas elegidas en verde + su recorte exacto), sin guardar nada."""
+    try:
+        contenido = dataset_propio.vista_previa([c for c in casillas.split(",") if c])
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    return Response(content=contenido, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+@router.delete("/dataset/clase/{clase}", response_model=BorrarCapturaResponse)
+def borrar_clase_dataset(clase: str, _facilitador_id: int = Depends(get_current_facilitador)) -> BorrarCapturaResponse:
+    """Borra todas las fotos de una clase para volver a empezar con ella."""
+    try:
+        return BorrarCapturaResponse(borradas=dataset_propio.borrar_clase(clase))
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@router.get("/dataset/export")
+def exportar_dataset(_facilitador_id: int = Depends(get_current_facilitador)) -> FileResponse:
+    """ZIP del dataset propio (una carpeta por clase) para entrenar en Colab."""
+    try:
+        ruta = dataset_propio.exportar_zip()
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return FileResponse(
+        ruta,
+        media_type="application/zip",
+        filename="dataset_piezas.zip",
+        background=BackgroundTask(ruta.unlink, missing_ok=True),
+    )
 
 
 @router.delete("/dataset/captura/{captura_id}", response_model=BorrarCapturaResponse)

@@ -224,3 +224,63 @@ def test_reentrenar_proceso_con_error(cliente, estado_limpio, monkeypatch) -> No
     assert cliente.post("/vision/dataset/reentrenar").status_code == 200
     _esperar(cliente, "error")
     assert "boom" in cliente.get("/vision/dataset/reentrenar/estado").json()["log"]
+
+
+def test_export_zip_por_clase(cliente) -> None:
+    import io
+    import zipfile
+
+    assert cliente.get("/vision/dataset/export").status_code == 404
+    cliente.post("/vision/dataset/foto", json={"fen_piezas": "8/8/8/8/8/8/8/4K3", "solo_piezas": True})
+    r = cliente.get("/vision/dataset/export")
+    assert r.status_code == 200 and r.headers["content-type"] == "application/zip"
+    with zipfile.ZipFile(io.BytesIO(r.content)) as zip_entrada:
+        nombres = zip_entrada.namelist()
+    assert "clases.json" in nombres and any(n.startswith("white-king/") and n.endswith(".png") for n in nombres)
+
+
+def test_borrar_clase(cliente) -> None:
+    cliente.post("/vision/dataset/foto", json={"fen_piezas": "8/8/8/8/8/8/8/4K3", "solo_piezas": True})
+    assert cliente.delete("/vision/dataset/clase/white-king").json() == {"borradas": 1}
+    assert cliente.get("/vision/dataset/resumen").json()["total"] == 0
+    assert cliente.delete("/vision/dataset/clase/../x").status_code in (404, 422)
+    assert cliente.delete("/vision/dataset/clase/inventada").status_code == 422
+
+
+def test_vista_previa_no_guarda(cliente, monkeypatch) -> None:
+    import backend.servicios.vision.camara as camara
+
+    monkeypatch.setattr(camara, "capturar_foto_tablero", _foto)
+    r = cliente.get("/vision/dataset/vista-previa", params={"casillas": "e4,f4"})
+    assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
+    assert cliente.get("/vision/dataset/vista-previa", params={"casillas": "z9"}).status_code == 422
+    assert cliente.get("/vision/dataset/resumen").json()["total"] == 0
+
+
+def test_probar_piezas(cliente, monkeypatch) -> None:
+    import backend.servicios.vision.verificacion as verificacion
+
+    monkeypatch.setattr(verificacion, "capturar_foto_tablero", _foto)
+    monkeypatch.setattr(
+        verificacion.piezas, "clasificar_con_confianza", lambda recortes: [[("vacia", 0.9), ("white-pawn", 0.1)] for _ in recortes]
+    )
+    r = cliente.get("/vision/probar-piezas")
+    assert r.status_code == 200
+    cuerpo = r.json()
+    assert len(cuerpo["casillas"]) == 64 and cuerpo["casillas"][0]["clase"] == "vacia" and cuerpo["imagen"]
+
+
+def test_flujo_en_vivo_camara(cliente, monkeypatch) -> None:
+    import backend.rutas.ruta_vision as ruta
+    from backend.rutas.ruta_auth import get_current_user
+
+    app.dependency_overrides[get_current_user] = lambda: 1
+    monkeypatch.setattr(ruta, "flujo_de_frames", lambda: iter([_foto(), _foto()]))
+    try:
+        with cliente.stream("GET", "/vision/flujo", params={"modo": "camara"}) as r:
+            assert r.status_code == 200 and "multipart/x-mixed-replace" in r.headers["content-type"]
+            cuerpo = b"".join(r.iter_bytes())
+        assert cuerpo.count(b"--cuadro") == 2 and b"Content-Length" in cuerpo
+        assert cliente.get("/vision/flujo", params={"modo": "x"}).status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)

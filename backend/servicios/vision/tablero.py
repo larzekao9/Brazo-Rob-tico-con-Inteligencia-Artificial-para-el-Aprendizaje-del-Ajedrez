@@ -202,3 +202,47 @@ def dibujar_grilla_debug(tablero_plano: np.ndarray) -> np.ndarray:
         cv2.line(debug, (i * paso, 0), (i * paso, lado), (0, 0, 255), grosor)
         cv2.line(debug, (0, i * paso), (lado, i * paso), (0, 0, 255), grosor)
     return debug
+
+
+def imagen_control_ampliada(
+    imagen: np.ndarray,
+    esquinas: np.ndarray,
+    margen_relativo: float = 0.12,
+    tamano: int = TAMANO_TABLERO_PLANO,
+    resaltar: tuple[str, ...] = (),
+) -> np.ndarray:
+    """Tablero enderezado con la grilla 8x8 y, alrededor, el marco y las letras/números que rodean el área de juego.
+
+    `esquinas` son las del área de juego (en el orden de `enderezar_tablero`). El área de juego se dibuja centrada y ocupando
+    `1 - 2 * margen_relativo` del lado; lo de afuera es la foto original (borde de madera, letras impresas). Sobre las líneas se
+    rotulan columnas (a-h) y filas (8-1) como las usa el reconocimiento; `resaltar` marca en verde las casillas dadas. Solo para revisar a ojo; no se usa para reconocer.
+    """
+    borde = tamano * margen_relativo
+    interior = tamano - 2 * borde
+    destino = np.array(
+        [[borde, borde], [tamano - borde, borde], [tamano - borde, tamano - borde], [borde, tamano - borde]], dtype=np.float32
+    )
+    matriz = cv2.getPerspectiveTransform(esquinas.astype(np.float32), destino)
+    control = cv2.warpPerspective(imagen, matriz, (tamano, tamano))
+    paso = interior / 8
+    for i in range(9):
+        grosor = 3 if i in (0, 8) else 1
+        x = int(round(borde + i * paso))
+        cv2.line(control, (x, int(borde)), (x, int(tamano - borde)), (0, 0, 255), grosor)
+        cv2.line(control, (int(borde), x), (int(tamano - borde), x), (0, 0, 255), grosor)
+    for nombre in resaltar:  # casillas que se van a guardar, en verde
+        columna, fila = "abcdefgh".index(nombre[0]), 8 - int(nombre[1])
+        x0, y0 = int(round(borde + columna * paso)), int(round(borde + fila * paso))
+        cv2.rectangle(control, (x0, y0), (int(round(x0 + paso)), int(round(y0 + paso))), (0, 255, 0), 4)
+    fuente = cv2.FONT_HERSHEY_SIMPLEX
+    for i in range(8):
+        centro = int(round(borde + (i + 0.5) * paso))
+        for texto, posicion in (
+            ("abcdefgh"[i], (centro - 8, int(tamano - borde * 0.35))),
+            ("abcdefgh"[i], (centro - 8, int(borde * 0.7))),
+            (str(8 - i), (int(borde * 0.35), centro + 8)),
+            (str(8 - i), (int(tamano - borde * 0.65), centro + 8)),
+        ):
+            cv2.putText(control, texto, posicion, fuente, 0.8, (0, 0, 0), 4, cv2.LINE_AA)
+            cv2.putText(control, texto, posicion, fuente, 0.8, (0, 255, 255), 2, cv2.LINE_AA)
+    return control

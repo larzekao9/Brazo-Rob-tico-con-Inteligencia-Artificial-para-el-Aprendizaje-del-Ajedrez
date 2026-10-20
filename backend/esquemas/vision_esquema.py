@@ -42,6 +42,31 @@ class CalibracionTableroResponse(BaseModel):
     esquinas: dict[str, list[float]] | None = None
 
 
+class EstadoCalibracionResponse(BaseModel):
+    """Cuerpo de salida de GET /vision/calibracion/estado y de POST /vision/calibracion/guardar.
+
+    `vigente` es `None` cuando no se pudo verificar (la cámara no entrega imagen); `motivo_no_vigente` explica el porqué si no es `True`.
+    """
+
+    calibrada: bool
+    vigente: bool | None = None
+    motivo_no_vigente: str | None = None
+    esquinas: dict[str, list[float]] | None = None
+    fecha: str | None = None
+    resolucion: list[int] | None = None
+    fuente: str | None = None
+    advertencias: list[str] = []
+
+
+class ComprobarCalibracionResponse(BaseModel):
+    """Cuerpo de salida de POST /vision/calibracion/comprobar: `movida` es `None` si no se pudo comparar con la referencia."""
+
+    movida: bool | None = None
+    desplazamiento_px: float | None = None
+    coincidencias: int = 0
+    mensaje: str
+
+
 class CapturaDatasetRequest(BaseModel):
     """Cuerpo de entrada para POST /vision/dataset/foto: solo el campo de piezas del FEN."""
 

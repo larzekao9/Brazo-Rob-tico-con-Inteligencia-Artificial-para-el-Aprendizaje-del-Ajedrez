@@ -23,6 +23,7 @@ from backend.servicios.brazo.fabrica_ejecutores import crear_ejecutor_movimiento
 logger = logging.getLogger(__name__)
 
 _ejecutor: EjecutorMovimiento | None = None
+_ultima_jugada: str | None = None
 
 
 def _calibracion_del_brazo() -> dict:
@@ -95,6 +96,7 @@ def ejecutar_respuesta_en_brazo(
         `None` si no hubo error (incluido el caso `usa_brazo=False`); el
         mensaje del error en caso contrario.
     """
+    global _ultima_jugada
     if not partida.usa_brazo:
         return None
     try:
@@ -105,4 +107,22 @@ def ejecutar_respuesta_en_brazo(
             "Fallo al ejecutar en el brazo la jugada de respuesta de la partida %s", partida.id
         )
         return str(error)
+    _ultima_jugada = jugada.uci()
     return None
+
+
+def estado_brazo() -> dict:
+    """Estado del brazo para `GET /brazo/estado`. No crea el ejecutor ni abre conexiones.
+
+    Returns:
+        `{modo, host, conectado, ultima_jugada}`: `host` y `conectado` son `None` en modo `simulado`; en `real`, `conectado` indica si
+        ya hay un ejecutor cacheado.
+    """
+    modo = os.environ.get("AJEDREZ_MODO_BRAZO", "simulado")
+    es_real = modo == "real"
+    return {
+        "modo": modo,
+        "host": os.environ.get("AJEDREZ_BRAZO_HOST") if es_real else None,
+        "conectado": (_ejecutor is not None) if es_real else None,
+        "ultima_jugada": _ultima_jugada,
+    }

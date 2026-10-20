@@ -520,6 +520,24 @@ def _estado_del_reloj(partida: Partida) -> dict | None:
     }
 
 
+def _detectar_por_ocupacion(fen_antes: str):
+    """Jugada (SAN) vista por la cámara según qué casillas están vacías/blancas/negras, votando entre varios cuadros.
+
+    Devuelve `False` si no hay clasificador de ocupación entrenado (el llamador usa el otro método) y `None` si la lectura es
+    inestable o no hay una jugada clara.
+    """
+    from backend.servicios.vision.captura_estable import ACUERDO_MINIMO, leer_ocupacion_estable
+    from backend.servicios.vision.deteccion_movimiento import detectar_jugada_por_ocupacion
+
+    try:
+        observada, acuerdo = leer_ocupacion_estable()
+    except FileNotFoundError:
+        return False
+    if acuerdo < ACUERDO_MINIMO:
+        return None
+    return detectar_jugada_por_ocupacion(fen_antes, observada)
+
+
 def mover_desde_foto(partida_id: str) -> dict:
     """Detecta la jugada hecha en el tablero físico (RF11) y la aplica igual que `mover()`.
 
@@ -547,6 +565,16 @@ def mover_desde_foto(partida_id: str) -> dict:
     tablero_antes = chess.Board(fen_antes)
     turno_despues = "b" if tablero_antes.turn == chess.WHITE else "w"
 
+    jugada_san = _detectar_por_ocupacion(fen_antes)
+    if jugada_san is not False:
+        if jugada_san is None:
+            raise ValueError(
+                "No se pudo determinar qué jugada se hizo — sacá la mano del tablero y probá de nuevo, "
+                "o la jugada no coincide con ninguna legal desde la posición anterior"
+            )
+        return mover(partida_id, tablero_antes.parse_san(jugada_san).uci())
+
+    # Sin clasificador de ocupación entrenado: se reconoce el FEN completo con el de piezas (más frágil).
     imagen = capturar_foto_tablero()
     fen_despues = reconocer_tablero(imagen, turno=turno_despues)
 
