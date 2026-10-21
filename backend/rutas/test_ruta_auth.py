@@ -266,6 +266,15 @@ def test_google_login_crea_jugador_por_defecto(cliente) -> None:
     assert datos["tokens"]["access_token"]
 
 
+def test_google_login_rechaza_token_demo_si_esta_apagado(cliente, monkeypatch) -> None:
+    # En un servidor publicado (PERMITIR_LOGIN_GOOGLE_DEMO=false) un token "demo_<correo>" no puede
+    # servir para entrar como cualquier correo: se rechaza sin consultar a Google.
+    monkeypatch.setenv("PERMITIR_LOGIN_GOOGLE_DEMO", "false")
+    res = cliente.post("/auth/google", json={"credential": "demo_intruso@gmail.com", "rol_seleccionado": "jugador"})
+    assert res.status_code in (400, 401)
+    assert "access_token" not in res.text
+
+
 def test_google_login_vincula_cuenta_existente_y_preserva_rol(cliente) -> None:
     # 1. Se registra previamente con correo y contraseña
     cliente.post("/auth/registro", json={"email": "vinculado@test.com", "nombre": "Vinculado", "password": "pass1234"})

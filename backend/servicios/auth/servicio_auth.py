@@ -82,13 +82,27 @@ def get_users_by_ids(db: Session, user_ids: Iterable[int]) -> dict[int, UsuarioO
     return {usuario.id: usuario for usuario in filas}
 
 
+def login_google_demo_permitido() -> bool:
+    """Indica si se aceptan tokens de prueba `demo_<correo>` / `mock_<correo>` en el login con Google.
+
+    Sirven en desarrollo y en los tests, donde no hay un ID Token real de Google. En un servidor
+    publicado hay que apagarlos con `PERMITIR_LOGIN_GOOGLE_DEMO=false`: con ellos cualquiera podría
+    entrar con el correo que quisiera, incluido el de un facilitador. Si la variable no existe se
+    mantiene el comportamiento de siempre (permitidos).
+    """
+    valor = os.environ.get("PERMITIR_LOGIN_GOOGLE_DEMO", "true").strip().lower()
+    return valor in {"1", "true", "si", "sí", "yes"}
+
+
 def verificar_token_google(token: str) -> dict:
     """Verifica un ID Token de Google contra los servidores de Google OAuth2.
 
     Retorna un diccionario con: email, sub, name, picture, email_verified.
     Lanza ValueError si el token es inválido o expiró.
     """
-    # Soporte para tokens de prueba / desarrollo local
+    # Soporte para tokens de prueba / desarrollo local (apagado en producción, ver login_google_demo_permitido)
+    if (token.startswith("demo_") or token.startswith("mock_")) and not login_google_demo_permitido():
+        raise ValueError("Token de Google inválido")
     if token.startswith("demo_") or token.startswith("mock_"):
         email_demo = token.replace("demo_", "").replace("mock_", "").strip()
         if "@" not in email_demo:
