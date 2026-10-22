@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
 from backend.esquemas.vision_esquema import (
@@ -26,6 +27,8 @@ from backend.esquemas.vision_esquema import (
     ReconocerTableroResponse,
 )
 from backend.rutas.ruta_auth import get_current_facilitador, get_current_user
+from backend.servicios.vision import camara as servicio_camara
+from backend.servicios.vision.fusion import fusionar_probabilidades
 from backend.servicios.vision.camara import _fuente_por_defecto, capturar_foto_tablero, flujo_de_frames
 from backend.servicios.vision import dataset_propio, tablero, verificacion
 from backend.servicios.vision.modelo_piezas import CLASES
@@ -56,16 +59,27 @@ async def _leer_foto_subida(foto_subida: UploadFile) -> np.ndarray:
     return imagen
 
 
+def _validar_camara(camara: str, permitir_todas: bool = False) -> str:
+    """422 si `camara` no es `principal` o `secundaria` (ni `todas`, donde se admite)."""
+    if permitir_todas and camara == "todas":
+        return camara
+    try:
+        return servicio_camara.validar_camara(camara)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
 @router.get("/estado", response_model=EstadoCamaraResponse)
-def estado_camara(_facilitador_id: int = Depends(get_current_facilitador)) -> EstadoCamaraResponse:
+def estado_camara(camara: str = "principal", _facilitador_id: int = Depends(get_current_facilitador)) -> EstadoCamaraResponse:
     """Estado de la cámara fija: captura una foto de prueba y mide la latencia.
 
     Nunca devuelve 500: si la captura falla, `disponible=false` y el motivo en `error`.
     """
-    fuente = str(_fuente_por_defecto())
+    _validar_camara(camara)
+    fuente = str(_fuente_por_defecto(camara))
     inicio = time.perf_counter()
     try:
-        imagen = capturar_foto_tablero()
+        imagen = capturar_foto_tablero(camara=camara)
     except Exception as error:
         return EstadoCamaraResponse(fuente=fuente, disponible=False, error=str(error) or type(error).__name__)
     latencia_ms = (time.perf_counter() - inicio) * 1000
@@ -76,18 +90,19 @@ def estado_camara(_facilitador_id: int = Depends(get_current_facilitador)) -> Es
 
 
 @router.get("/foto")
-def foto(grilla: bool = False, _usuario_id: int = Depends(get_current_user)) -> Response:
+def foto(grilla: bool = False, camara: str = "principal", _usuario_id: int = Depends(get_current_user)) -> Response:
     """Captura una foto de la cámara fija y la devuelve como JPEG.
 
     Con `grilla=true` devuelve la foto enderezada con la grilla 8x8 dibujada encima.
     """
+    _validar_camara(camara)
     try:
-        imagen = capturar_foto_tablero()
+        imagen = capturar_foto_tablero(camara=camara)
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
     if grilla:
         try:
-            imagen = generar_imagen_grilla_debug(imagen)
+            imagen = generar_imagen_grilla_debug(imagen, camara)
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
     exito, buffer = cv2.imencode(".jpg", imagen)
@@ -296,23 +311,68 @@ FRONTERA_FLUJO = "cuadro"
 CALIDAD_FLUJO_JPEG = 80
 
 
-def _partes_del_flujo(modo: str, casillas: list[str]):
-    """Genera las partes multipart del flujo en vivo: cada una lleva un JPEG y, en modo `piezas`, las predicciones en `X-Casillas`."""
+def _juntar_lado_a_lado(imagenes: list[np.ndarray]) -> np.ndarray:
+    """Una sola imagen con las dadas en fila, todas a la altura de la más baja."""
+    if len(imagenes) == 1:
+        return imagenes[0]
+    alto = min(i.shape[0] for i in imagenes)
+    return np.hstack([cv2.resize(i, (round(i.shape[1] * alto / i.shape[0]), alto)) for i in imagenes])
+
+
+def _partes_del_flujo(modo: str, casillas: list[str], auto: str = "", camara: str = "principal", vista_piezas: str = "plana"):
+    """Genera las partes multipart del flujo en vivo: cada una lleva un JPEG y, en modo `piezas`/`vista` con detección, datos en `X-Casillas`.
+
+    `camara` es `principal`, `secundaria` o `todas` (la principal y, si está configurada y calibrada, la secundaria, una junto a otra).
+    """
     import json
 
-    for frame in flujo_de_frames():
+    from backend.servicios.vision.captura_estable import camaras_calibradas, detectar_casilla_de_pieza, ocupacion_de_imagen
+
+    base = "principal" if camara == "todas" else camara
+    for frame in flujo_de_frames(camara=base):
+        fotos = {base: frame}
+        if camara == "todas":
+            for otra in camaras_calibradas():
+                if otra != base:
+                    try:
+                        fotos[otra] = capturar_foto_tablero(camara=otra)
+                    except RuntimeError:
+                        continue  # la secundaria falló: se sigue con la principal
         cabecera_extra = ""
         try:
             if modo == "piezas":
-                vista, predicciones = verificacion.analizar_tablero(frame)
-                cabecera_extra = "X-Casillas: " + json.dumps([[c["casilla"], c["clase"], c["confianza"]] for c in predicciones], separators=(",", ":")) + "\r\n"
+                if len(fotos) > 1:
+                    vista, predicciones = verificacion.analizar_camaras(fotos)
+                else:
+                    vista, predicciones = verificacion.analizar_tablero(frame, base)
+                vista = verificacion.componer_vista_piezas(vista, fotos, predicciones, vista_piezas)
+                cabecera_extra = (
+                    "X-Casillas: "
+                    + json.dumps([[c["casilla"], c["clase"], c["confianza"], c.get("por_camara", [])] for c in predicciones], separators=(",", ":"))
+                    + "\r\n"
+                )
                 exito, buffer = cv2.imencode(".jpg", vista, [cv2.IMWRITE_JPEG_QUALITY, CALIDAD_FLUJO_JPEG])
             elif modo == "vista":
-                exito, buffer = True, np.frombuffer(dataset_propio.vista_previa(casillas, frame), dtype=np.uint8)
+                elegidas = casillas
+                if auto:  # detecta sola la casilla de la pieza (única), con las cámaras que haya, y la resalta
+                    lecturas = {}
+                    for nombre, imagen in fotos.items():
+                        try:
+                            lecturas[nombre] = ocupacion_de_imagen(imagen, nombre)
+                        except ValueError:
+                            continue
+                    if not lecturas:
+                        raise ValueError("No se detectó el tablero")
+                    casilla, confianza, estado = detectar_casilla_de_pieza(fusionar_probabilidades(list(lecturas.values())), auto)
+                    elegidas = [casilla] if casilla else []
+                    por_camara = {nombre: detectar_casilla_de_pieza(probs, auto)[0] or "" for nombre, probs in lecturas.items()}
+                    cabecera_extra = "X-Casillas: " + json.dumps([[casilla or "", estado, round(confianza, 3), por_camara]], separators=(",", ":")) + "\r\n"
+                vistas = [dataset_propio.vista_previa_imagen(elegidas, imagen, nombre) for nombre, imagen in fotos.items()]
+                exito, buffer = cv2.imencode(".jpg", _juntar_lado_a_lado(vistas), [cv2.IMWRITE_JPEG_QUALITY, CALIDAD_FLUJO_JPEG])
             else:
-                exito, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, CALIDAD_FLUJO_JPEG])
-        except (ValueError, FileNotFoundError) as error:
-            exito, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, CALIDAD_FLUJO_JPEG])
+                exito, buffer = cv2.imencode(".jpg", _juntar_lado_a_lado(list(fotos.values())), [cv2.IMWRITE_JPEG_QUALITY, CALIDAD_FLUJO_JPEG])
+        except (ValueError, FileNotFoundError) as error:  # sin tablero detectado o sin modelo entrenado: se sigue mostrando la cámara
+            exito, buffer = cv2.imencode(".jpg", _juntar_lado_a_lado(list(fotos.values())), [cv2.IMWRITE_JPEG_QUALITY, CALIDAD_FLUJO_JPEG])
             cabecera_extra = "X-Aviso: " + str(error).replace("\n", " ")[:200].encode("ascii", "replace").decode() + "\r\n"
         if not exito:
             continue
@@ -324,18 +384,30 @@ def _partes_del_flujo(modo: str, casillas: list[str]):
 
 @router.get("/flujo")
 def flujo_en_vivo(
-    modo: str = "camara", casillas: str = "", _usuario_id: int = Depends(get_current_user)
+    modo: str = "camara",
+    casillas: str = "",
+    auto: str = "",
+    camara: str = "principal",
+    vista: str = "plana",
+    _usuario_id: int = Depends(get_current_user),
 ) -> StreamingResponse:
     """Video en vivo de la cámara fija (multipart/x-mixed-replace de JPEG, a la velocidad de la cámara).
 
     `modo=camara`: imagen tal cual. `modo=piezas`: tablero enderezado con las piezas reconocidas (predicciones en el header
-    `X-Casillas` de cada parte). `modo=vista`: lo que se guardaría en el dataset para `casillas` (ej. `e4,f4`).
+    `X-Casillas` de cada parte). `modo=vista`: lo que se guardaría en el dataset para `casillas` (ej. `e4,f4`); con `auto=blanca|negra`
+    detecta sola la casilla de la pieza y la informa en `X-Casillas` como `[[casilla, estado, confianza]]` (`estado`: ok, ninguna o
+    ambigua). En `modo=piezas`, `vista`: `plana` (tablero enderezado), `cajas` (la imagen de la cámara con la caja 3D de cada pieza reconocida) o `ambas`. `camara`: `principal`, `secundaria` o `todas` (las dos lado a lado, con el reconocimiento FUSIONADO entre ambas).
     """
     if modo not in {"camara", "piezas", "vista"}:
         raise HTTPException(status_code=422, detail="modo inválido")
+    _validar_camara(camara, permitir_todas=True)
     elegidas = [c for c in casillas.split(",") if c]
+    if auto not in {"", "blanca", "negra"}:
+        raise HTTPException(status_code=422, detail="auto debe ser blanca o negra")
+    if vista not in {"plana", "cajas", "ambas"}:
+        raise HTTPException(status_code=422, detail="vista debe ser plana, cajas o ambas")
     try:
-        generador = _partes_del_flujo(modo, elegidas)
+        generador = _partes_del_flujo(modo, elegidas, auto, camara, vista)
         primera = next(generador)  # abre la cámara aquí para devolver 503 como error normal si no se puede
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
@@ -351,6 +423,116 @@ def flujo_en_vivo(
         media_type=f"multipart/x-mixed-replace; boundary={FRONTERA_FLUJO}",
         headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
     )
+
+
+@router.get("/camaras")
+def listar_camaras(_facilitador_id: int = Depends(get_current_facilitador)) -> dict:
+    """Cámaras que abre este equipo (índices 0 a 5) y cuáles están asignadas como principal y secundaria. Corta el video un instante."""
+    asignadas = {
+        nombre: (
+            None
+            if servicio_camara.fuente_actual(nombre) is None
+            else {"fuente": str(servicio_camara.fuente_actual(nombre)), "rotacion": servicio_camara.rotacion_actual(nombre)}
+        )
+        for nombre in servicio_camara.CAMARAS
+    }
+    return {
+        "actual": str(servicio_camara.fuente_actual()),
+        "rotacion": servicio_camara.rotacion_actual(),
+        "asignadas": asignadas,
+        "camaras": servicio_camara.listar_camaras(),
+    }
+
+
+@router.get("/camaras/estado")
+def estado_de_las_camaras(_facilitador_id: int = Depends(get_current_facilitador)) -> dict:
+    """Qué cámaras hay configuradas y cuáles tienen el tablero calibrado, sin abrir ni probar ninguna (barato: se consulta seguido)."""
+    from backend.servicios.vision import tablero
+
+    configuradas = servicio_camara.camaras_configuradas()
+    return {
+        "configuradas": configuradas,
+        "calibradas": [c for c in configuradas if tablero.archivo_esquinas(c).exists()],
+        "fuentes": {c: str(servicio_camara.fuente_actual(c)) for c in configuradas},
+        "rotaciones": {c: servicio_camara.rotacion_actual(c) for c in configuradas},
+    }
+
+
+@router.get("/camaras/{indice}/foto")
+def foto_de_camara(indice: int, _facilitador_id: int = Depends(get_current_facilitador)) -> Response:
+    """Un cuadro de la cámara `indice`, para reconocer cuál es (webcam, Mac, iPhone…)."""
+    if not 0 <= indice <= 9:
+        raise HTTPException(status_code=422, detail="indice debe estar entre 0 y 9")
+    try:
+        imagen = servicio_camara.foto_de_indice(indice)
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    exito, buffer = cv2.imencode(".jpg", imagen, [cv2.IMWRITE_JPEG_QUALITY, 70])
+    return Response(content=buffer.tobytes(), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+class SeleccionarCamaraRequest(BaseModel):
+    fuente: str = Field(min_length=1, max_length=300)
+    """Índice de cámara (`"2"`) o URL de un stream de red (`"http://192.168.1.23:8080/video"`)."""
+    camara: str = "principal"
+
+
+@router.post("/camara")
+def seleccionar_camara(cuerpo: SeleccionarCamaraRequest, _facilitador_id: int = Depends(get_current_facilitador)) -> dict:
+    """Asigna una fuente a la cámara `principal` o `secundaria` al instante (se recuerda entre reinicios). Cada cámara necesita una fuente distinta."""
+    _validar_camara(cuerpo.camara)
+    fuente: int | str = int(cuerpo.fuente) if cuerpo.fuente.isdigit() else cuerpo.fuente
+    try:
+        servicio_camara.seleccionar_fuente(fuente, cuerpo.camara)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    return {"camara": cuerpo.camara, "actual": str(servicio_camara.fuente_actual(cuerpo.camara))}
+
+
+@router.delete("/camara/secundaria")
+def quitar_camara_secundaria(_facilitador_id: int = Depends(get_current_facilitador)) -> dict:
+    """Deja de usar la cámara secundaria (se sigue solo con la principal)."""
+    servicio_camara.quitar_camara_secundaria()
+    return {"camaras": servicio_camara.camaras_configuradas()}
+
+
+class RotacionRequest(BaseModel):
+    grados: int
+    camara: str = "principal"
+
+
+@router.post("/camara/rotacion")
+def rotar_camara(cuerpo: RotacionRequest, _facilitador_id: int = Depends(get_current_facilitador)) -> dict:
+    """Gira la imagen de una cámara (0, 90, 180 o 270 grados, horario). Hay que volver a calibrar el tablero de esa cámara."""
+    _validar_camara(cuerpo.camara)
+    try:
+        return {"camara": cuerpo.camara, "rotacion": servicio_camara.fijar_rotacion(cuerpo.grados, cuerpo.camara)}
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@router.get("/modelos/estado")
+def estado_de_los_modelos(_facilitador_id: int = Depends(get_current_facilitador)) -> dict:
+    """Qué modelos hay entrenados y con qué recorte de cada casilla: ocupación, piezas de una vista y piezas de dos vistas."""
+    from backend.servicios.vision import ocupacion, piezas
+
+    def consultar(funcion) -> dict:
+        try:
+            return {"existe": True, "recorte": funcion()}
+        except FileNotFoundError:
+            return {"existe": False, "recorte": None}
+
+    return {
+        "ocupacion": consultar(ocupacion.modo_recorte),
+        "piezas": consultar(piezas.modo_recorte),
+        "dos_vistas": {
+            "existe": piezas.hay_dos_vistas(),
+            "recorte": piezas.modo_dos_vistas() if piezas.hay_dos_vistas() else None,
+            "ignorado": piezas.motivo_dos_vistas_ignorado(),
+        },
+    }
 
 
 @router.get("/probar-piezas")
@@ -385,6 +567,12 @@ def borrar_clase_dataset(clase: str, _facilitador_id: int = Depends(get_current_
         return BorrarCapturaResponse(borradas=dataset_propio.borrar_clase(clase))
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@router.post("/dataset/regenerar-ampliados")
+def regenerar_ampliados_dataset(_facilitador_id: int = Depends(get_current_facilitador)) -> dict:
+    """Vuelve a generar los recortes ampliados (`..._ampliado/<clase>/`) desde los cuadros completos guardados."""
+    return dataset_propio.regenerar_ampliados()
 
 
 @router.get("/dataset/export")

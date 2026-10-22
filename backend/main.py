@@ -23,6 +23,7 @@ from backend.rutas.ruta_sala import router as sala_router
 from backend.rutas.ruta_usuario import router as usuario_router
 from backend.rutas.ruta_vision import router as vision_router
 from backend.rutas.ruta_vision_calibracion import router as vision_calibracion_router
+from backend.rutas.ruta_vision_lente import router as vision_lente_router
 from backend.rutas.ruta_auth import router as auth_router
 from backend.rutas.ruta_aprendizaje import router as aprendizaje_router
 from backend.rutas.ruta_simulacion import router as simulacion_router
@@ -73,6 +74,7 @@ app.include_router(sala_router)
 app.include_router(usuario_router)
 app.include_router(vision_router)
 app.include_router(vision_calibracion_router)
+app.include_router(vision_lente_router)
 app.include_router(brazo_router)
 app.include_router(brazo_control_router)
 app.include_router(auth_router)

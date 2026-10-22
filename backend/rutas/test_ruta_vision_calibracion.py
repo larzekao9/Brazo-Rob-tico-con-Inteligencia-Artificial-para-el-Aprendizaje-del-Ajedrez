@@ -35,13 +35,13 @@ def camara(monkeypatch):
     """Cámara falsa: `camara.imagen` es lo que devuelve; `None` simula una cámara sin imagen."""
     estado = type("Camara", (), {"imagen": _foto()})()
 
-    def _capturar():
+    def _capturar(*_a, **_k):
         if estado.imagen is None:
             raise RuntimeError("sin cámara")
         return estado.imagen
 
     monkeypatch.setattr(ruta_vision_calibracion, "capturar_foto_tablero", _capturar)
-    monkeypatch.setattr(ruta_vision_calibracion, "_fuente_por_defecto", lambda: 0)
+    monkeypatch.setattr(ruta_vision_calibracion, "_fuente_por_defecto", lambda camara="principal": 0)
     return estado
 
 
@@ -169,3 +169,45 @@ def test_sin_token_es_rechazado(tmp_path, monkeypatch) -> None:
     assert anonimo.get("/vision/calibracion/estado").status_code in (401, 403)
     assert anonimo.post("/vision/calibracion/comprobar").status_code in (401, 403)
     assert anonimo.post("/vision/calibracion/guardar", data={"esquinas": "{}"}).status_code in (401, 403)
+
+
+def test_estado_de_las_camaras_y_quitar_calibracion(cliente, tmp_path, monkeypatch) -> None:
+    from backend.servicios.vision import camara, tablero
+
+    monkeypatch.setattr(tablero, "ARCHIVO_ESQUINAS", tmp_path / "esquinas.json")
+    monkeypatch.setattr(camara, "_preferencia", {"secundaria": {"fuente": "1"}})
+    tablero.guardar_esquinas_calibradas({"a1": (10, 90), "h1": (90, 90), "h8": (90, 10), "a8": (10, 10)}, tablero.archivo_esquinas("secundaria"))
+    estado = cliente.get("/vision/camaras/estado").json()
+    assert estado["configuradas"] == ["principal", "secundaria"] and estado["calibradas"] == ["secundaria"]
+    assert cliente.delete("/vision/calibracion/quitar", params={"camara": "secundaria"}).status_code == 200
+    assert cliente.get("/vision/camaras/estado").json()["calibradas"] == []
+    assert cliente.delete("/vision/calibracion/quitar", params={"camara": "otra"}).status_code == 422
+
+
+def test_verificacion_unificada_pide_las_dos_calibraciones(cliente, tmp_path, monkeypatch) -> None:
+    from backend.servicios.vision import camara, tablero
+
+    monkeypatch.setattr(tablero, "ARCHIVO_ESQUINAS", tmp_path / "esquinas.json")
+    monkeypatch.setattr(camara, "_preferencia", {})
+    monkeypatch.delenv("CAMARA_FUENTE_2", raising=False)
+    assert cliente.get("/vision/calibracion/unificada").status_code == 409  # sin cámara secundaria
+    monkeypatch.setattr(camara, "_preferencia", {"secundaria": {"fuente": "1"}})
+    assert cliente.get("/vision/calibracion/unificada").status_code == 409  # configurada pero sin calibrar
+
+
+def test_verificacion_unificada_devuelve_el_informe(cliente, tmp_path, monkeypatch) -> None:
+    import cv2
+    import numpy as np
+
+    from backend.servicios.vision import camara, tablero
+
+    monkeypatch.setattr(tablero, "ARCHIVO_ESQUINAS", tmp_path / "esquinas.json")
+    monkeypatch.setattr(camara, "_preferencia", {"secundaria": {"fuente": "1"}})
+    imagen = np.random.default_rng(1).integers(0, 255, (700, 900, 3), dtype=np.uint8)
+    cv2.rectangle(imagen, (150, 80), (750, 640), (30, 30, 30), -1)
+    puntos = {"a1": (150, 640), "h1": (750, 640), "h8": (750, 80), "a8": (150, 80)}
+    tablero.guardar_esquinas_calibradas(puntos)
+    tablero.guardar_esquinas_calibradas(puntos, tablero.archivo_esquinas("secundaria"))
+    monkeypatch.setattr(ruta_vision_calibracion, "capturar_foto_tablero", lambda *a, **k: imagen)
+    informe = cliente.get("/vision/calibracion/unificada").json()
+    assert informe["nivel"] == "bien" and informe["imagen"] and informe["error_casillas"] < 0.15

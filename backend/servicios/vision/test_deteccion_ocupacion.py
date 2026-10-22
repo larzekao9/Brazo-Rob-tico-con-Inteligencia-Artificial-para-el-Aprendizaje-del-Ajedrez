@@ -47,3 +47,69 @@ def test_votar_ignora_un_cuadro_malo() -> None:
     mala[:, 1] = 1.0  # un cuadro con la mano encima: todo "blanca"
     mapa, acuerdo = votar([buena, buena, mala, buena, buena])
     assert set(mapa) == set(NOMBRES) and all(v == CLASES_OCUPACION[0] for v in mapa.values()) and acuerdo == 0.8
+
+
+def test_detectar_casilla_de_pieza_ok_ninguna_y_ambigua() -> None:
+    from backend.servicios.vision.captura_estable import detectar_casilla_de_pieza
+
+    vacio = np.zeros((64, 3))
+    vacio[:, 0] = 1.0
+    una = vacio.copy()
+    indice = NOMBRES.index("e4")
+    una[indice] = [0.05, 0.9, 0.05]
+    assert detectar_casilla_de_pieza(una, "blanca") == ("e4", 0.9, "ok")
+    assert detectar_casilla_de_pieza(una, "negra")[2] == "ninguna"
+    dos = una.copy()
+    dos[NOMBRES.index("e5")] = [0.1, 0.8, 0.1]
+    assert detectar_casilla_de_pieza(dos, "blanca")[2] == "ambigua"
+
+
+def test_una_pieza_inclinada_sobre_la_vecina_se_detecta_en_su_casilla() -> None:
+    from backend.servicios.vision.captura_estable import detectar_casilla_de_pieza
+
+    p = np.zeros((64, 3))
+    p[:, 0] = 1.0
+    p[NOMBRES.index("f2")] = [0.0, 0.99, 0.01]
+    p[NOMBRES.index("g2")] = [0.4, 0.58, 0.02]  # la cabeza de la pieza cae sobre g2
+    assert detectar_casilla_de_pieza(p, "blanca")[:3:2] == ("f2", "ok")
+
+
+def test_analizar_camaras_fusiona_las_probabilidades(monkeypatch) -> None:
+    import numpy as np
+
+    from backend.servicios.vision import verificacion
+
+    nombres = [f"{c}{f}" for f in range(8, 0, -1) for c in "abcdefgh"]
+    clases = ["white-pawn", "white-bishop", "vacia"]
+
+    def lectura(a):  # cada cámara ve la casilla e4 con otra duda
+        probs = np.tile([0.0, 0.0, 1.0], (64, 1))
+        probs[nombres.index("e4")] = a
+        return probs
+
+    por_camara = {"principal": lectura([0.5, 0.45, 0.05]), "secundaria": lectura([0.9, 0.05, 0.05])}
+    esquinas = np.array([[150, 80], [750, 40], [780, 620], [120, 660]], dtype=np.float32)
+    monkeypatch.setattr(verificacion, "probabilidades_de_camara", lambda img, cam: (por_camara[cam], nombres, esquinas, 0.0))
+    monkeypatch.setattr(verificacion.piezas, "clases_del_modelo", lambda: clases)
+    nombres_clases = clases
+    monkeypatch.setattr(verificacion.piezas, "mejores_clases", lambda probs, n=3, clases=None: [
+        [(nombres_clases[i], float(f[i])) for i in np.argsort(f)[::-1][:n]] for f in probs])
+    imagen = np.full((700, 900, 3), 90, dtype=np.uint8)
+    vista, casillas = verificacion.analizar_camaras({"principal": imagen, "secundaria": imagen})
+    e4 = next(c for c in casillas if c["casilla"] == "e4")
+    assert e4["clase"] == "white-pawn" and e4["acuerdo"] is True and e4["por_camara"] == ["white-pawn", "white-pawn"]
+    assert vista.shape[1] == 2 * 800  # las dos vistas, lado a lado
+
+
+def test_fusionar_probabilidades_sube_el_acuerdo_y_deja_dudoso_el_desacuerdo() -> None:
+    from backend.servicios.vision.fusion import casillas_en_desacuerdo, fusionar_probabilidades
+
+    # casilla 0: una cámara ve ocupada la casilla (la cabeza de la pieza vecina) y la otra la ve vacía; casilla 1: las dos ven una pieza.
+    camara_1 = np.array([[0.05, 0.9, 0.05], [0.1, 0.8, 0.1]])
+    camara_2 = np.array([[0.9, 0.05, 0.05], [0.1, 0.8, 0.1]])
+    fusion = fusionar_probabilidades([camara_1, camara_2])
+    assert fusion[0].max() < 0.5  # desacuerdo: ninguna clase se impone
+    assert fusion[1].argmax() == 1 and fusion[1, 1] > 0.8  # acuerdo: la confianza sube respecto de las lecturas sueltas
+    assert np.allclose(fusion.sum(axis=1), 1.0)
+    assert casillas_en_desacuerdo([camara_1, camara_2]) == [True, False]
+    assert np.allclose(fusionar_probabilidades([camara_1]), camara_1)

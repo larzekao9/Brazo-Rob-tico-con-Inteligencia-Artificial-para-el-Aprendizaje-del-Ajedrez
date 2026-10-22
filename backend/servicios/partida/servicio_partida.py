@@ -521,21 +521,20 @@ def _estado_del_reloj(partida: Partida) -> dict | None:
 
 
 def _detectar_por_ocupacion(fen_antes: str):
-    """Jugada (SAN) vista por la cámara según qué casillas están vacías/blancas/negras, votando entre varios cuadros.
+    """Jugada (SAN) que mejor explica lo que ven las cámaras, dada la posición anterior (ver `jugada_probable`).
 
-    Devuelve `False` si no hay clasificador de ocupación entrenado (el llamador usa el otro método) y `None` si la lectura es
-    inestable o no hay una jugada clara.
+    Junta varios cuadros del video en vivo (y las dos cámaras si hay) y elige entre «no se movió nada» y cada jugada legal la de mayor
+    probabilidad, usando la ocupación (vacía/blanca/negra) y, si hay modelo, también el tipo de pieza. Devuelve `False` si no hay modelo de
+    ocupación entrenado (el llamador usa el otro método) y `None` si no hay una jugada clara.
     """
-    from backend.servicios.vision.captura_estable import ACUERDO_MINIMO, leer_ocupacion_estable
-    from backend.servicios.vision.deteccion_movimiento import detectar_jugada_por_ocupacion
+    from backend.servicios.vision.captura_estable import leer_lecturas_estables
+    from backend.servicios.vision.jugada_probable import detectar_jugada_probable
 
     try:
-        observada, acuerdo = leer_ocupacion_estable()
+        lecturas = leer_lecturas_estables()
     except FileNotFoundError:
         return False
-    if acuerdo < ACUERDO_MINIMO:
-        return None
-    return detectar_jugada_por_ocupacion(fen_antes, observada)
+    return detectar_jugada_probable(fen_antes, lecturas)["jugada"]
 
 
 def mover_desde_foto(partida_id: str) -> dict:

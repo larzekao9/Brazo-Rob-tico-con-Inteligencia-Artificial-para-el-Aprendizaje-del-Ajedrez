@@ -78,3 +78,30 @@ def test_capturar_muestras_con_archivo_inexistente_lanza_valueerror(tmp_path, mo
     monkeypatch.setattr(capturar_dataset_propio, "CARPETA_DATASET", tmp_path)
     with pytest.raises(ValueError):
         capturar_muestras("8/8/8/8/8/8/8/8", str(tmp_path / "no-existe.jpg"))
+
+
+def test_con_esquinas_calibradas_guarda_el_cuadro_completo_y_se_borra_con_la_captura(tmp_path, monkeypatch) -> None:
+    import cv2
+    import numpy as np
+
+    import training.capturar_dataset_propio as capturar
+    from backend.servicios.vision import dataset_propio
+    from training.entrenar_piezas_propio import _cargar_ampliados
+
+    dataset = tmp_path / "dataset_propio"
+    monkeypatch.setattr(capturar, "CARPETA_DATASET", dataset)
+    esquinas = np.array([[150, 100], [750, 100], [750, 650], [150, 650]], dtype=np.float32)
+    monkeypatch.setattr(capturar, "esquinas_y_margen", lambda imagen, *a, **k: (esquinas, 0.0))
+    monkeypatch.setattr("training.entrenar_piezas_propio.CARPETA_DATASET_PROPIO", dataset)
+    imagen = np.full((700, 900, 3), 120, dtype=np.uint8)
+
+    captura_id, guardadas = capturar.capturar_muestras_con_id("4k3/8/8/8/8/8/8/4K3", imagen=imagen)
+
+    assert guardadas == 64
+    assert (tmp_path / "dataset_propio_cuadros" / f"{captura_id}.jpg").is_file()
+    muestras = _cargar_ampliados()
+    assert len(muestras) == 64 and {c for _, c, _ in muestras} == {"black-king", "white-king", "vacia"}
+    assert muestras[0][0].shape == (96, 96, 3)
+    monkeypatch.setattr(dataset_propio, "_carpeta", lambda: dataset)
+    assert dataset_propio.borrar_captura(captura_id) == 64
+    assert not (tmp_path / "dataset_propio_cuadros" / f"{captura_id}.json").exists()

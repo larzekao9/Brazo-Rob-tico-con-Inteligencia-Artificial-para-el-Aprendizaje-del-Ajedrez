@@ -2,8 +2,12 @@
 
 Es un problema mucho más fácil que reconocer las 13 clases (el color de las piezas se distingue bien y no depende de la silueta), y
 alcanza para detectar jugadas: la app ya sabe la posición, solo necesita ver qué casillas cambiaron de vacía/blanca/negra.
-Se mira el CENTRO de la casilla (donde está la base de la pieza), porque las piezas altas se inclinan hacia las vecinas por la
-perspectiva de la cámara y ensucian los bordes.
+Hay dos formas de recortar cada casilla, y el modelo guarda con cuál se entrenó:
+
+- `"centro"`: el 70 % central del recorte justo de la casilla (lo de siempre).
+- `"base"`: la HUELLA de la casilla (`geometria3d.recortes_base`), proyectada con el lente y la posición de la cámara. La base apoya en la
+  mesa y por eso queda en su casilla aunque la cabeza de una pieza alta se incline sobre la vecina: así una casilla vacía no se confunde
+  con la cabeza de la pieza de al lado.
 """
 from __future__ import annotations
 
@@ -19,6 +23,7 @@ RUTA_CHECKPOINT = Path("training/checkpoints/clasificador_ocupacion.pt")
 FRACCION_CENTRO = 0.7
 
 _modelo: RedClasificadoraPiezas | None = None
+_recorte = "centro"
 
 
 def clase_a_ocupacion(clase: str) -> str:
@@ -34,8 +39,9 @@ def recorte_centro(recorte: np.ndarray, fraccion: float = FRACCION_CENTRO) -> np
     return recorte[dy : alto - dy, dx : ancho - dx]
 
 
-def tensor_de_recorte(recorte: np.ndarray) -> torch.Tensor:
-    return preprocesar_recorte(recorte_centro(recorte))
+def tensor_de_recorte(recorte: np.ndarray, modo: str = "centro") -> torch.Tensor:
+    """Tensor para la red: con `"centro"` se toma el 70 % central; con `"base"` el recorte ya es la huella y se usa entero."""
+    return preprocesar_recorte(recorte if modo == "base" else recorte_centro(recorte))
 
 
 def invalidar_modelo() -> None:
@@ -43,8 +49,14 @@ def invalidar_modelo() -> None:
     _modelo = None
 
 
+def modo_recorte() -> str:
+    """Con qué recorte se entrenó el modelo cargado: `"centro"` o `"base"`."""
+    _cargar()
+    return _recorte
+
+
 def _cargar() -> RedClasificadoraPiezas:
-    global _modelo
+    global _modelo, _recorte
     if _modelo is None:
         if not RUTA_CHECKPOINT.exists():
             raise FileNotFoundError(
@@ -54,6 +66,7 @@ def _cargar() -> RedClasificadoraPiezas:
         modelo = RedClasificadoraPiezas(cantidad_clases=len(CLASES_OCUPACION))
         modelo.load_state_dict(punto["pesos"])
         modelo.eval()
+        _recorte = punto.get("recorte", "centro")
         _modelo = modelo
     return _modelo
 
@@ -62,4 +75,4 @@ def clasificar_ocupacion(recortes: list[np.ndarray]) -> np.ndarray:
     """Probabilidades `(n, 3)` en el orden de `CLASES_OCUPACION`, una pasada por la red."""
     modelo = _cargar()
     with torch.no_grad():
-        return torch.softmax(modelo(torch.stack([tensor_de_recorte(r) for r in recortes])), dim=1).numpy()
+        return torch.softmax(modelo(torch.stack([tensor_de_recorte(r, _recorte) for r in recortes])), dim=1).numpy()

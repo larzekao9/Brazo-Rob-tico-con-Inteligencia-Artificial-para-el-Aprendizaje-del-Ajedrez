@@ -69,9 +69,29 @@ from backend.servicios.vision.tablero import (
     dividir_en_casillas,
     enderezar_tablero,
     imagen_control_ampliada,
+    recortes_ampliados,
 )
 
 CARPETA_DATASET = Path("training/dataset_propio")
+def carpeta_ampliados() -> Path:
+    """Los mismos recortes que `CARPETA_DATASET` pero ampliados (`tablero.recortes_ampliados`): `<nombre>_ampliado/<clase>/<id>_<casilla>.png`.
+
+    Salen de los cuadros completos (`carpeta_cuadros()`) y se pueden volver a generar cuando cambia la geometría del recorte; con ellos
+    se entrena el clasificador de piezas. Se guardan además para poder verlos y revisarlos como los recortes justos."""
+    return CARPETA_DATASET.parent / f"{CARPETA_DATASET.name}_ampliado"
+
+
+def carpeta_volumen() -> Path:
+    """Como `carpeta_ampliados()` pero con el recorte por VOLUMEN (`geometria3d.recortes_volumen`): `<nombre>_volumen/<clase>/<id>_<casilla>.png`."""
+    return CARPETA_DATASET.parent / f"{CARPETA_DATASET.name}_volumen"
+
+
+def carpeta_cuadros() -> Path:
+    """Carpeta hermana de `CARPETA_DATASET` (`<nombre>_cuadros`; así una prueba que redirija el dataset aísla también los cuadros)."""
+    return CARPETA_DATASET.parent / f"{CARPETA_DATASET.name}_cuadros"
+
+
+"""Foto COMPLETA de cada captura (`<id>.jpg`) y su manifiesto (`<id>.json`: esquinas y etiqueta de cada casilla): así se pueden volver a recortar\ncon otra geometría (`tablero.recortes_ampliados`) sin repetir las fotos. Fuera de `CARPETA_DATASET` para que no se tome por una clase."""
 
 _LETRA_A_TIPO = {
     "p": "pawn", "n": "knight", "b": "bishop", "r": "rook", "q": "queen", "k": "king",
@@ -113,6 +133,40 @@ def fen_piezas_a_ocupacion(fen_piezas: str) -> dict[str, str]:
     return ocupacion
 
 
+def _recortes_volumen(imagen: np.ndarray, esquinas: np.ndarray, camara: str) -> dict[str, np.ndarray]:
+    """Recortes por volumen 3D con el lente de `camara` (el calibrado o el supuesto); `{}` si la geometría no se puede resolver."""
+    from backend.servicios.vision import geometria3d
+
+    try:
+        alto, ancho = imagen.shape[:2]
+        return geometria3d.recortes_volumen(imagen, np.asarray(esquinas)[::-1], geometria3d.cargar_lente(camara, ancho, alto))
+    except ValueError:
+        return {}
+
+
+def _guardar_cuadro(
+    marca: int, imagen: np.ndarray, esquinas: np.ndarray, ocupacion: dict[str, str], solo_piezas: bool, camara: str = "principal", grupo: str | None = None
+) -> None:
+    """Guarda la foto completa y el manifiesto de la captura `marca` (ver `carpeta_cuadros()`)."""
+    import json
+
+    destino = carpeta_cuadros()
+    destino.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(destino / f"{marca}.jpg"), imagen, [cv2.IMWRITE_JPEG_QUALITY, 95])
+    etiquetas = dict(ocupacion) if solo_piezas else {c: ocupacion.get(c, CLASE_VACIA) for c in (f"{f}{r}" for f in "abcdefgh" for r in "12345678")}
+    (destino / f"{marca}.json").write_text(
+        json.dumps(
+            {
+                "esquinas": [[float(x), float(y)] for x, y in np.asarray(esquinas)],
+                "etiquetas": etiquetas,
+                "camara": camara,
+                "grupo": grupo or str(marca),  # las fotos de varias cámaras de un mismo instante comparten grupo
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def capturar_muestras(fen_piezas: str, ruta_imagen: str | None = None) -> int:
     """Guarda las 64 casillas ya etiquetadas de una foto del tablero real y devuelve cuántas se guardaron.
 
@@ -126,6 +180,8 @@ def capturar_muestras_con_id(
     ruta_imagen: str | None = None,
     imagen: np.ndarray | None = None,
     solo_piezas: bool = False,
+    camara: str = "principal",
+    grupo: str | None = None,
 ) -> tuple[str, int]:
     """Guarda las 64 casillas ya etiquetadas de una foto del tablero real.
 
@@ -137,6 +193,7 @@ def capturar_muestras_con_id(
             `CAMARA_FUENTE`.
         imagen: foto ya decodificada (BGR); tiene prioridad sobre `ruta_imagen`
             y la cámara. La usa el endpoint de fotos subidas a mano.
+        camara: de qué cámara es la foto (sus esquinas calibradas y su giro); `grupo`, id común de las fotos de un mismo instante.
         solo_piezas: si es True guarda únicamente las casillas ocupadas según el FEN (ninguna "vacia"); sirve para
             enseñar una clase de pieza sin inundar el dataset de casillas vacías.
 
@@ -164,9 +221,9 @@ def capturar_muestras_con_id(
             raise ValueError(f"No se pudo leer la imagen: {ruta_imagen}")
     else:
         print("Sacando foto (misma cámara configurada por CAMARA_FUENTE)...")
-        imagen = capturar_foto_tablero()
+        imagen = capturar_foto_tablero(camara=camara)
 
-    esquinas, margen = esquinas_y_margen(imagen)  # las esquinas calibradas de la cámara fija, si existen
+    esquinas, margen = esquinas_y_margen(imagen, camara)  # las esquinas calibradas de la cámara fija, si existen
     plano = enderezar_tablero(imagen, esquinas)
 
     CARPETA_DATASET.mkdir(parents=True, exist_ok=True)
@@ -179,6 +236,10 @@ def capturar_muestras_con_id(
     casillas = dividir_en_casillas(plano, margen)
 
     marca_tiempo = time.time_ns() // 1_000_000
+    if not margen:  # solo con esquinas calibradas el recorte ampliado tiene sentido
+        _guardar_cuadro(marca_tiempo, imagen, esquinas, ocupacion_esperada, solo_piezas, camara, grupo)
+    ampliados = recortes_ampliados(imagen, esquinas) if not margen else {}
+    volumen = _recortes_volumen(imagen, esquinas, camara) if not margen else {}
     guardadas = 0
     for nombre_casilla, recorte in casillas.items():
         if solo_piezas and nombre_casilla not in ocupacion_esperada:
@@ -189,6 +250,14 @@ def capturar_muestras_con_id(
         ruta = carpeta_clase / f"{marca_tiempo}_{nombre_casilla}.png"
         if cv2.imwrite(str(ruta), recorte):
             guardadas += 1
+            if nombre_casilla in ampliados:
+                destino_ampliado = carpeta_ampliados() / clase
+                destino_ampliado.mkdir(parents=True, exist_ok=True)
+                cv2.imwrite(str(destino_ampliado / f"{marca_tiempo}_{nombre_casilla}.png"), ampliados[nombre_casilla])
+            if nombre_casilla in volumen:
+                destino_volumen = carpeta_volumen() / clase
+                destino_volumen.mkdir(parents=True, exist_ok=True)
+                cv2.imwrite(str(destino_volumen / f"{marca_tiempo}_{nombre_casilla}.png"), volumen[nombre_casilla])
     return str(marca_tiempo), guardadas
 
 

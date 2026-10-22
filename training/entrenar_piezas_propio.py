@@ -20,21 +20,98 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
+from backend.servicios.vision.tablero import TAMANO_RECORTE_AMPLIADO
 from backend.servicios.vision.modelo_piezas import CLASES, RedClasificadoraPiezas, preprocesar_recorte
 from training.entrenar_clasificador_piezas import _augmentar
 from training.reentrenar_con_dataset_propio import (
     CARPETA_DATASET_PROPIO,
     RUTA_CHECKPOINT,
     SEMILLA,
-    _cargar_dataset_propio,
+    _cargar_dataset_propio_por_foto,
     _pesos_por_clase,
-    _separar_train_valid,
 )
 from training.entrenar_valor import elegir_dispositivo
 
 EPOCAS = 80
 TASA_APRENDIZAJE = 1e-3
 TAMANO_LOTE = 16
+
+
+MINIMO_AMPLIADOS = 100
+"""Con menos muestras con cuadro completo que estas se entrena con los recortes justos de siempre (ver `_cargar_ampliados`)."""
+
+
+def recortes_de_cuadro(cuadro: np.ndarray, datos: dict, recorte: str) -> dict[str, np.ndarray]:
+    """Los recortes de las 64 casillas de un cuadro completo con el tipo de recorte pedido (`"ampliado"` o `"volumen"`).
+
+    `datos` es el manifiesto de la captura (esquinas y cámara). Con `"volumen"` se usa el lente de esa cámara. Lanza `ValueError` si las
+    esquinas no dan una geometría válida.
+    """
+    from backend.servicios.vision import geometria3d
+    from backend.servicios.vision.tablero import recortes_ampliados
+
+    esquinas = np.array(datos["esquinas"], dtype=np.float32)
+    if recorte == "volumen":
+        alto, ancho = cuadro.shape[:2]
+        return geometria3d.recortes_volumen(cuadro, esquinas[::-1], geometria3d.cargar_lente(datos.get("camara", "principal"), ancho, alto))
+    return recortes_ampliados(cuadro, esquinas)
+
+
+def _cargar_desde_cuadros(recorte: str = "ampliado") -> list[tuple[np.ndarray, str, str]]:
+    """`(recorte, clase, captura)` de cada casilla guardada que tiene su cuadro completo y su PNG vigente.
+
+    `recorte` es `"ampliado"` (casilla + margen fijo) o `"volumen"` (la caja 3D de la pieza con el lente de la cámara de cada captura).
+    Un PNG borrado (por «Deshacer», «Borrar clase» o a mano) deja afuera esa casilla aunque el manifiesto la siga listando.
+    """
+    import json
+
+    from training.capturar_dataset_propio import carpeta_cuadros
+
+    muestras = []
+    for manifiesto in sorted(carpeta_cuadros().glob("*.json")):
+        cuadro = cv2.imread(str(manifiesto.with_suffix(".jpg")))
+        if cuadro is None:
+            continue
+        datos = json.loads(manifiesto.read_text(encoding="utf-8"))
+        try:
+            recortes = recortes_de_cuadro(cuadro, datos, recorte)
+        except ValueError:
+            continue  # esquinas imposibles para la geometría: se descarta esa captura
+        for casilla, clase in datos["etiquetas"].items():
+            if (CARPETA_DATASET_PROPIO / clase / f"{manifiesto.stem}_{casilla}.png").exists():
+                muestras.append((recortes[casilla], clase, manifiesto.stem))
+    return muestras
+
+
+def _cargar_ampliados() -> list[tuple[np.ndarray, str, str]]:
+    return _cargar_desde_cuadros("ampliado")
+
+
+def separar_por_captura(muestras: list[tuple[np.ndarray, str, str]], proporcion: float = 0.2):
+    """Aparta ENTERAS ~`proporcion` de las capturas (la marca de tiempo del nombre) para validar.
+
+    Las casillas de una misma foto del tablero lleno comparten luz, ángulo y vecinas (y las fotos de las dos cámaras de un mismo
+    instante, la misma posición): si unas van a entrenamiento y otras a validación, el acierto sale inflado. Con capturas completas apartadas mide cómo anda con una foto que no vio.
+    """
+    import json
+
+    from training.capturar_dataset_propio import carpeta_cuadros
+
+    def grupo(marca: str) -> str:
+        """Las fotos de varias cámaras de un mismo instante comparten `grupo` en su manifiesto (ver `capturar_foto_etiquetada`)."""
+        try:
+            return json.loads((carpeta_cuadros() / f"{marca}.json").read_text(encoding="utf-8")).get("grupo", marca)
+        except (OSError, ValueError):
+            return marca
+
+    grupos = {m: grupo(m) for m in {m for _, _, m in muestras}}
+    ids = sorted(set(grupos.values()))
+    azar = random.Random(SEMILLA)
+    azar.shuffle(ids)
+    valid_grupos = set(ids[: max(1, int(len(ids) * proporcion))])
+    train = [(i, c) for i, c, m in muestras if grupos[m] not in valid_grupos]
+    valid = [(i, c) for i, c, m in muestras if grupos[m] in valid_grupos]
+    return train, valid
 
 
 def _augmentar_fuerte(recorte: np.ndarray) -> np.ndarray:
@@ -54,8 +131,8 @@ def _augmentar_fuerte(recorte: np.ndarray) -> np.ndarray:
 
 
 class _Casillas(Dataset):
-    def __init__(self, muestras: list[tuple[np.ndarray, str]], augmentar: bool):
-        self.muestras, self.augmentar = muestras, augmentar
+    def __init__(self, muestras: list[tuple[np.ndarray, str]], augmentar: bool, tamano: int = 64):
+        self.muestras, self.augmentar, self.tamano = muestras, augmentar, tamano
 
     def __len__(self) -> int:
         return len(self.muestras)
@@ -64,7 +141,7 @@ class _Casillas(Dataset):
         recorte, clase = self.muestras[i]
         if self.augmentar:
             recorte = _augmentar_fuerte(recorte)
-        return preprocesar_recorte(recorte), CLASES.index(clase)
+        return preprocesar_recorte(recorte, self.tamano), CLASES.index(clase)
 
 
 def _evaluar(modelo: nn.Module, cargador: DataLoader, dispositivo) -> tuple[float, list[tuple[int, int]]]:
@@ -77,21 +154,27 @@ def _evaluar(modelo: nn.Module, cargador: DataLoader, dispositivo) -> tuple[floa
     return (sum(a == b for a, b in pares) / len(pares) if pares else 0.0), pares
 
 
-def entrenar() -> None:
+def entrenar(recorte: str = "ampliado") -> None:
     random.seed(SEMILLA)
     np.random.seed(SEMILLA)
     torch.manual_seed(SEMILLA)
     dispositivo = elegir_dispositivo()
-    muestras = _cargar_dataset_propio()
+    con_marca = _cargar_desde_cuadros(recorte) if recorte in ("ampliado", "volumen") else []
+    ampliado = len(con_marca) >= MINIMO_AMPLIADOS
+    if not ampliado:
+        print(f"Solo {len(con_marca)} casillas con cuadro completo para el recorte {recorte} (hacen falta {MINIMO_AMPLIADOS}): se entrena con los recortes justos.")
+        con_marca = _cargar_dataset_propio_por_foto()
+    tamano = TAMANO_RECORTE_AMPLIADO if ampliado else 64
+    muestras = [(i, c) for i, c, _ in con_marca]
     if not muestras:
         raise FileNotFoundError(f"No hay fotos en {CARPETA_DATASET_PROPIO}/")
     print(f"Dispositivo: {dispositivo} — {len(muestras)} fotos: {dict(sorted(Counter(c for _, c in muestras).items()))}")
-    train, valid = _separar_train_valid(muestras, 0.2)
+    train, valid = separar_por_captura(con_marca)
     print(f"Entrenamiento: {len(train)} — validación (apartada): {len(valid)}")
 
-    cargador_train = DataLoader(_Casillas(train, True), batch_size=TAMANO_LOTE, shuffle=True)
-    cargador_valid = DataLoader(_Casillas(valid, False), batch_size=TAMANO_LOTE)
-    modelo = RedClasificadoraPiezas(cantidad_clases=len(CLASES)).to(dispositivo)
+    cargador_train = DataLoader(_Casillas(train, True, tamano), batch_size=TAMANO_LOTE, shuffle=True)
+    cargador_valid = DataLoader(_Casillas(valid, False, tamano), batch_size=TAMANO_LOTE)
+    modelo = RedClasificadoraPiezas(cantidad_clases=len(CLASES), tamano=tamano).to(dispositivo)
     optimizador = torch.optim.Adam(modelo.parameters(), lr=TASA_APRENDIZAJE, weight_decay=1e-4)
     perdida_fn = nn.CrossEntropyLoss(weight=_pesos_por_clase(train).to(dispositivo))
 
@@ -122,9 +205,16 @@ def entrenar() -> None:
     RUTA_CHECKPOINT.parent.mkdir(parents=True, exist_ok=True)
     if RUTA_CHECKPOINT.exists():
         shutil.copy(RUTA_CHECKPOINT, RUTA_CHECKPOINT.with_suffix(".anterior.pt"))
-    torch.save({"pesos": {k: v.cpu() for k, v in modelo.state_dict().items()}, "clases": CLASES}, RUTA_CHECKPOINT)
+    torch.save({"pesos": {k: v.cpu() for k, v in modelo.state_dict().items()}, "clases": CLASES, "tamano": tamano, "ampliado": ampliado and recorte == "ampliado", "recorte": recorte if ampliado else "justo"}, RUTA_CHECKPOINT)
     print(f"Checkpoint guardado en {RUTA_CHECKPOINT}")
 
 
 if __name__ == "__main__":
-    entrenar()
+    import argparse
+
+    analizador = argparse.ArgumentParser(description=__doc__)
+    analizador.add_argument(
+        "--recorte", choices=["ampliado", "volumen", "justo"], default="ampliado",
+        help="con qué recorte de cada casilla entrenar: ampliado (margen fijo), volumen (caja 3D de la pieza) o justo (la casilla)",
+    )
+    entrenar(analizador.parse_args().recorte)

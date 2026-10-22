@@ -212,7 +212,7 @@ def parar() -> dict:
 # --- parámetros -----------------------------------------------------------------------------------------------------------
 _RANGOS = {
     "velocidad_global": (1, 100), "aceleracion": (1, 100), "velocidad": (1, 100), "fuerza": (20, 100), "velocidad_pinza": (1, 100),
-    "apertura_aproximacion": (0, 1000), "altura_segura_mm": (20, 200), "margen_agarre_mm": (0, 30), "giro_diagonal_grados": (-180, 180),
+    "apertura_aproximacion": (0, 1000), "apertura_extra_soltar": (0, 1000), "altura_segura_mm": (20, 200), "margen_agarre_mm": (0, 30), "giro_diagonal_grados": (-180, 180),
 }
 
 
@@ -222,6 +222,7 @@ def parametros() -> dict:
     return {
         "velocidad_global": cliente.velocidad_global, "aceleracion": cliente.aceleracion, "velocidad": cliente.velocidad,
         "fuerza": agarre.fuerza, "velocidad_pinza": agarre.velocidad_pinza, "apertura_aproximacion": agarre.apertura_aproximacion,
+        "apertura_extra_soltar": agarre.apertura_extra_soltar,
         "aperturas_por_pieza": dict(agarre.aperturas_por_pieza), "altura_segura_mm": agarre.altura_segura_mm,
         "margen_agarre_mm": agarre.margen_agarre_mm, "giro_diagonal_grados": agarre.giro_diagonal_grados, "z_tope": agarre.z_tope,
     }
@@ -245,7 +246,7 @@ def actualizar_parametros(valores: dict, guardar: bool = False) -> dict:
             raise ErrorControl(422, f"Parámetro desconocido: {clave}")
     cliente = ejecutor.cliente
     campos_agarre = {k: v for k, v in valores.items() if k in {f.name for f in dataclasses.fields(ParametrosAgarre)}}
-    for k in ("fuerza", "apertura_aproximacion", "velocidad_pinza"):
+    for k in ("fuerza", "apertura_aproximacion", "apertura_extra_soltar", "velocidad_pinza"):
         if k in campos_agarre:
             campos_agarre[k] = int(campos_agarre[k])
     ejecutor.parametros = dataclasses.replace(ejecutor.parametros, **campos_agarre)
@@ -350,6 +351,62 @@ def borrar_configuracion(nombre: str) -> list[dict]:
     return listar_configuraciones()
 
 
+# --- movimiento manual (canvas del brazo) -----------------------------------------------------------------------------------
+LIMITES_ARTICULACIONES = ((-360, 360), (-180, 180), (-160, 160), (-360, 360), (-360, 360), (-360, 360))
+JOG_MAX_MM = 100.0
+
+
+def _lanzar_manual(descripcion: str, accion) -> dict:
+    """Corre `accion(cliente)` en un hilo (una tarea a la vez); el avance se consulta en `estado()["tarea"]`."""
+    with _estado.cerrojo:
+        ejecutor = _ejecutor()
+        if _estado.hilo is not None and _estado.hilo.is_alive():
+            raise ErrorControl(409, "Ya hay un movimiento en curso")
+        _exigir_habilitado(ejecutor)
+        ejecutor.cliente.reanudar()
+        _estado.tarea = {"estado": "ejecutando", "descripcion": descripcion, "mensaje": "", "pasos": [descripcion]}
+
+        def trabajo() -> None:
+            try:
+                accion(ejecutor.cliente)
+                _estado.tarea.update(estado="terminada", mensaje="Listo")
+            except Exception as error:  # noqa: BLE001 — todo error va al panel
+                cancelado = ejecutor.cliente.cancelado
+                _estado.tarea.update(estado="cancelada" if cancelado else "error", mensaje="Cancelado por el usuario" if cancelado else str(error))
+
+        _estado.hilo = threading.Thread(target=trabajo, daemon=True, name="mover-manual")
+        _estado.hilo.start()
+    return estado()
+
+
+def mover_articulaciones(angulos: list[float]) -> dict:
+    """Lleva las 6 articulaciones a `angulos` (grados) con `MovJ(joint=...)`, a la velocidad global vigente."""
+    if len(angulos) != 6:
+        raise ErrorControl(422, "Se necesitan los 6 ángulos J1 a J6")
+    for indice, (valor, (minimo, maximo)) in enumerate(zip(angulos, LIMITES_ARTICULACIONES), start=1):
+        if not minimo <= valor <= maximo:
+            raise ErrorControl(422, f"J{indice} fuera de rango ({minimo} a {maximo} grados)")
+    destino = tuple(float(v) for v in angulos)
+    return _lanzar_manual("Mover articulaciones", lambda cliente: cliente.mover_a_angulos(destino))
+
+
+def ir_a_posicion_inicial() -> dict:
+    """Lleva el brazo a la posición cero de la calibración (la misma a la que vuelve al terminar de mover una pieza)."""
+    cero = _ejecutor().angulos_cero
+    if cero is None:
+        raise ErrorControl(409, "No hay posición inicial calibrada (calibracion_local/brazo.json)")
+    return _lanzar_manual("Volver a la posición inicial", lambda cliente: cliente.mover_a_angulos(tuple(cero)))
+
+
+def mover_relativo(dx: float = 0.0, dy: float = 0.0, dz: float = 0.0, velocidad_mm_s: int = 20) -> dict:
+    """Jog cartesiano: desplaza la punta `dx, dy, dz` mm respecto a la base (máximo 100 mm por orden)."""
+    if max(abs(dx), abs(dy), abs(dz)) > JOG_MAX_MM:
+        raise ErrorControl(422, f"El desplazamiento máximo por orden es {JOG_MAX_MM:g} mm")
+    if not 1 <= velocidad_mm_s <= 100:
+        raise ErrorControl(422, "velocidad_mm_s debe estar entre 1 y 100")
+    return _lanzar_manual("Desplazar la punta", lambda cliente: cliente.mover_relativo(dx, dy, dz, int(velocidad_mm_s)))
+
+
 # --- mover una pieza ------------------------------------------------------------------------------------------------------
 def _exigir_habilitado(ejecutor: EjecutorReal) -> None:
     try:
@@ -389,6 +446,7 @@ def plan_de_movimiento(origen: str, destino: str, tipo_pieza: str = "p") -> list
     apertura = p.apertura_para(tipo_pieza)
     o, d = origen.lower(), destino.lower()
     return [
+        {"paso": "Ir a la posición inicial", "pose": None},
         {"paso": f"Abrir la pinza a {apertura}", "pose": None},
         {"paso": f"Ir sobre {o} (altura segura)", "pose": list(ejecutor._pose(o, seguro))},
         {"paso": f"Bajar a {o}", "pose": list(ejecutor._pose(o))},
@@ -396,7 +454,7 @@ def plan_de_movimiento(origen: str, destino: str, tipo_pieza: str = "p") -> list
         {"paso": "Subir con la pieza", "pose": list(ejecutor._pose(o, seguro))},
         {"paso": f"Trasladar sobre {d}", "pose": list(ejecutor._pose(d, seguro))},
         {"paso": f"Bajar a {d}", "pose": list(ejecutor._pose(d))},
-        {"paso": "Soltar la pieza", "pose": None},
+        {"paso": f"Soltar la pieza (abrir la pinza a {min(1000, apertura + p.apertura_extra_soltar)})", "pose": None},
         {"paso": f"Subir de {d}", "pose": list(ejecutor._pose(d, seguro))},
         {"paso": "Volver a la posición cero", "pose": None},
     ]
@@ -420,6 +478,8 @@ def mover_pieza(origen: str, destino: str, tipo_pieza: str = "p") -> dict:
                     ejecutor.pinza.conectar()
                 if not ejecutor.pinza.estado().inicializada:
                     ejecutor.pinza.inicializar()
+                if ejecutor.angulos_cero is not None:  # siempre se parte de la posición inicial
+                    ejecutor.cliente.mover_a_angulos(tuple(ejecutor.angulos_cero))
                 ejecutor.ejecutar_movimiento(tablero, jugada)
                 _estado.tarea.update(estado="terminada", mensaje="Listo")
             except Exception as error:  # noqa: BLE001 — todo error va al panel

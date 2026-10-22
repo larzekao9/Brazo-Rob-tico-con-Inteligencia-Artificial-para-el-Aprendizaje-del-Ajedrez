@@ -40,6 +40,14 @@ ORDEN_DE_ENDEREZADO = ("a8", "h8", "h1", "a1")
 """Orden que espera `enderezar_tablero` (arriba-izq, arriba-der, abajo-der, abajo-izq del diagrama): blancas abajo, a8 arriba a la izquierda."""
 
 
+def archivo_esquinas(camara: str = "principal") -> Path:
+    """Archivo de esquinas de `camara`: el de siempre (`ARCHIVO_ESQUINAS`) para la principal y `<nombre>_<camara>.json` al lado para las
+    demás. Se calcula en cada llamada, así una prueba que redirija `ARCHIVO_ESQUINAS` a una carpeta temporal aísla todas."""
+    if camara == "principal":
+        return ARCHIVO_ESQUINAS
+    return ARCHIVO_ESQUINAS.with_name(f"{ARCHIVO_ESQUINAS.stem}_{camara}{ARCHIVO_ESQUINAS.suffix}")
+
+
 def guardar_esquinas_calibradas(esquinas: dict[str, tuple[float, float]], ruta: Path | None = None) -> None:
     """Guarda las 4 esquinas marcadas (`{"a1": (x, y), "h1": ..., "h8": ..., "a8": ...}`, en píxeles de la foto)."""
     if set(esquinas) != set(ORDEN_DE_CLICS):
@@ -204,6 +212,22 @@ def dibujar_grilla_debug(tablero_plano: np.ndarray) -> np.ndarray:
     return debug
 
 
+def enderezar_con_marco(
+    imagen: np.ndarray, esquinas: np.ndarray, margen_relativo: float = 0.12, tamano: int = TAMANO_TABLERO_PLANO
+) -> np.ndarray:
+    """Tablero enderezado (visto de frente) centrado en un cuadro de `tamano` px, con `margen_relativo` de marco alrededor.
+
+    `esquinas` son las del área de juego en el orden de `enderezar_tablero`. Con las esquinas bien calibradas, la misma casilla cae en el
+    mismo píxel sea cual sea la cámara: por eso sirve para comparar y superponer las vistas de las dos cámaras.
+    """
+    borde = tamano * margen_relativo
+    destino = np.array(
+        [[borde, borde], [tamano - borde, borde], [tamano - borde, tamano - borde], [borde, tamano - borde]], dtype=np.float32
+    )
+    matriz = cv2.getPerspectiveTransform(esquinas.astype(np.float32), destino)
+    return cv2.warpPerspective(imagen, matriz, (tamano, tamano))
+
+
 def imagen_control_ampliada(
     imagen: np.ndarray,
     esquinas: np.ndarray,
@@ -219,11 +243,7 @@ def imagen_control_ampliada(
     """
     borde = tamano * margen_relativo
     interior = tamano - 2 * borde
-    destino = np.array(
-        [[borde, borde], [tamano - borde, borde], [tamano - borde, tamano - borde], [borde, tamano - borde]], dtype=np.float32
-    )
-    matriz = cv2.getPerspectiveTransform(esquinas.astype(np.float32), destino)
-    control = cv2.warpPerspective(imagen, matriz, (tamano, tamano))
+    control = enderezar_con_marco(imagen, esquinas, margen_relativo, tamano)
     paso = interior / 8
     for i in range(9):
         grosor = 3 if i in (0, 8) else 1
@@ -246,3 +266,40 @@ def imagen_control_ampliada(
             cv2.putText(control, texto, posicion, fuente, 0.8, (0, 0, 0), 4, cv2.LINE_AA)
             cv2.putText(control, texto, posicion, fuente, 0.8, (0, 255, 255), 2, cv2.LINE_AA)
     return control
+
+
+TAMANO_RECORTE_AMPLIADO = 96
+MARGEN_LATERAL_AMPLIADO = 0.375
+MARGEN_ARRIBA_AMPLIADO = 0.60
+MARGEN_ABAJO_AMPLIADO = 0.15
+"""Margen (en casillas) que se suma a cada casilla: 0,375 a cada lado y 0,60 arriba + 0,15 abajo dan un recorte cuadrado de 1,75 casillas."""
+
+
+def recortes_ampliados(
+    imagen: np.ndarray, esquinas: np.ndarray, salida: int = TAMANO_RECORTE_AMPLIADO
+) -> dict[str, np.ndarray]:
+    """Recorte de cada casilla con margen alrededor, sobre todo hacia arriba, para que entre la pieza completa.
+
+    Las piezas son altas y la cámara las ve inclinadas: con el recorte justo de la casilla la parte alta queda cortada (y, en el lado
+    lejano, además se ve muy chica). Aquí cada casilla se recorta con 0,375 casillas a los lados, 0,60 arriba y 0,15 abajo (la base de
+    la pieza queda abajo-centro) y se reduce a `salida` x `salida`. `esquinas` son las del ÁREA DE JUEGO, en el orden de
+    `enderezar_tablero`. Entrenamiento e inferencia usan esta misma función.
+    """
+    lado = 800
+    borde = 100  # margen de imagen alrededor del tablero enderezado; cabe de sobra el margen máximo (0,60 casillas = 60 px)
+    total = lado + 2 * borde
+    destino = np.array(
+        [[borde, borde], [borde + lado, borde], [borde + lado, borde + lado], [borde, borde + lado]], dtype=np.float32
+    )
+    matriz = cv2.getPerspectiveTransform(esquinas.astype(np.float32), destino)
+    plano = cv2.warpPerspective(imagen, matriz, (total, total), borderMode=cv2.BORDER_REPLICATE)
+    paso = lado / 8
+    recortes: dict[str, np.ndarray] = {}
+    for fila in range(8):
+        for columna in range(8):
+            x0 = int(round(borde + (columna - MARGEN_LATERAL_AMPLIADO) * paso))
+            x1 = int(round(borde + (columna + 1 + MARGEN_LATERAL_AMPLIADO) * paso))
+            y0 = int(round(borde + (fila - MARGEN_ARRIBA_AMPLIADO) * paso))
+            y1 = int(round(borde + (fila + 1 + MARGEN_ABAJO_AMPLIADO) * paso))
+            recortes[f"{'abcdefgh'[columna]}{8 - fila}"] = cv2.resize(plano[y0:y1, x0:x1], (salida, salida))
+    return recortes

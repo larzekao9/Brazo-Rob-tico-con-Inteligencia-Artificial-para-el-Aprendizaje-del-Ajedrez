@@ -13,14 +13,16 @@ from __future__ import annotations
 import numpy as np
 
 from backend.servicios.vision.modelo_piezas import CLASE_VACIA
-from backend.servicios.vision.piezas import clasificar_pieza
+from backend.servicios.vision.piezas import clasificar_pieza, modo_recorte, usa_recorte_ampliado
 from backend.servicios.vision.tablero import (
     MARGEN_TABLERO_PORCENTAJE,
+    archivo_esquinas,
     cargar_esquinas_calibradas,
     detectar_esquinas_tablero,
     dibujar_grilla_debug,
     dividir_en_casillas,
     enderezar_tablero,
+    recortes_ampliados,
 )
 
 _LETRA_POR_TIPO = {
@@ -56,16 +58,35 @@ def _ocupacion_a_fen_piezas(ocupacion: dict[str, str]) -> str:
     return "/".join(filas_fen)
 
 
-def esquinas_y_margen(imagen: np.ndarray) -> tuple[np.ndarray, float]:
+def esquinas_y_margen(imagen: np.ndarray, camara: str = "principal") -> tuple[np.ndarray, float]:
     """Esquinas del tablero y margen de recorte (%) a usar.
 
     Si la cámara está calibrada (esquinas del área de juego marcadas una vez, ver `tablero.cargar_esquinas_calibradas`) se usan
     esas, con margen 0; si no, se detectan en la foto y se aplica el margen por defecto del borde de madera.
     """
-    calibradas = cargar_esquinas_calibradas()
+    calibradas = cargar_esquinas_calibradas(archivo_esquinas(camara))
     if calibradas is not None:
         return calibradas, 0.0
     return detectar_esquinas_tablero(imagen), MARGEN_TABLERO_PORCENTAJE
+
+
+def recortes_de_imagen(imagen: np.ndarray, camara: str = "principal", modo: str | None = None) -> tuple[dict[str, np.ndarray], np.ndarray, float]:
+    """Recortes de las 64 casillas que espera el clasificador de piezas cargado, más las esquinas y el margen usados.
+
+    Con la cámara calibrada (margen 0) se usa el recorte con el que se entrenó el modelo (`piezas.modo_recorte`: por volumen 3D o ampliado); si no, el
+    recorte justo de cada casilla. Un solo lugar decide, para que entrenamiento, reconocimiento y probador vean lo mismo.
+    """
+    esquinas, margen = esquinas_y_margen(imagen, camara)
+    modo = "justo" if margen else (modo or modo_recorte())
+    if modo == "volumen":
+        from backend.servicios.vision import geometria3d
+
+        alto, ancho = imagen.shape[:2]
+        lente = geometria3d.cargar_lente(camara, ancho, alto)
+        return geometria3d.recortes_volumen(imagen, esquinas[::-1], lente), esquinas, margen  # a8,h8,h1,a1 -> a1,h1,h8,a8
+    if modo == "ampliado":
+        return recortes_ampliados(imagen, esquinas), esquinas, margen
+    return dividir_en_casillas(enderezar_tablero(imagen, esquinas), margen), esquinas, margen
 
 
 def reconocer_tablero(imagen: np.ndarray, turno: str = "w") -> str:
@@ -84,15 +105,13 @@ def reconocer_tablero(imagen: np.ndarray, turno: str = "w") -> str:
     Raises:
         ValueError: si no se detecta el tablero en la imagen.
     """
-    esquinas, margen = esquinas_y_margen(imagen)
-    plano = enderezar_tablero(imagen, esquinas)
-    casillas = dividir_en_casillas(plano, margen)
+    casillas, _, _ = recortes_de_imagen(imagen)
     ocupacion = {nombre: clasificar_pieza(recorte) for nombre, recorte in casillas.items()}
     piezas_fen = _ocupacion_a_fen_piezas(ocupacion)
     return f"{piezas_fen} {turno} - - 0 1"
 
 
-def generar_imagen_grilla_debug(imagen: np.ndarray) -> np.ndarray:
+def generar_imagen_grilla_debug(imagen: np.ndarray, camara: str = "principal") -> np.ndarray:
     """Devuelve la foto, enderezada y con la grilla 8x8 dibujada encima, tal
     cual queda dividida para reconocer_tablero — para mostrar visualmente que
     la detección geométrica (esquinas + perspectiva + alineación) encontró el
@@ -102,7 +121,7 @@ def generar_imagen_grilla_debug(imagen: np.ndarray) -> np.ndarray:
         ValueError: si no se detecta el tablero en la imagen (igual que
             reconocer_tablero).
     """
-    esquinas, margen_porcentaje = esquinas_y_margen(imagen)
+    esquinas, margen_porcentaje = esquinas_y_margen(imagen, camara)
     plano = enderezar_tablero(imagen, esquinas)
     lado = plano.shape[0]
     margen = int(lado * margen_porcentaje / 100)

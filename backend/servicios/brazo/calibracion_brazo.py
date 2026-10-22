@@ -182,6 +182,8 @@ class ParametrosAgarre:
     giro_diagonal_grados: float = 45.0
     apertura_aproximacion: int = 560
     """Posición de la pinza (0 a 1000) al bajar sobre un PEÓN: la apertura que dejó holgura a los lados sin rozar las vecinas."""
+    apertura_extra_soltar: int = 250
+    """Cuánto más se abre la pinza al SOLTAR que al agarrar (se suma a la apertura de la pieza, tope 1000): así los dedos quedan bien lejos de la pieza."""
     aperturas_por_pieza: dict[str, int] = field(default_factory=dict)
     """Apertura de bajada de cada tipo de pieza (`"n"`, `"b"`, `"r"`, `"q"`, `"k"`): depende de su ancho máximo, y cada una se mide."""
     altura_segura_mm: float = 80.0

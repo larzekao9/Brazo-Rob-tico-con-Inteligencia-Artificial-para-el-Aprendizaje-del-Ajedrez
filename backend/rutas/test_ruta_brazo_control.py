@@ -58,7 +58,7 @@ def test_parametros_validacion_y_configuraciones(cliente) -> None:
 def test_ensayo_lista_los_pasos_sin_mover(cliente) -> None:
     _conectar(cliente)
     pasos = cliente.post("/brazo/control/mover-pieza/ensayo", json={"origen": "e2", "destino": "e4"}).json()
-    assert len(pasos) == 10 and pasos[1]["pose"] is not None and pasos[0]["pose"] is None
+    assert len(pasos) == 11 and pasos[0]["paso"].startswith("Ir a la posición inicial") and pasos[2]["pose"] is not None and pasos[0]["pose"] is None
     assert cliente.post("/brazo/control/mover-pieza/ensayo", json={"origen": "z9", "destino": "e4"}).status_code == 422
     assert cliente.post("/brazo/control/mover-pieza/ensayo", json={"origen": "e2", "destino": "e2"}).status_code == 422
 
@@ -90,3 +90,45 @@ def test_parar_cancela_la_secuencia(cliente) -> None:
     cliente.post("/brazo/control/parar")
     tarea = _esperar_tarea(cliente)
     assert tarea["estado"] in ("cancelada", "terminada")
+
+
+def _esperar_tarea(c, limite=20):
+    inicio = time.monotonic()
+    while time.monotonic() - inicio < limite:
+        tarea = c.get("/brazo/control/estado").json()["tarea"]
+        if tarea["estado"] != "ejecutando":
+            return tarea
+        time.sleep(0.1)
+    raise AssertionError("la tarea no terminó")
+
+
+def test_mover_articulaciones_y_relativo(cliente) -> None:
+    _conectar(cliente)
+    assert cliente.post("/brazo/control/mover-articulaciones", json={"angulos": [0, 0, 0, 0, 0, 0]}).status_code == 409  # sin habilitar
+    cliente.post("/brazo/control/habilitar")
+    assert cliente.post("/brazo/control/mover-articulaciones", json={"angulos": [0, 0, 0]}).status_code == 422
+    assert cliente.post("/brazo/control/mover-articulaciones", json={"angulos": [0, 200, 0, 0, 0, 0]}).status_code == 422  # J2 fuera de rango
+    objetivo = [-30, 85, -80, -98, 90, -75]
+    assert cliente.post("/brazo/control/mover-articulaciones", json={"angulos": objetivo}).status_code == 200
+    assert _esperar_tarea(cliente)["estado"] == "terminada"
+    angulos = cliente.get("/brazo/control/estado").json()["angulos"]
+    assert all(abs(a - b) < 1.0 for a, b in zip(angulos, objetivo))
+    antes = cliente.get("/brazo/control/estado").json()["pose"]
+    assert cliente.post("/brazo/control/mover-relativo", json={"dz": 150}).status_code == 422  # más de 100 mm
+    assert cliente.post("/brazo/control/mover-relativo", json={"dz": 20}).status_code == 200
+    tarea = _esperar_tarea(cliente)
+    assert tarea["estado"] == "terminada", tarea["mensaje"]
+    despues = cliente.get("/brazo/control/estado").json()["pose"]
+    assert abs((despues[2] - antes[2]) - 20) < 1.0
+
+
+def test_posicion_inicial(cliente) -> None:
+    _conectar(cliente)
+    assert cliente.post("/brazo/control/posicion-inicial").status_code == 409  # sin habilitar
+    cliente.post("/brazo/control/habilitar")
+    assert cliente.post("/brazo/control/posicion-inicial").status_code == 200
+    tarea = _esperar_tarea(cliente)
+    assert tarea["estado"] == "terminada", tarea["mensaje"]
+    cero = control_brazo._ejecutor().angulos_cero
+    angulos = cliente.get("/brazo/control/estado").json()["angulos"]
+    assert all(abs(a - b) < 1.0 for a, b in zip(angulos, cero))

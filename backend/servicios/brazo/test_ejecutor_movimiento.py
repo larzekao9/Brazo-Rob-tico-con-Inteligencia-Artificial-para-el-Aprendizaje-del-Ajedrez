@@ -109,14 +109,14 @@ def test_apertura_por_pieza_usa_la_medida_de_cada_una_y_nunca_la_del_peon_por_de
         parametros.apertura_para("q")
 
 
-def test_ejecutor_real_baja_con_la_apertura_de_la_pieza_y_suelta_con_la_misma():
-    parametros = ParametrosAgarre(z_tope=100.0, apertura_aproximacion=560, aperturas_por_pieza={"n": 800})
+def test_ejecutor_real_baja_con_la_apertura_de_la_pieza_y_suelta_mas_abierta():
+    parametros = ParametrosAgarre(z_tope=100.0, apertura_aproximacion=560, apertura_extra_soltar=150, aperturas_por_pieza={"n": 800})
     ejecutor, historial = _ejecutor(parametros=parametros)
 
     tablero = chess.Board()
     ejecutor.ejecutar_movimiento(tablero, tablero.parse_uci("b1c3"))
 
-    assert [l[1] for l in historial if l[0] == "pinza_abrir_a"] == [800, 800]
+    assert [l[1] for l in historial if l[0] == "pinza_abrir_a"] == [800, 950]  # al soltar se abre 150 más, hasta 1000 como mucho
 
 
 def test_ejecutor_real_sin_apertura_medida_para_la_pieza_no_mueve_nada():
@@ -195,7 +195,7 @@ def test_ejecutor_real_secuencia_de_una_jugada_sin_captura():
         ("pinza_abrir_a", None),  # suelta
         ("MovL", 183.0),
     ]
-    assert [l[1] for l in historial if l[0] == "pinza_abrir_a"] == [APERTURA, APERTURA]
+    assert [l[1] for l in historial if l[0] == "pinza_abrir_a"] == [APERTURA, min(1000, APERTURA + ParametrosAgarre().apertura_extra_soltar)]
 
 
 def test_ejecutor_real_bajar_y_subir_no_cierran_la_pinza():

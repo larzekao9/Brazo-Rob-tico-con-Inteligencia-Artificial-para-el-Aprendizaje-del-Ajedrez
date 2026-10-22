@@ -35,19 +35,58 @@ def _carpeta() -> Path:
     return Path(capturar_dataset_propio.CARPETA_DATASET)
 
 
-def capturar_foto_etiquetada(fen_piezas: str, solo_piezas: bool = False) -> dict[str, int | str]:
-    """Saca una foto de la cámara fija y guarda las 64 casillas etiquetadas según `fen_piezas`.
+def camaras_para_capturar() -> list[str]:
+    """Las cámaras de las que se captura a la vez: la principal y, si está configurada y calibrada, la secundaria."""
+    from backend.servicios.vision import tablero
+    from backend.servicios.vision.camara import camaras_configuradas
 
-    Con `solo_piezas` guarda únicamente las casillas ocupadas (ninguna "vacia").
+    return [c for c in camaras_configuradas() if c == "principal" or tablero.archivo_esquinas(c).exists()]
+
+
+def capturar_foto_etiquetada(fen_piezas: str, solo_piezas: bool = False, camaras: list[str] | None = None) -> dict:
+    """Saca una foto de cada cámara y guarda las casillas etiquetadas según `fen_piezas`.
+
+    Con `solo_piezas` guarda únicamente las casillas ocupadas (ninguna "vacia"). Las fotos de todas las cámaras se toman juntas y
+    comparten `grupo`, así al validar el entrenamiento no se mezcla una vista en entrenamiento y otra en validación.
+
+    Returns:
+        `{captura_id, capturas, guardadas, total, camaras, avisos}`: `captura_id` es la de la cámara principal y `capturas` todas.
+        Si una cámara secundaria falla se sigue con las demás y se informa en `avisos`; si falla la principal, se lanza el error.
 
     Raises:
         ValueError: FEN de piezas inválido, `solo_piezas` sin ninguna pieza en el FEN o tablero no detectado.
-        RuntimeError: la cámara no está disponible.
+        RuntimeError: la cámara principal no está disponible.
     """
+    from backend.servicios.vision.camara import capturar_foto_tablero
     from training.capturar_dataset_propio import capturar_muestras_con_id
 
-    captura_id, guardadas = capturar_muestras_con_id(fen_piezas, solo_piezas=solo_piezas)
-    return {"captura_id": captura_id, "guardadas": guardadas, "total": resumen()["total"]}
+    elegidas = camaras or camaras_para_capturar()
+    fotos: dict[str, object] = {}
+    avisos: list[str] = []
+    for camara in elegidas:  # primero todas las fotos (casi al mismo tiempo), después se recortan
+        try:
+            fotos[camara] = capturar_foto_tablero(camara=camara)
+        except RuntimeError as error:
+            if camara == "principal":
+                raise
+            avisos.append(f"Cámara {camara}: {error}")
+    capturas: list[str] = []
+    guardadas = 0
+    grupo: str | None = None
+    usadas: list[str] = []
+    for camara, imagen in fotos.items():
+        try:
+            captura_id, cantidad = capturar_muestras_con_id(fen_piezas, imagen=imagen, solo_piezas=solo_piezas, camara=camara, grupo=grupo)
+        except ValueError as error:
+            if camara == "principal":
+                raise
+            avisos.append(f"Cámara {camara}: {error}")
+            continue
+        grupo = grupo or captura_id
+        capturas.append(captura_id)
+        usadas.append(camara)
+        guardadas += cantidad
+    return {"captura_id": capturas[0], "capturas": capturas, "guardadas": guardadas, "total": resumen()["total"], "camaras": usadas, "avisos": avisos}
 
 
 def guardar_foto_tablero_subida(fen_piezas: str, imagen, solo_piezas: bool = False) -> dict[str, int | str]:
@@ -125,10 +164,17 @@ def borrar_captura(captura_id: str) -> int:
     for archivo in carpeta.glob(f"*/{captura_id}_*.png"):
         archivo.unlink()
         borradas += 1
+    from training import capturar_dataset_propio
+
+    for sufijo in ("jpg", "json"):
+        (capturar_dataset_propio.carpeta_cuadros() / f"{captura_id}.{sufijo}").unlink(missing_ok=True)
+    for carpeta_extra in (capturar_dataset_propio.carpeta_ampliados(), capturar_dataset_propio.carpeta_volumen()):
+        for archivo in carpeta_extra.glob(f"*/{captura_id}_*.png"):
+            archivo.unlink(missing_ok=True)
     return borradas
 
 
-def vista_previa(casillas: list[str], imagen=None) -> bytes:
+def vista_previa_imagen(casillas: list[str], imagen=None, camara: str = "principal"):
     """JPEG de lo que se guardaría ahora: el tablero con el marco y las `casillas` en verde, y debajo el recorte exacto de cada una.
 
     Saca una foto de la cámara fija (no guarda nada). Con esquinas calibradas el tablero lleva marco y letras.
@@ -141,29 +187,43 @@ def vista_previa(casillas: list[str], imagen=None) -> bytes:
 
     from backend.servicios.vision.camara import capturar_foto_tablero
     from backend.servicios.vision.reconocimiento import esquinas_y_margen
-    from backend.servicios.vision.tablero import dibujar_grilla_debug, dividir_en_casillas, enderezar_tablero, imagen_control_ampliada
+    from backend.servicios.vision.tablero import (
+        dibujar_grilla_debug,
+        dividir_en_casillas,
+        enderezar_tablero,
+        imagen_control_ampliada,
+        recortes_ampliados,
+    )
 
     validas = {f"{c}{f}" for c in "abcdefgh" for f in "12345678"}
     elegidas = [c for c in casillas if c in validas][:8]
     if len(elegidas) != len(casillas):
         raise ValueError("Casilla inválida")
     if imagen is None:
-        imagen = capturar_foto_tablero()
-    esquinas, margen = esquinas_y_margen(imagen)
+        imagen = capturar_foto_tablero(camara=camara)
+    esquinas, margen = esquinas_y_margen(imagen, camara)
     plano = enderezar_tablero(imagen, esquinas)
     tablero_vista = imagen_control_ampliada(imagen, esquinas, resaltar=tuple(elegidas)) if not margen else dibujar_grilla_debug(plano)
     if elegidas:
         recortes = dividir_en_casillas(plano, margen)
-        lado = 160
+        ampliados = recortes_ampliados(imagen, esquinas) if not margen else {}
+        lado = 120
         fila = np.full((lado + 24, tablero_vista.shape[1], 3), 30, dtype=np.uint8)
-        for i, nombre in enumerate(elegidas):
-            x = 8 + i * (lado + 8)
-            if x + lado > fila.shape[1]:
-                break
-            fila[24 : 24 + lado, x : x + lado] = cv2.resize(recortes[nombre], (lado, lado))
-            cv2.putText(fila, nombre, (x, 17), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+        x = 8
+        for nombre in elegidas:
+            for recorte, etiqueta in ((recortes[nombre], nombre), (ampliados.get(nombre), f"{nombre} ampliado")):
+                if recorte is None or x + lado > fila.shape[1]:
+                    continue
+                fila[24 : 24 + lado, x : x + lado] = cv2.resize(recorte, (lado, lado))
+                cv2.putText(fila, etiqueta, (x, 17), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
+                x += lado + 8
         tablero_vista = np.vstack([tablero_vista, fila])
-    exito, buffer = cv2.imencode(".jpg", tablero_vista)
+    return tablero_vista
+
+
+def vista_previa(casillas: list[str], imagen=None, camara: str = "principal") -> bytes:
+    """`vista_previa_imagen` codificada como JPEG."""
+    exito, buffer = cv2.imencode(".jpg", vista_previa_imagen(casillas, imagen, camara))
     if not exito:
         raise RuntimeError("No se pudo codificar la vista previa")
     return buffer.tobytes()
@@ -185,7 +245,95 @@ def borrar_clase(clase: str) -> int:
         for archivo in carpeta.glob("*.png"):
             archivo.unlink()
             borradas += 1
+    from training import capturar_dataset_propio
+
+    for carpeta_extra in (capturar_dataset_propio.carpeta_ampliados(), capturar_dataset_propio.carpeta_volumen()):
+        for archivo in (carpeta_extra / clase).glob("*.png"):
+            archivo.unlink(missing_ok=True)
     return borradas
+
+
+def regenerar_ampliados() -> dict[str, int]:
+    """Vuelve a escribir todos los recortes ampliados a partir de los cuadros completos y borra los que ya no tienen su recorte justo.
+
+    Sirve para las capturas hechas antes de que se guardaran (que sí tienen su cuadro) o cuando cambia la geometría del recorte.
+
+    Returns:
+        `{escritos, borrados, sin_cuadro}`: `sin_cuadro` son recortes justos de capturas viejas, de las que no hay foto completa y no
+        se pueden ampliar.
+    """
+    import json
+
+    import numpy as np
+
+    from backend.servicios.vision.tablero import recortes_ampliados
+    from training import capturar_dataset_propio
+
+    from backend.servicios.vision import geometria3d
+
+    raiz = capturar_dataset_propio.carpeta_ampliados()
+    raiz_volumen = capturar_dataset_propio.carpeta_volumen()
+    escritos = 0
+    esperados: set[Path] = set()
+    esperados_volumen: set[Path] = set()
+    cuadros = capturar_dataset_propio.carpeta_cuadros()
+    for manifiesto in sorted(cuadros.glob("*.json")) if cuadros.is_dir() else []:
+        cuadro = cv2.imread(str(manifiesto.with_suffix(".jpg")))
+        if cuadro is None:
+            continue
+        datos = json.loads(manifiesto.read_text(encoding="utf-8"))
+        esquinas = np.array(datos["esquinas"], dtype=np.float32)
+        recortes = recortes_ampliados(cuadro, esquinas)
+        try:
+            alto, ancho = cuadro.shape[:2]
+            volumen = geometria3d.recortes_volumen(cuadro, esquinas[::-1], geometria3d.cargar_lente(datos.get("camara", "principal"), ancho, alto))
+        except ValueError:
+            volumen = {}
+        for casilla, clase in datos["etiquetas"].items():
+            if not (_carpeta() / clase / f"{manifiesto.stem}_{casilla}.png").exists():
+                continue
+            destino = raiz / clase / f"{manifiesto.stem}_{casilla}.png"
+            destino.parent.mkdir(parents=True, exist_ok=True)
+            if cv2.imwrite(str(destino), recortes[casilla]):
+                escritos += 1
+                esperados.add(destino)
+            if casilla in volumen:
+                destino_volumen = raiz_volumen / clase / f"{manifiesto.stem}_{casilla}.png"
+                destino_volumen.parent.mkdir(parents=True, exist_ok=True)
+                if cv2.imwrite(str(destino_volumen), volumen[casilla]):
+                    esperados_volumen.add(destino_volumen)
+    borrados = 0
+    for carpeta, vigentes in ((raiz, esperados), (raiz_volumen, esperados_volumen)):
+        for archivo in carpeta.glob("*/*.png") if carpeta.is_dir() else []:
+            if archivo not in vigentes:
+                archivo.unlink()
+                borrados += 1
+    con_cuadro = {a.name for a in esperados}
+    sin_cuadro = sum(1 for a in _carpeta().glob("*/*.png") if a.name not in con_cuadro) if _carpeta().is_dir() else 0
+    return {"escritos": escritos, "volumen": len(esperados_volumen), "borrados": borrados, "sin_cuadro": sin_cuadro}
+
+
+def _recortes_ampliados_del_dataset():
+    """`(clase/archivo.png, recorte ampliado)` de cada casilla guardada que tiene su cuadro completo (ver `capturar_dataset_propio`)."""
+    import json
+
+    import numpy as np
+
+    from backend.servicios.vision.tablero import recortes_ampliados
+    from training import capturar_dataset_propio
+
+    carpeta_cuadros = capturar_dataset_propio.carpeta_cuadros()
+    if not carpeta_cuadros.is_dir():
+        return
+    for manifiesto in sorted(carpeta_cuadros.glob("*.json")):
+        cuadro = cv2.imread(str(manifiesto.with_suffix(".jpg")))
+        if cuadro is None:
+            continue
+        datos = json.loads(manifiesto.read_text(encoding="utf-8"))
+        recortes = recortes_ampliados(cuadro, np.array(datos["esquinas"], dtype=np.float32))
+        for casilla, clase in datos["etiquetas"].items():
+            if (_carpeta() / clase / f"{manifiesto.stem}_{casilla}.png").exists():  # sigue en el dataset (no se borró)
+                yield f"{clase}/{manifiesto.stem}_{casilla}.png", recortes[casilla]
 
 
 def exportar_zip() -> Path:
@@ -209,6 +357,10 @@ def exportar_zip() -> Path:
         for archivo in archivos:
             zip_salida.write(archivo, f"{archivo.parent.name}/{archivo.name}")
             por_clase[archivo.parent.name] = por_clase.get(archivo.parent.name, 0) + 1
+        for nombre, imagen_ampliada in _recortes_ampliados_del_dataset():
+            exito, buffer = cv2.imencode(".png", imagen_ampliada)
+            if exito:
+                zip_salida.writestr(f"ampliado/{nombre}", buffer.tobytes())
         zip_salida.writestr("clases.json", json.dumps({"clases": sorted(por_clase), "muestras_por_clase": por_clase}, indent=2))
     return Path(ruta_temporal)
 

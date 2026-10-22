@@ -82,11 +82,18 @@ class FotosPiezaResponse(BaseModel):
 
 
 class CapturaDatasetResponse(BaseModel):
-    """Cuerpo de salida para POST /vision/dataset/foto."""
+    """Cuerpo de salida para POST /vision/dataset/foto.
+
+    `captura_id` es la de la cámara principal; `capturas` trae el id de la captura de cada cámara usada (para deshacerlas todas),
+    `camaras` cuáles fueron y `avisos` lo que falló en una cámara secundaria (la captura sigue con las demás).
+    """
 
     captura_id: str
     guardadas: int
     total: int
+    capturas: list[str] = []
+    camaras: list[str] = []
+    avisos: list[str] = []
 
 
 class ResumenDatasetResponse(BaseModel):

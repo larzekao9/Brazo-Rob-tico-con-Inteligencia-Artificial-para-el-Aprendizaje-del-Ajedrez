@@ -32,14 +32,14 @@ UMBRAL_DESPLAZAMIENTO_PX = 6.0
 """Desplazamiento máximo (en píxeles) de una esquina del tablero a partir del cual se considera que la cámara se movió."""
 
 
-def ruta_metadata() -> Path:
-    """Archivo de metadata junto al de esquinas."""
-    return tablero.ARCHIVO_ESQUINAS.with_suffix(".meta.json")
+def ruta_metadata(camara: str = "principal") -> Path:
+    """Archivo de metadata junto al de esquinas de `camara`."""
+    return tablero.archivo_esquinas(camara).with_suffix(".meta.json")
 
 
-def ruta_referencia() -> Path:
-    """Foto de referencia junto al archivo de esquinas."""
-    return tablero.ARCHIVO_ESQUINAS.with_suffix(".referencia.jpg")
+def ruta_referencia(camara: str = "principal") -> Path:
+    """Foto de referencia junto al archivo de esquinas de `camara`."""
+    return tablero.archivo_esquinas(camara).with_suffix(".referencia.jpg")
 
 
 def _distancia(a: tuple[float, float], b: tuple[float, float]) -> float:
@@ -103,10 +103,10 @@ def evaluar_calidad(puntos: dict[str, tuple[float, float]], resolucion: tuple[in
 
 
 def guardar_calibracion(
-    puntos: dict[str, tuple[float, float]], imagen: np.ndarray, fuente: str, advertencias: list[str]
+    puntos: dict[str, tuple[float, float]], imagen: np.ndarray, fuente: str, advertencias: list[str], camara: str = "principal", rotacion: int = 0
 ) -> None:
-    """Guarda las esquinas (las que usa el reconocimiento), la metadata de la sesión y la foto de referencia."""
-    tablero.guardar_esquinas_calibradas(puntos)
+    """Guarda las esquinas de `camara` (las que usa el reconocimiento), la metadata de la sesión y la foto de referencia."""
+    tablero.guardar_esquinas_calibradas(puntos, tablero.archivo_esquinas(camara))
     alto, ancho = imagen.shape[:2]
     metadata = {
         "esquinas": {nombre: [float(x), float(y)] for nombre, (x, y) in puntos.items()},
@@ -114,18 +114,19 @@ def guardar_calibracion(
         "fuente": fuente,
         "fecha": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "advertencias": advertencias,
+        "rotacion": rotacion,
     }
-    ruta_metadata().write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
+    ruta_metadata(camara).write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
     exito, buffer = cv2.imencode(".jpg", imagen)
     if not exito:
         raise ValueError("No se pudo codificar la foto de referencia")
-    ruta_referencia().write_bytes(buffer.tobytes())
+    ruta_referencia(camara).write_bytes(buffer.tobytes())
 
 
-def _leer_metadata(esquinas: dict[str, list[float]]) -> dict | None:
+def _leer_metadata(esquinas: dict[str, list[float]], camara: str = "principal") -> dict | None:
     """Metadata de la calibración actual, o `None` si falta o pertenece a otras esquinas (p. ej. guardadas por la ruta vieja)."""
     try:
-        metadata = json.loads(ruta_metadata().read_text(encoding="utf-8"))
+        metadata = json.loads(ruta_metadata(camara).read_text(encoding="utf-8"))
         if metadata["esquinas"] != esquinas:
             return None
         ancho, alto = metadata["resolucion"]
@@ -134,15 +135,15 @@ def _leer_metadata(esquinas: dict[str, list[float]]) -> dict | None:
         return None
 
 
-def _esquinas_guardadas() -> dict[str, list[float]] | None:
+def _esquinas_guardadas(camara: str = "principal") -> dict[str, list[float]] | None:
     try:
-        datos = json.loads(tablero.ARCHIVO_ESQUINAS.read_text(encoding="utf-8"))
+        datos = json.loads(tablero.archivo_esquinas(camara).read_text(encoding="utf-8"))
         return {nombre: [float(datos[nombre][0]), float(datos[nombre][1])] for nombre in tablero.ORDEN_DE_CLICS}
     except (OSError, ValueError, KeyError, TypeError, IndexError):
         return None
 
 
-def estado(resolucion_actual: tuple[int, int] | None, fuente_actual: str) -> dict:
+def estado(resolucion_actual: tuple[int, int] | None, fuente_actual: str, camara: str = "principal", rotacion_actual: int = 0) -> dict:
     """Estado de la calibración: si existe y si sigue vigente para la cámara tal como está ahora.
 
     Args:
@@ -153,13 +154,13 @@ def estado(resolucion_actual: tuple[int, int] | None, fuente_actual: str) -> dic
         `{calibrada, vigente, motivo_no_vigente, esquinas, fecha, resolucion, fuente, advertencias}`. `vigente` es `None` cuando
         no se puede verificar (cámara sin imagen).
     """
-    esquinas = _esquinas_guardadas()
+    esquinas = _esquinas_guardadas(camara)
     if esquinas is None:
         return {
             "calibrada": False, "vigente": False, "motivo_no_vigente": "Todavía no se calibró el tablero.",
             "esquinas": None, "fecha": None, "resolucion": None, "fuente": None, "advertencias": [],
         }
-    metadata = _leer_metadata(esquinas)
+    metadata = _leer_metadata(esquinas, camara)
     base = {"calibrada": True, "esquinas": esquinas}
     if metadata is None:
         return {
@@ -173,6 +174,9 @@ def estado(resolucion_actual: tuple[int, int] | None, fuente_actual: str) -> dic
     if metadata["fuente"] != fuente_actual:
         motivo = f"Se calibró con la cámara «{metadata['fuente']}» y ahora se usa «{fuente_actual}»: volvé a calibrar."
         return {**datos, "vigente": False, "motivo_no_vigente": motivo}
+    if metadata.get("rotacion", 0) != rotacion_actual:
+        motivo = f"Se calibró con la imagen girada {metadata.get('rotacion', 0)}° y ahora está en {rotacion_actual}°: volvé a calibrar."
+        return {**datos, "vigente": False, "motivo_no_vigente": motivo}
     if resolucion_actual is None:
         return {**datos, "vigente": None, "motivo_no_vigente": "No se pudo verificar: la cámara no entrega imagen."}
     if list(resolucion_actual) != metadata["resolucion"]:
@@ -183,7 +187,7 @@ def estado(resolucion_actual: tuple[int, int] | None, fuente_actual: str) -> dic
     return {**datos, "vigente": True, "motivo_no_vigente": None}
 
 
-def comprobar_movimiento(actual: np.ndarray) -> dict:
+def comprobar_movimiento(actual: np.ndarray, camara: str = "principal") -> dict:
     """Compara una foto nueva con la de referencia de la calibración para avisar si la cámara (o el tablero) se movió.
 
     Empareja puntos de interés (ORB) entre las dos fotos, estima el desplazamiento global con RANSAC y mide cuánto se corrieron
@@ -193,9 +197,9 @@ def comprobar_movimiento(actual: np.ndarray) -> dict:
         `{movida, desplazamiento_px, coincidencias, mensaje}`. `movida` es `None` si no se pudo comparar (sin calibración o con
         referencia, pocas coincidencias por luz distinta o manos en la foto).
     """
-    esquinas = _esquinas_guardadas()
-    referencia = cv2.imread(str(ruta_referencia())) if ruta_referencia().exists() else None
-    if esquinas is None or referencia is None or _leer_metadata(esquinas) is None:
+    esquinas = _esquinas_guardadas(camara)
+    referencia = cv2.imread(str(ruta_referencia(camara))) if ruta_referencia(camara).exists() else None
+    if esquinas is None or referencia is None or _leer_metadata(esquinas, camara) is None:
         return {"movida": None, "desplazamiento_px": None, "coincidencias": 0, "mensaje": "No hay una calibración con foto de referencia para comparar."}
     if actual.shape[:2] != referencia.shape[:2]:
         return {

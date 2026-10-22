@@ -10,7 +10,7 @@ import chess
 
 from backend.servicios.brazo.calibracion_brazo import ParametrosAgarre
 from backend.servicios.brazo.cliente_dobot import ClienteDobot
-from backend.servicios.brazo.pinza_dh import AGARRE_SOSTIENE, PinzaDH
+from backend.servicios.brazo.pinza_dh import AGARRE_SOSTIENE, POSICION_ABIERTA, PinzaDH
 
 
 class EjecutorMovimiento(ABC):
@@ -214,7 +214,7 @@ class EjecutorReal(EjecutorMovimiento):
             raise PiezaNoAgarrada(f"Se le cayó la pieza de {origen} al subirla")
         self.cliente.mover_a_pose(self._pose(destino, seguro), lineal=True)
         self.cliente.mover_a_pose(self._pose(destino), lineal=True)
-        self.pinza.mover_a(apertura)  # soltar
+        self.pinza.mover_a(min(POSICION_ABIERTA, apertura + self.parametros.apertura_extra_soltar))  # soltar, más abierta que al agarrar
         self.cliente.mover_a_pose(self._pose(destino, seguro), lineal=True)
         if self.angulos_cero is not None:
             self.cliente.mover_a_angulos(self.angulos_cero)

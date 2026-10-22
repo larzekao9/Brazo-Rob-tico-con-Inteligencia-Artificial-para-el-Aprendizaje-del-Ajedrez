@@ -15,7 +15,7 @@ _ESQUINAS = np.array([[150, 80], [750, 40], [780, 620], [120, 660]], dtype=np.in
 FEN = "8/8/8/8/8/8/8/8"
 
 
-def _foto():
+def _foto(*_a, **_k):
     imagen = np.full((700, 900, 3), 200, dtype=np.uint8)
     cv2.fillConvexPoly(imagen, _ESQUINAS, (60, 60, 60))
     return imagen
@@ -25,6 +25,11 @@ def _foto():
 def cliente(tmp_path, monkeypatch):
     monkeypatch.setattr(capturar, "CARPETA_DATASET", tmp_path)
     monkeypatch.setattr(capturar, "capturar_foto_tablero", _foto)
+    import backend.servicios.vision.camara as camara_mod
+
+    monkeypatch.setattr(camara_mod, "capturar_foto_tablero", _foto)
+    monkeypatch.setattr(camara_mod, "_preferencia", {})  # sin cámara secundaria ni preferencias del equipo
+    monkeypatch.delenv("CAMARA_FUENTE_2", raising=False)
     app.dependency_overrides[get_current_facilitador] = lambda: 1
     try:
         yield TestClient(app)
@@ -54,7 +59,7 @@ def test_fen_invalido_es_422(cliente) -> None:
 
 
 def test_tablero_no_detectado_es_422(cliente, monkeypatch) -> None:
-    def sin_tablero(imagen):
+    def sin_tablero(imagen, *_a, **_k):
         raise ValueError("No se detectó ningún contorno en la imagen")
 
     monkeypatch.setattr(capturar, "esquinas_y_margen", sin_tablero)
@@ -62,10 +67,13 @@ def test_tablero_no_detectado_es_422(cliente, monkeypatch) -> None:
 
 
 def test_camara_no_disponible_es_503(cliente, monkeypatch) -> None:
-    def falla():
+    def falla(*_a, **_k):
         raise RuntimeError("sin cámara")
 
     monkeypatch.setattr(capturar, "capturar_foto_tablero", falla)
+    import backend.servicios.vision.camara as camara_mod
+
+    monkeypatch.setattr(camara_mod, "capturar_foto_tablero", falla)
     assert cliente.post("/vision/dataset/foto", json={"fen_piezas": FEN}).status_code == 503
 
 
@@ -156,7 +164,7 @@ def test_subir_foto_tablero_errores_422(cliente, monkeypatch) -> None:
     ilegible = {"foto": ("t.png", b"basura", "image/png")}
     assert cliente.post("/vision/dataset/foto-tablero", data={"fen_piezas": FEN}, files=ilegible).status_code == 422
 
-    def sin_tablero(imagen):
+    def sin_tablero(imagen, *_a, **_k):
         raise ValueError("No se detectó ningún contorno en la imagen")
 
     monkeypatch.setattr(capturar, "esquinas_y_margen", sin_tablero)
@@ -275,12 +283,112 @@ def test_flujo_en_vivo_camara(cliente, monkeypatch) -> None:
     from backend.rutas.ruta_auth import get_current_user
 
     app.dependency_overrides[get_current_user] = lambda: 1
-    monkeypatch.setattr(ruta, "flujo_de_frames", lambda: iter([_foto(), _foto()]))
+    monkeypatch.setattr(ruta, "flujo_de_frames", lambda *a, **k: iter([_foto(), _foto()]))
     try:
         with cliente.stream("GET", "/vision/flujo", params={"modo": "camara"}) as r:
             assert r.status_code == 200 and "multipart/x-mixed-replace" in r.headers["content-type"]
             cuerpo = b"".join(r.iter_bytes())
         assert cuerpo.count(b"--cuadro") == 2 and b"Content-Length" in cuerpo
         assert cliente.get("/vision/flujo", params={"modo": "x"}).status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_listar_y_seleccionar_camara(cliente, monkeypatch) -> None:
+    import backend.rutas.ruta_vision as ruta
+
+    monkeypatch.setattr(ruta.servicio_camara, "listar_camaras", lambda: [{"indice": 0, "disponible": True, "ancho": 1280, "alto": 720}])
+    monkeypatch.setattr(ruta.servicio_camara, "foto_de_indice", lambda i: _foto())
+    elegida = []
+    monkeypatch.setattr(ruta.servicio_camara, "seleccionar_fuente", lambda f, c="principal": elegida.append((f, c)))
+    r = cliente.get("/vision/camaras")
+    assert r.status_code == 200 and r.json()["camaras"][0]["disponible"] is True
+    assert cliente.get("/vision/camaras/0/foto").headers["content-type"] == "image/jpeg"
+    assert cliente.get("/vision/camaras/99/foto").status_code == 422
+    assert cliente.post("/vision/camara", json={"fuente": "2"}).status_code == 200 and elegida == [(2, "principal")]
+    assert cliente.post("/vision/camara", json={"fuente": "1", "camara": "secundaria"}).status_code == 200 and elegida[-1] == (1, "secundaria")
+    assert cliente.post("/vision/camara", json={"fuente": "1", "camara": "tercera"}).status_code == 422
+    assert cliente.post("/vision/camara", json={"fuente": "http://192.168.1.5:8080/video"}).status_code == 200
+    assert elegida[-1] == ("http://192.168.1.5:8080/video", "principal")
+
+
+def test_captura_doble_guarda_las_dos_camaras_con_el_mismo_grupo(cliente, tmp_path, monkeypatch) -> None:
+    import json
+
+    import backend.servicios.vision.camara as camara_mod
+    from backend.servicios.vision import tablero
+
+    monkeypatch.setattr(tablero, "ARCHIVO_ESQUINAS", tmp_path / "esquinas.json")
+    tablero.guardar_esquinas_calibradas({"a1": (150, 660), "h1": (780, 620), "h8": (750, 40), "a8": (150, 80)}, tablero.archivo_esquinas("secundaria"))
+    monkeypatch.setattr(camara_mod, "_preferencia", {"secundaria": {"fuente": "1"}})
+    r = cliente.post("/vision/dataset/foto", json={"fen_piezas": FEN}).json()
+    assert len(r["capturas"]) == 2 and r["camaras"] == ["principal", "secundaria"] and r["guardadas"] == 128
+    manifiestos = [json.loads(m.read_text()) for m in (tmp_path / "dataset_propio_cuadros").glob("*.json")] if (tmp_path / "dataset_propio_cuadros").exists() else []
+    assert not manifiestos or {m["grupo"] for m in manifiestos} == {r["capturas"][0]}
+    for captura in r["capturas"]:
+        assert cliente.delete(f"/vision/dataset/captura/{captura}").json() == {"borradas": 64}
+
+
+def test_flujo_de_las_dos_camaras_junta_las_vistas(cliente, monkeypatch) -> None:
+    import backend.rutas.ruta_vision as ruta
+    import backend.servicios.vision.captura_estable as estable
+    from backend.rutas.ruta_auth import get_current_user
+
+    app.dependency_overrides[get_current_user] = lambda: 1
+    monkeypatch.setattr(ruta, "flujo_de_frames", lambda *a, **k: iter([_foto()]))
+    monkeypatch.setattr(ruta, "capturar_foto_tablero", _foto)
+    monkeypatch.setattr(estable, "camaras_configuradas", lambda: ["principal", "secundaria"])
+    monkeypatch.setattr(estable, "camaras_calibradas", lambda: ["principal", "secundaria"])
+    try:
+        with cliente.stream("GET", "/vision/flujo", params={"modo": "camara", "camara": "todas"}) as r:
+            cuerpo = b"".join(r.iter_bytes())
+        assert r.status_code == 200 and cuerpo.count(b"--cuadro") == 1
+        assert cliente.get("/vision/flujo", params={"camara": "otra"}).status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_los_ampliados_se_guardan_junto_a_los_recortes_y_se_borran_con_ellos(cliente, tmp_path, monkeypatch) -> None:
+    import cv2
+    import numpy as np
+
+    import training.capturar_dataset_propio as capturar_mod
+
+    esquinas = np.array([[150, 80], [750, 40], [780, 620], [120, 660]], dtype=np.float32)
+    monkeypatch.setattr(capturar_mod, "esquinas_y_margen", lambda imagen, *a, **k: (esquinas, 0.0))
+    r = cliente.post("/vision/dataset/foto", json={"fen_piezas": "8/8/8/8/8/8/8/4K3", "solo_piezas": True}).json()
+    ampliados = list((capturar_mod.carpeta_ampliados() / "white-king").glob("*.png"))
+    assert len(ampliados) == 1 and cv2.imread(str(ampliados[0])).shape == (96, 96, 3)
+    for archivo in ampliados:
+        archivo.unlink()
+    assert cliente.post("/vision/dataset/regenerar-ampliados").json()["escritos"] == 1  # se rehace desde el cuadro completo
+    assert len(list((capturar_mod.carpeta_ampliados() / "white-king").glob("*.png"))) == 1
+    cliente.delete(f"/vision/dataset/captura/{r['captura_id']}")
+    assert not list(capturar_mod.carpeta_ampliados().glob("*/*.png"))
+
+
+def test_estado_de_los_modelos(cliente, monkeypatch) -> None:
+    from backend.servicios.vision import ocupacion, piezas
+
+    def sin_modelo():
+        raise FileNotFoundError("no hay")
+
+    monkeypatch.setattr(ocupacion, "modo_recorte", lambda: "base")
+    monkeypatch.setattr(piezas, "modo_recorte", sin_modelo)
+    monkeypatch.setattr(piezas, "hay_dos_vistas", lambda: False)
+    monkeypatch.setattr(piezas, "motivo_dos_vistas_ignorado", lambda: None)
+    assert cliente.get("/vision/modelos/estado").json() == {
+        "ocupacion": {"existe": True, "recorte": "base"},
+        "piezas": {"existe": False, "recorte": None},
+        "dos_vistas": {"existe": False, "recorte": None, "ignorado": None},
+    }
+
+
+def test_flujo_de_piezas_valida_la_vista(cliente) -> None:
+    from backend.rutas.ruta_auth import get_current_user
+
+    app.dependency_overrides[get_current_user] = lambda: 1
+    try:
+        assert cliente.get("/vision/flujo", params={"modo": "piezas", "vista": "otra"}).status_code == 422
     finally:
         app.dependency_overrides.pop(get_current_user, None)

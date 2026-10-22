@@ -11,8 +11,8 @@ Antes de correrlo:
   2. En DobotStudio Pro, el robot en modo de control TCP/IP (si no, responde "Control Mode Is Not Tcp").
 
 Uso:
-    python scripts/probar_conexion_dobot.py --host 192.168.5.1
-    python scripts/probar_conexion_dobot.py --host 192.168.5.1 --puerto 29999 --timeout 3
+    python scripts/probar_conexion_dobot.py --host 192.168.77.180
+    python scripts/probar_conexion_dobot.py --host 192.168.77.180 --puerto 29999 --timeout 3
 """
 from __future__ import annotations
 

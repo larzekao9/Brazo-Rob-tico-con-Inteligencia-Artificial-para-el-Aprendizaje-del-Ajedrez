@@ -10,10 +10,22 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, Upl
 from backend.esquemas.vision_esquema import ComprobarCalibracionResponse, EstadoCalibracionResponse
 from backend.rutas.ruta_auth import get_current_facilitador
 from backend.rutas.ruta_vision import _leer_foto_subida, _validar_esquinas
-from backend.servicios.vision import calibracion_camara
+from backend.servicios.vision import calibracion_camara, tablero, unificada
+from backend.servicios.vision import camara as servicio_camara
 from backend.servicios.vision.camara import _fuente_por_defecto, capturar_foto_tablero
 
 router = APIRouter(prefix="/vision/calibracion", tags=["vision-calibracion"])
+
+
+def _camara_valida(camara: str) -> str:
+    """422 si `camara` no es `principal` o `secundaria`; 409 si es la secundaria y todavía no se eligió su fuente."""
+    try:
+        servicio_camara.validar_camara(camara)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    if _fuente_por_defecto(camara) is None:
+        raise HTTPException(status_code=409, detail=f"La cámara {camara} no está configurada: elegila en «Elegir otra cámara»")
+    return camara
 
 
 def _esquinas_de_formulario(texto: str) -> dict[str, tuple[float, float]]:
@@ -32,23 +44,55 @@ def _fuera_de_la_foto(puntos: dict[str, tuple[float, float]], ancho: int, alto: 
 
 
 @router.get("/estado", response_model=EstadoCalibracionResponse)
-def estado_calibracion(_facilitador_id: int = Depends(get_current_facilitador)) -> EstadoCalibracionResponse:
+def estado_calibracion(camara: str = "principal", _facilitador_id: int = Depends(get_current_facilitador)) -> EstadoCalibracionResponse:
     """Si el tablero está calibrado y si la calibración sigue vigente para la cámara actual (resolución y fuente).
 
     Saca una foto para conocer la resolución; si la cámara no responde, `vigente` queda en `null` con el motivo.
     """
+    _camara_valida(camara)
     try:
-        alto, ancho = capturar_foto_tablero().shape[:2]
+        alto, ancho = capturar_foto_tablero(camara=camara).shape[:2]
         resolucion: tuple[int, int] | None = (int(ancho), int(alto))
     except Exception:
         resolucion = None
-    return EstadoCalibracionResponse(**calibracion_camara.estado(resolucion, str(_fuente_por_defecto())))
+    return EstadoCalibracionResponse(
+        **calibracion_camara.estado(resolucion, str(_fuente_por_defecto(camara)), camara, servicio_camara.rotacion_actual(camara))
+    )
+
+
+@router.delete("/quitar", response_model=EstadoCalibracionResponse)
+def quitar_calibracion(camara: str = "principal", _facilitador_id: int = Depends(get_current_facilitador)) -> EstadoCalibracionResponse:
+    """Borra la calibración de `camara` (esquinas, metadata y foto de referencia). La principal vuelve a la detección automática."""
+    _camara_valida(camara)
+    for archivo in (tablero.archivo_esquinas(camara), calibracion_camara.ruta_metadata(camara), calibracion_camara.ruta_referencia(camara)):
+        archivo.unlink(missing_ok=True)
+    return EstadoCalibracionResponse(**calibracion_camara.estado(None, str(_fuente_por_defecto(camara)), camara, servicio_camara.rotacion_actual(camara)))
+
+
+@router.get("/unificada")
+def verificar_calibracion_unificada(_facilitador_id: int = Depends(get_current_facilitador)) -> dict:
+    """Comprueba que las calibraciones de las dos cámaras describen el mismo tablero con la misma orientación (ver `unificada`).
+
+    Toma una foto de cada cámara y devuelve el informe (`nivel`: bien, regular, mal u orientacion, con su mensaje y el error en píxeles y en
+    casillas) y una imagen 2×2 en base64: principal, secundaria, superpuestas y diferencia. 409 si falta configurar o calibrar alguna cámara.
+    """
+    if _fuente_por_defecto("secundaria") is None:
+        raise HTTPException(status_code=409, detail="No hay cámara secundaria configurada: elegila en «Elegir cámaras»")
+    try:
+        fotos = [capturar_foto_tablero(camara=c) for c in ("principal", "secundaria")]
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    try:
+        return unificada.verificar(*fotos)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 @router.post("/previsualizar")
 async def previsualizar_calibracion(
     esquinas: str = Form(...),
     foto: UploadFile = File(...),
+    camara: str = Form("principal"),
     _facilitador_id: int = Depends(get_current_facilitador),
 ) -> Response:
     """Tablero enderezado con la grilla 8x8 para las esquinas dadas sobre la foto dada, sin guardar nada (paso 3 del asistente)."""
@@ -67,6 +111,7 @@ async def previsualizar_calibracion(
 async def guardar_calibracion(
     esquinas: str = Form(...),
     foto: UploadFile = File(...),
+    camara: str = Form("principal"),
     _facilitador_id: int = Depends(get_current_facilitador),
 ) -> EstadoCalibracionResponse:
     """Guarda las esquinas con la metadata de la sesión (resolución de la foto, cámara, fecha) y la foto de referencia.
@@ -80,23 +125,27 @@ async def guardar_calibracion(
     fuera = _fuera_de_la_foto(puntos, ancho, alto)
     if fuera:
         raise HTTPException(status_code=422, detail=f"Las esquinas {', '.join(fuera)} caen fuera de la foto ({ancho}×{alto})")
+    _camara_valida(camara)
     advertencias = calibracion_camara.evaluar_calidad(puntos, (ancho, alto))
-    fuente = str(_fuente_por_defecto())
-    calibracion_camara.guardar_calibracion(puntos, imagen, fuente, advertencias)
-    return EstadoCalibracionResponse(**calibracion_camara.estado((int(ancho), int(alto)), fuente))
+    fuente = str(_fuente_por_defecto(camara))
+    rotacion = servicio_camara.rotacion_actual(camara)
+    calibracion_camara.guardar_calibracion(puntos, imagen, fuente, advertencias, camara, rotacion)
+    return EstadoCalibracionResponse(**calibracion_camara.estado((int(ancho), int(alto)), fuente, camara, rotacion))
 
 
 @router.post("/comprobar", response_model=ComprobarCalibracionResponse)
 async def comprobar_calibracion(
     foto: UploadFile | None = File(None),
+    camara: str = Form("principal"),
     _facilitador_id: int = Depends(get_current_facilitador),
 ) -> ComprobarCalibracionResponse:
     """Compara una foto nueva (la subida, o una de la cámara fija) con la de referencia: avisa si la cámara se movió."""
+    _camara_valida(camara)
     if foto is not None:
         imagen = await _leer_foto_subida(foto)
     else:
         try:
-            imagen = capturar_foto_tablero()
+            imagen = capturar_foto_tablero(camara=camara)
         except RuntimeError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
-    return ComprobarCalibracionResponse(**calibracion_camara.comprobar_movimiento(imagen))
+    return ComprobarCalibracionResponse(**calibracion_camara.comprobar_movimiento(imagen, camara))

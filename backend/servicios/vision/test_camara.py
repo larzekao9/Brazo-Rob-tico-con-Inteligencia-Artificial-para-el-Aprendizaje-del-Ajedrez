@@ -62,3 +62,60 @@ def test_api_por_defecto_acepta_msmf_y_dshow_sin_importar_mayusculas(monkeypatch
     assert _api_por_defecto() == cv2.CAP_DSHOW
     monkeypatch.setenv("CAMARA_API", "otra")
     assert _api_por_defecto() is None
+
+
+def test_rotacion_valida_y_aplica_el_giro(tmp_path, monkeypatch) -> None:
+    import numpy as np
+
+    from backend.servicios.vision import camara
+
+    monkeypatch.setattr(camara, "ARCHIVO_PREFERENCIA", tmp_path / "camara.json")
+    monkeypatch.setattr(camara, "_preferencia", {})
+    monkeypatch.delenv("CAMARA_ROTACION", raising=False)
+    assert camara.fijar_rotacion(180) == 180 and camara.rotacion_actual() == 180
+    imagen = np.zeros((2, 3, 3), dtype=np.uint8)
+    imagen[0, 0] = 255
+    assert camara._rotar(imagen)[1, 2].tolist() == [255, 255, 255]
+    camara.fijar_rotacion(90)
+    assert camara._rotar(imagen).shape == (3, 2, 3)
+    assert camara.rotacion_actual("secundaria") == 0  # cada cámara tiene su giro
+    with pytest.raises(ValueError):
+        camara.fijar_rotacion(45)
+    with pytest.raises(ValueError):
+        camara.fijar_rotacion(90, "tercera")
+
+
+def test_la_camara_y_el_giro_elegidos_se_recuerdan_por_camara(tmp_path, monkeypatch) -> None:
+    from backend.servicios.vision import camara
+
+    monkeypatch.setattr(camara, "ARCHIVO_PREFERENCIA", tmp_path / "camara.json")
+    monkeypatch.setattr(camara, "_preferencia", None)
+    monkeypatch.setenv("CAMARA_FUENTE", "3")
+    monkeypatch.delenv("CAMARA_FUENTE_2", raising=False)
+    assert camara._fuente_por_defecto() == 3  # sin preferencia manda el .env
+    assert camara._fuente_por_defecto("secundaria") is None and camara.camaras_configuradas() == ["principal"]
+    camara._guardar_preferencia("principal", fuente="1")
+    camara._guardar_preferencia("secundaria", fuente="2")
+    camara.fijar_rotacion(90, "secundaria")
+    assert camara._fuente_por_defecto() == 1 and camara.camaras_configuradas() == ["principal", "secundaria"]
+    monkeypatch.setattr(camara, "_preferencia", None)  # "reinicio": se vuelve a leer del archivo
+    assert camara._fuente_por_defecto("secundaria") == 2 and camara.rotacion_actual("secundaria") == 90
+
+
+def test_preferencia_en_el_formato_viejo_se_lee_como_camara_principal(tmp_path, monkeypatch) -> None:
+    from backend.servicios.vision import camara
+
+    archivo = tmp_path / "camara.json"
+    archivo.write_text('{"fuente": "2", "rotacion": 180}', encoding="utf-8")
+    monkeypatch.setattr(camara, "ARCHIVO_PREFERENCIA", archivo)
+    monkeypatch.setattr(camara, "_preferencia", None)
+    assert camara._fuente_por_defecto() == 2 and camara.rotacion_actual() == 180
+
+
+def test_dos_camaras_no_pueden_usar_la_misma_fuente(tmp_path, monkeypatch) -> None:
+    from backend.servicios.vision import camara
+
+    monkeypatch.setattr(camara, "ARCHIVO_PREFERENCIA", tmp_path / "camara.json")
+    monkeypatch.setattr(camara, "_preferencia", {"principal": {"fuente": "0"}})
+    with pytest.raises(ValueError):
+        camara.seleccionar_fuente(0, "secundaria")

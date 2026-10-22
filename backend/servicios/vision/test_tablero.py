@@ -89,3 +89,15 @@ def test_dibujar_grilla_debug_no_modifica_la_imagen_original() -> None:
     dibujar_grilla_debug(plano)
 
     assert np.array_equal(plano, copia)
+
+
+def test_recortes_ampliados_da_64_recortes_cuadrados_con_la_pieza_completa() -> None:
+    import numpy as np
+
+    from backend.servicios.vision.tablero import TAMANO_RECORTE_AMPLIADO, recortes_ampliados
+
+    imagen = np.full((700, 900, 3), 90, dtype=np.uint8)
+    esquinas = np.array([[150, 100], [750, 100], [750, 650], [150, 650]], dtype=np.float32)
+    recortes = recortes_ampliados(imagen, esquinas)
+    assert len(recortes) == 64 and set(recortes) == {f"{c}{f}" for c in "abcdefgh" for f in "12345678"}
+    assert all(r.shape == (TAMANO_RECORTE_AMPLIADO, TAMANO_RECORTE_AMPLIADO, 3) for r in recortes.values())

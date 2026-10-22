@@ -34,6 +34,17 @@ class PinzaRequest(BaseModel):
     ancho_mm: float | None = None
 
 
+class ArticulacionesRequest(BaseModel):
+    angulos: list[float] = Field(min_length=6, max_length=6)
+
+
+class RelativoRequest(BaseModel):
+    dx: float = 0.0
+    dy: float = 0.0
+    dz: float = 0.0
+    velocidad_mm_s: int = Field(20, ge=1, le=100)
+
+
 class ConfiguracionRequest(BaseModel):
     nombre: str
     descripcion: str = ""
@@ -128,3 +139,18 @@ def ensayo(cuerpo: MoverPiezaRequest) -> list[dict]:
 @router.post("/mover-pieza")
 def mover_pieza(cuerpo: MoverPiezaRequest) -> dict:
     return _llamar(control_brazo.mover_pieza, cuerpo.origen, cuerpo.destino, cuerpo.tipo_pieza)
+
+
+@router.post("/mover-articulaciones")
+def mover_articulaciones(cuerpo: ArticulacionesRequest) -> dict:
+    return _llamar(control_brazo.mover_articulaciones, cuerpo.angulos)
+
+
+@router.post("/mover-relativo")
+def mover_relativo(cuerpo: RelativoRequest) -> dict:
+    return _llamar(control_brazo.mover_relativo, cuerpo.dx, cuerpo.dy, cuerpo.dz, cuerpo.velocidad_mm_s)
+
+
+@router.post("/posicion-inicial")
+def posicion_inicial() -> dict:
+    return _llamar(control_brazo.ir_a_posicion_inicial)
