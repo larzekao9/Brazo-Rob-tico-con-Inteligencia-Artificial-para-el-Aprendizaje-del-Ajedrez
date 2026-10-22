@@ -206,14 +206,29 @@ def clasificar_calidad_jugada(
     - 'excelente': pérdida entre 11 y 30 cp.
     - 'buena': pérdida entre 31 y 49 cp (sólida y aceptable).
     - 'imprecision': pérdida entre 50 y 99 cp.
-    - 'error': pérdida entre 100 y 299 cp.
-    - 'blunder': pérdida >= 300 cp o permitir mate rival.
+    - 'error': pérdida entre 100 y 299 cp, o acortar un mate en contra que ya era inevitable.
+    - 'blunder': pérdida >= 300 cp, o permitir (o no soltar) un mate rival que antes no estaba.
+
+    `mate_en_antes` y `mate_en_despues` están en la misma perspectiva (quien jugó). Bajo la
+    mejor defensa posible, la distancia al mate en contra no cambia entre "antes" y "después"
+    (el motor cuenta las jugadas que le quedan al bando que da mate, no las del que se defiende),
+    así que sirve para distinguir "ya estaba perdido y sostuvo la mejor defensa" de "ya estaba
+    perdido y encima acortó su propio mate".
     """
     # `mate_en_despues == 0`: tras la jugada el tablero ya está en mate (el motor devuelve 0), o
     # sea que la jugada DIO el mate — no es "perder el mate", es la mejor jugada posible.
     if mate_en_despues == 0:
         return "mejor"
-    if mate_en_despues is not None and mate_en_despues < 0:
+
+    ya_enfrentaba_mate = mate_en_antes is not None and mate_en_antes < 0
+    if ya_enfrentaba_mate and mate_en_despues is not None and mate_en_despues < 0:
+        # Ya enfrentaba un mate forzado antes de mover: que el mate siga ahí no es un blunder
+        # nuevo. Solo cuenta como error propio si existía una defensa más larga y no la jugó.
+        if abs(mate_en_despues) < abs(mate_en_antes):
+            return "error"
+        # Sostuvo la mejor defensa posible (o una igual de larga): sigue el flujo normal de
+        # abajo, donde la pérdida en centipeones (0 en posiciones ya mateadas) la clasifica.
+    elif not ya_enfrentaba_mate and mate_en_despues is not None and mate_en_despues < 0:
         return "blunder"
     if mate_en_antes is not None and mate_en_antes > 0 and mate_en_despues is None:
         return "blunder"

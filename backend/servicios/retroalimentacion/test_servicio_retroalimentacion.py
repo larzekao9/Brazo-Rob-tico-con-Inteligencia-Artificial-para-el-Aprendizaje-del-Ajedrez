@@ -322,6 +322,19 @@ def test_permitir_un_mate_rival_sigue_siendo_blunder() -> None:
     assert clasificar_calidad_jugada(0, es_mejor_jugada=False, mate_en_antes=None, mate_en_despues=-2) == "blunder"
 
 
+def test_sostener_la_mejor_defensa_en_una_posicion_ya_perdida_no_es_blunder() -> None:
+    # Ya enfrentaba mate en 5 antes de mover; jugó la defensa más larga posible y el mate
+    # sigue en 5 (la distancia no se acorta). Que el mate siga ahí no es su error: es la
+    # mejor jugada disponible en una posición perdida, no un blunder nuevo.
+    assert clasificar_calidad_jugada(0, es_mejor_jugada=True, mate_en_antes=-5, mate_en_despues=-5) == "mejor"
+
+
+def test_acortar_un_mate_ya_inevitable_es_error_no_blunder() -> None:
+    # Tenía una defensa que llegaba a mate en 5 y jugó una que lo deja en mate en 2: perdió
+    # tiempo de defensa, pero ya estaba perdido de todas formas — es un error, no un blunder.
+    assert clasificar_calidad_jugada(0, es_mejor_jugada=False, mate_en_antes=-5, mate_en_despues=-2) == "error"
+
+
 def test_la_jugada_que_da_mate_tiene_100_por_ciento_de_victoria() -> None:
     # mate en 0 = el tablero quedó en mate tras la jugada: ganó quien la hizo.
     assert centipawns_a_probabilidad_victoria(None, 0) == 100.0
