@@ -520,24 +520,53 @@ def _estado_del_reloj(partida: Partida) -> dict | None:
     }
 
 
-def _detectar_por_ocupacion(fen_antes: str):
-    """Jugada (SAN) que mejor explica lo que ven las cámaras, dada la posición anterior (ver `jugada_probable`).
+def _leer_jugada_probable(fen_antes: str, camaras: list[str] | None = None):
+    """Lo que ven las cámaras como jugada probable desde `fen_antes` (ver `jugada_probable.detectar_jugada_probable`, con `estado` y `alternativas`).
 
-    Junta varios cuadros del video en vivo (y las dos cámaras si hay) y elige entre «no se movió nada» y cada jugada legal la de mayor
-    probabilidad, usando la ocupación (vacía/blanca/negra) y, si hay modelo, también el tipo de pieza. Devuelve `False` si no hay modelo de
-    ocupación entrenado (el llamador usa el otro método) y `None` si no hay una jugada clara.
+    Junta varios cuadros del video en vivo de las `camaras` pedidas (`None` = todas las calibradas) y elige entre «no se movió nada» y cada
+    jugada legal la de mayor probabilidad, usando la ocupación (vacía/blanca/negra) y, si hay modelo, también el tipo de pieza. Devuelve
+    `False` si no hay modelo de ocupación entrenado (el llamador usa el otro método).
     """
     from backend.servicios.vision.captura_estable import leer_lecturas_estables
     from backend.servicios.vision.jugada_probable import detectar_jugada_probable
 
     try:
-        lecturas = leer_lecturas_estables()
+        lecturas = leer_lecturas_estables(camaras=camaras)
     except FileNotFoundError:
         return False
-    return detectar_jugada_probable(fen_antes, lecturas)["jugada"]
+    return detectar_jugada_probable(fen_antes, lecturas)
 
 
-def mover_desde_foto(partida_id: str) -> dict:
+def _detectar_por_ocupacion(fen_antes: str, camaras: list[str] | None = None):
+    """Jugada (SAN) que mejor explica lo que ven las cámaras, dada la posición anterior.
+
+    Devuelve `False` si no hay modelo de ocupación entrenado y `None` si no hay una jugada clara confirmada.
+    """
+    resultado = _leer_jugada_probable(fen_antes, camaras)
+    return resultado if resultado is False else resultado["jugada"]
+
+
+def detectar_jugada_en_tablero(partida_id: str, camaras: list[str] | None = None) -> dict:
+    """Qué jugada se ve en el tablero físico, SIN aplicarla: para que el jugador confirme cuando no es clara.
+
+    Returns:
+        El resultado de `detectar_jugada_probable`: `estado` (`confirmada`, `sin_cambio` o `dudosa`), `jugada` (SAN) y `uci` si está confirmada,
+        `margen`, `motivo`, `alternativas` (las 3 más probables) y `coronacion_asumida`.
+
+    Raises:
+        KeyError: no existe la partida. ValueError: la partida terminó, o las cámaras pedidas no están calibradas.
+        RuntimeError: cámara no disponible. FileNotFoundError: falta el modelo de ocupación.
+    """
+    partida = obtener_partida(partida_id)
+    if partida.terminada:
+        raise ValueError("La partida ya terminó")
+    resultado = _leer_jugada_probable(partida.fen, camaras)
+    if resultado is False:
+        raise FileNotFoundError("Falta el modelo de ocupación entrenado (training/checkpoints/clasificador_ocupacion.pt)")
+    return resultado
+
+
+def mover_desde_foto(partida_id: str, camaras: list[str] | None = None) -> dict:
     """Detecta la jugada hecha en el tablero físico (RF11) y la aplica igual que `mover()`.
 
     Flujo: (1) el FEN actual de la partida es la posición "antes"; (2) saca
@@ -564,7 +593,7 @@ def mover_desde_foto(partida_id: str) -> dict:
     tablero_antes = chess.Board(fen_antes)
     turno_despues = "b" if tablero_antes.turn == chess.WHITE else "w"
 
-    jugada_san = _detectar_por_ocupacion(fen_antes)
+    jugada_san = _detectar_por_ocupacion(fen_antes, camaras)
     if jugada_san is not False:
         if jugada_san is None:
             raise ValueError(

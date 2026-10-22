@@ -65,19 +65,52 @@ def evaluar_jugadas(fen_antes: str, lecturas: list[Lectura]) -> list[tuple[float
     return sorted(resultados, key=lambda r: r[0], reverse=True)
 
 
+ESTADO_CONFIRMADA = "confirmada"
+ESTADO_SIN_CAMBIO = "sin_cambio"
+ESTADO_DUDOSA = "dudosa"
+MAX_ALTERNATIVAS = 3
+
+
+def _agrupar_coronaciones(ranking: list[tuple[float, chess.Move | None]], margen_minimo: float) -> list[tuple[float, chess.Move | None, bool]]:
+    """Una sola entrada por trayecto (origen y destino): las cuatro coronaciones de un peón (a8=Q, a8=R…) se ven casi igual desde arriba.
+
+    Se queda con la de mayor puntaje y, en empate, con la dama. El tercer valor dice si la pieza de la coronación se asumió porque otra
+    quedó a menos de `margen_minimo` (conviene confirmarla con el jugador).
+    """
+    grupos: dict[tuple[int, int] | None, list[tuple[float, chess.Move | None]]] = {}
+    for puntaje, jugada in ranking:
+        clave = (jugada.from_square, jugada.to_square) if jugada is not None else None
+        grupos.setdefault(clave, []).append((puntaje, jugada))
+    agrupado = []
+    for opciones in grupos.values():
+        opciones.sort(key=lambda o: (round(o[0], 6), o[1] is not None and o[1].promotion == chess.QUEEN), reverse=True)
+        mejor = opciones[0]
+        asumida = len(opciones) > 1 and mejor[0] - opciones[1][0] < margen_minimo
+        agrupado.append((mejor[0], mejor[1], asumida))
+    return sorted(agrupado, key=lambda r: r[0], reverse=True)
+
+
 def detectar_jugada_probable(fen_antes: str, lecturas: list[Lectura], margen_minimo: float = MARGEN_MINIMO) -> dict:
-    """La jugada que mejor explica lo visto, con su margen sobre la siguiente opción.
+    """La jugada que mejor explica lo visto, con su margen sobre la siguiente opción y qué tan segura es.
 
     Returns:
-        `{"jugada": SAN | None, "uci": str | None, "margen": float, "motivo": str}`. `jugada` es `None` si lo más probable es que no se movió
-        nada, o si la mejor opción no le saca `margen_minimo` a la segunda (`motivo` dice cuál de los dos casos).
+        `{"jugada": SAN | None, "uci": str | None, "margen": float, "motivo": str, "estado": str, "alternativas": [...], "coronacion_asumida": bool}`.
+        `estado` es `confirmada` (hay una jugada clara: `jugada` y `uci` vienen llenos), `sin_cambio` (el tablero está como antes) o
+        `dudosa` (la mejor opción no le saca `margen_minimo` a la segunda: `jugada` es `None` y `alternativas` trae las más probables
+        para que las confirme el jugador). Cada alternativa es `{"uci", "san", "puntaje"}` con el puntaje relativo a la mejor (0 la mejor,
+        negativo las demás); `uci` es `None` para «no se movió nada».
     """
-    ranking = evaluar_jugadas(fen_antes, lecturas)
-    (mejor, jugada), (segundo, _) = ranking[0], ranking[1]
-    margen = mejor - segundo
-    if jugada is None:
-        return {"jugada": None, "uci": None, "margen": margen, "motivo": "No se ve ninguna jugada: el tablero está como antes."}
-    if margen < margen_minimo:
-        return {"jugada": None, "uci": None, "margen": margen, "motivo": "Hay dos jugadas casi igual de probables: no se puede decidir con seguridad."}
     tablero = chess.Board(fen_antes)
-    return {"jugada": tablero.san(jugada), "uci": jugada.uci(), "margen": margen, "motivo": "ok"}
+    ranking = _agrupar_coronaciones(evaluar_jugadas(fen_antes, lecturas), margen_minimo)
+    mejor, jugada, asumida = ranking[0]
+    segundo = ranking[1][0] if len(ranking) > 1 else mejor - 100.0
+    margen = mejor - segundo
+    alternativas = [
+        {"uci": j.uci() if j else None, "san": tablero.san(j) if j else None, "puntaje": round(p - mejor, 3)} for p, j, _ in ranking[:MAX_ALTERNATIVAS]
+    ]
+    base = {"margen": margen, "alternativas": alternativas, "coronacion_asumida": False}
+    if margen < margen_minimo:
+        return {**base, "jugada": None, "uci": None, "estado": ESTADO_DUDOSA, "motivo": "Hay dos opciones casi igual de probables: no se puede decidir con seguridad."}
+    if jugada is None:
+        return {**base, "jugada": None, "uci": None, "estado": ESTADO_SIN_CAMBIO, "motivo": "No se ve ninguna jugada: el tablero está como antes."}
+    return {**base, "jugada": tablero.san(jugada), "uci": jugada.uci(), "estado": ESTADO_CONFIRMADA, "motivo": "ok", "coronacion_asumida": asumida}

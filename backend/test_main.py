@@ -582,3 +582,22 @@ def test_usuario_historial_usuario_nuevo_devuelve_vacio() -> None:
 # `test_estadisticas_top_errores_cuenta_blunder_tras_analisis_completo`, que
 # además hace correr `servicio_partida._repositorio` sobre esa misma base
 # para probar el flujo completo de punta a punta.
+
+
+def test_detectar_jugada_sin_token_devuelve_401() -> None:
+    assert cliente.post("/partida/cualquier-id/detectar-jugada").status_code == 401
+
+
+def test_detectar_jugada_de_otro_usuario_devuelve_403_sin_tocar_la_camara() -> None:
+    partida_id = cliente.post("/partida", json={"nivel": 5}, headers=_headers_usuario_nuevo()).json()["id"]
+    respuesta = cliente.post(f"/partida/{partida_id}/detectar-jugada", headers=_headers_usuario_nuevo())
+    assert respuesta.status_code == 403
+
+
+def test_comparar_posicion_sin_token_devuelve_401() -> None:
+    assert cliente.post("/vision/posicion/comparar", json={}).status_code == 401
+
+
+def test_comparar_posicion_con_fen_invalido_devuelve_422() -> None:
+    respuesta = cliente.post("/vision/posicion/comparar", json={"fen": "esto no es un fen"}, headers=_headers_usuario_nuevo())
+    assert respuesta.status_code == 422

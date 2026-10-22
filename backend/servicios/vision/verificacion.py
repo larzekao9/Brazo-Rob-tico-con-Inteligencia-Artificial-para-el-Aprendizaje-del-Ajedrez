@@ -39,6 +39,10 @@ def probabilidades_de_camara(imagen: np.ndarray, camara: str = "principal") -> t
 
 
 def _casillas_de_probabilidades(probs: np.ndarray, nombres: list[str], clases: list[str] | None = None) -> list[dict]:
+    """Las predicciones por casilla, ya sin material imposible (ver `validacion_posicion.limitar_por_material`)."""
+    from backend.servicios.vision.validacion_posicion import limitar_por_material
+
+    probs = limitar_por_material(probs, clases or piezas.clases_del_modelo())
     casillas = []
     for nombre, top in zip(nombres, piezas.mejores_clases(probs, clases=clases)):
         clase, confianza = top[0]

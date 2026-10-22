@@ -105,3 +105,23 @@ def test_con_esquinas_calibradas_guarda_el_cuadro_completo_y_se_borra_con_la_cap
     monkeypatch.setattr(dataset_propio, "_carpeta", lambda: dataset)
     assert dataset_propio.borrar_captura(captura_id) == 64
     assert not (tmp_path / "dataset_propio_cuadros" / f"{captura_id}.json").exists()
+
+
+def test_puntuar_cuenta_ocupacion_y_tipo_de_pieza_solo_en_casillas_con_pieza() -> None:
+    from backend.servicios.vision.jugada_probable import NOMBRES
+    from backend.servicios.vision.modelo_piezas import CLASES
+    from training.evaluar_reconocimiento import puntuar
+
+    verdad = {n: "vacia" for n in NOMBRES}
+    verdad["a1"], verdad["e8"] = "white-rook", "black-king"
+    probs_o = np.zeros((64, 3))
+    probs_p = np.zeros((64, len(CLASES)))
+    for i, nombre in enumerate(NOMBRES):
+        clase = verdad[nombre]
+        probs_o[i, ["vacia", "blanca", "negra"].index("vacia" if clase == "vacia" else "blanca" if clase.startswith("white") else "negra")] = 1
+        probs_p[i, CLASES.index(clase)] = 1
+    probs_p[NOMBRES.index("e8")] = 0
+    probs_p[NOMBRES.index("e8"), CLASES.index("black-queen")] = 1  # el rey negro se lee como dama
+
+    assert puntuar(verdad, probs_o, probs_p, list(CLASES)) == {"ocupacion_ok": 64, "ocupacion_total": 64, "pieza_ok": 1, "pieza_total": 2, "exacta": 1}
+    assert puntuar(verdad, probs_o, None, None)["pieza_total"] == 0

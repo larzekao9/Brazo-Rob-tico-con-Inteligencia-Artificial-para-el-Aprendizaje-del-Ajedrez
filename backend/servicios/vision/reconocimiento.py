@@ -70,13 +70,17 @@ def esquinas_y_margen(imagen: np.ndarray, camara: str = "principal") -> tuple[np
     return detectar_esquinas_tablero(imagen), MARGEN_TABLERO_PORCENTAJE
 
 
-def recortes_de_imagen(imagen: np.ndarray, camara: str = "principal", modo: str | None = None) -> tuple[dict[str, np.ndarray], np.ndarray, float]:
+def recortes_de_imagen(
+    imagen: np.ndarray, camara: str = "principal", modo: str | None = None, esquinas: np.ndarray | None = None
+) -> tuple[dict[str, np.ndarray], np.ndarray, float]:
     """Recortes de las 64 casillas que espera el clasificador de piezas cargado, más las esquinas y el margen usados.
 
     Con la cámara calibrada (margen 0) se usa el recorte con el que se entrenó el modelo (`piezas.modo_recorte`: por volumen 3D o ampliado); si no, el
     recorte justo de cada casilla. Un solo lugar decide, para que entrenamiento, reconocimiento y probador vean lo mismo.
+
+    `esquinas` (en el orden interno a8, h8, h1, a1) fuerza esas esquinas en vez de las calibradas de la cámara: sirve para evaluar con las de una captura guardada.
     """
-    esquinas, margen = esquinas_y_margen(imagen, camara)
+    esquinas, margen = (np.asarray(esquinas, dtype=np.float32), 0.0) if esquinas is not None else esquinas_y_margen(imagen, camara)
     modo = "justo" if margen else (modo or modo_recorte())
     if modo == "volumen":
         from backend.servicios.vision import geometria3d

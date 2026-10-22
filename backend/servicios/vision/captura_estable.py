@@ -21,9 +21,9 @@ ACUERDO_MINIMO = 0.6
 """Fracción de cuadros que deben coincidir en una casilla para darla por vista; por debajo, la lectura se considera inestable."""
 
 
-def ocupacion_de_imagen(imagen: np.ndarray, camara: str = "principal") -> np.ndarray:
-    """Probabilidades `(64, 3)` de una foto de `camara`, en el orden de `casillas` (a8, b8 … h1)."""
-    esquinas, margen = esquinas_y_margen(imagen, camara)
+def ocupacion_de_imagen(imagen: np.ndarray, camara: str = "principal", esquinas: np.ndarray | None = None) -> np.ndarray:
+    """Probabilidades `(64, 3)` de una foto de `camara`, en el orden de `casillas` (a8, b8 … h1). `esquinas` fuerza esas (ver `recortes_de_imagen`)."""
+    esquinas, margen = (np.asarray(esquinas, dtype=np.float32), 0.0) if esquinas is not None else esquinas_y_margen(imagen, camara)
     if not margen and ocupacion.modo_recorte() == "base":
         from backend.servicios.vision import geometria3d
 
@@ -55,6 +55,37 @@ def ocupacion_fusionada(frame_principal: np.ndarray) -> np.ndarray:
         except (RuntimeError, ValueError):
             continue
     return fusionar_probabilidades(lecturas)
+
+
+def ocupacion_de_fotos(fotos: dict[str, np.ndarray]) -> np.ndarray:
+    """Ocupación `(64, 3)` fusionando (producto de las probabilidades) la de cada cámara de `fotos` (`{camara: imagen}`).
+
+    Una cámara cuyo tablero no se detecta se omite; si ninguna sirve, lanza `ValueError`.
+    """
+    lecturas = []
+    for camara, imagen in fotos.items():
+        try:
+            lecturas.append(ocupacion_de_imagen(imagen, camara))
+        except ValueError:
+            continue
+    if not lecturas:
+        raise ValueError("No se detectó el tablero en ninguna cámara")
+    return fusionar_probabilidades(lecturas)
+
+
+def camaras_a_usar(camaras: list[str] | None = None) -> list[str]:
+    """Las cámaras con las que leer: todas las calibradas (`camaras=None`) o solo las pedidas que estén calibradas, en el orden dado.
+
+    Raises:
+        ValueError: ninguna de las pedidas está calibrada.
+    """
+    disponibles = camaras_calibradas()
+    if camaras is None:
+        return disponibles
+    elegidas = [c for c in camaras if c in disponibles]
+    if not elegidas:
+        raise ValueError(f"Ninguna de las cámaras pedidas ({', '.join(camaras) or 'ninguna'}) está calibrada")
+    return elegidas
 
 
 NOMBRES = [f"{c}{f}" for f in range(8, 0, -1) for c in "abcdefgh"]
@@ -99,28 +130,29 @@ def _media_geometrica(matrices: list[np.ndarray]) -> np.ndarray:
     return resultado / resultado.sum(axis=1, keepdims=True)
 
 
-def leer_lecturas_estables(cuadros: int = CUADROS) -> list[Lectura]:
+def leer_lecturas_estables(cuadros: int = CUADROS, camaras: list[str] | None = None) -> list[Lectura]:
     """Lo que ven las cámaras, promediado entre `cuadros` cuadros del video en vivo, listo para `jugada_probable.detectar_jugada_probable`.
 
-    Devuelve la lectura de ocupación (siempre) y la de las 13 clases de pieza si hay un modelo entrenado. Con dos cámaras calibradas cada
-    lectura ya viene fusionada entre ellas.
+    Devuelve la lectura de ocupación (siempre) y la de las 13 clases de pieza si hay un modelo entrenado. `camaras` elige con cuáles leer
+    (`["principal"]`, `["secundaria"]` o las dos); `None` usa todas las calibradas. Con más de una, cada lectura ya viene fusionada entre ellas.
 
     Raises:
         FileNotFoundError: no hay modelo de ocupación entrenado (el que da la base de la jugada).
-        RuntimeError: la cámara no está disponible o dejó de entregar imágenes. ValueError: no se detectó el tablero.
+        RuntimeError: la cámara no está disponible o dejó de entregar imágenes. ValueError: no se detectó el tablero, o las cámaras pedidas no están calibradas.
     """
     from backend.servicios.vision import verificacion
 
+    elegidas = camaras_a_usar(camaras)
+    base = elegidas[0]
     ocupaciones, piezas_leidas, clases_piezas = [], [], None
-    for frame in flujo_de_frames():
-        fotos = {"principal": frame}
-        for camara in camaras_calibradas():
-            if camara != "principal":
-                try:
-                    fotos[camara] = capturar_foto_tablero(camara=camara)
-                except RuntimeError:
-                    continue
-        ocupaciones.append(ocupacion_fusionada(frame))
+    for frame in flujo_de_frames(camara=base):
+        fotos = {base: frame}
+        for camara in elegidas[1:]:
+            try:
+                fotos[camara] = capturar_foto_tablero(camara=camara)
+            except RuntimeError:
+                continue  # la otra cámara falló: se sigue con las que respondan
+        ocupaciones.append(ocupacion_de_fotos(fotos))
         try:
             probs, _, clases_piezas = verificacion.probabilidades_de_piezas(fotos)
             piezas_leidas.append(probs)

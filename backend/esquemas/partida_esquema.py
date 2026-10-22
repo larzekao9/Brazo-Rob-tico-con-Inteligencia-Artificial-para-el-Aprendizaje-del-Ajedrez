@@ -283,3 +283,29 @@ class AnalisisCompletoResponse(BaseModel):
     jugadas: list[JugadaAnalisisResponse] = Field(default_factory=list)
     resumen: ResumenRendimiento | None = None
     calibracion: CalibracionResponse | None = None
+
+
+class AlternativaJugadaResponse(BaseModel):
+    """Una jugada candidata vista en el tablero: `uci` es `None` para «no se movió nada»; `puntaje` es relativo a la mejor (0 la mejor)."""
+
+    uci: str | None
+    san: str | None
+    puntaje: float
+
+
+class JugadaDetectadaResponse(BaseModel):
+    """Qué jugada se ve en el tablero físico y qué tan segura es (sin haberla aplicado)."""
+
+    estado: str
+    jugada: str | None
+    uci: str | None
+    margen: float
+    motivo: str
+    alternativas: list[AlternativaJugadaResponse]
+    coronacion_asumida: bool
+
+
+class DetectarJugadaRequest(BaseModel):
+    """Con qué cámaras leer: `principal`, `secundaria` o ambas; sin lista se usan todas las calibradas."""
+
+    camaras: list[str] | None = None

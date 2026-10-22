@@ -301,6 +301,42 @@ def imagen_control_dataset(_facilitador_id: int = Depends(get_current_facilitado
     return Response(content=ruta.read_bytes(), media_type="image/jpeg")
 
 
+class CompararPosicionRequest(BaseModel):
+    """`fen`: la posición que debería haber (sin él, la inicial); `camaras`: con cuáles leer (`principal`, `secundaria` o ambas; sin lista, todas las calibradas)."""
+
+    fen: str | None = None
+    camaras: list[str] | None = None
+
+
+@router.post("/posicion/comparar")
+def comparar_posicion(cuerpo: CompararPosicionRequest, _usuario_id: int = Depends(get_current_user)) -> dict:
+    """Compara lo que ven las cámaras con la posición esperada (por defecto la inicial) y lista las casillas distintas.
+
+    Sirve para comprobar que las piezas están bien puestas antes de empezar, o para resincronizar a mitad de partida. `estado` es `coincide`,
+    `casi` (hasta 2 casillas distintas, para confirmar a mano) o `no_coincide`; `avisos_tipo` marca casillas con la ocupación correcta pero otra
+    pieza (el tipo de pieza es menos fiable y no decide).
+    """
+    import chess
+
+    from backend.servicios.vision.captura_estable import leer_lecturas_estables
+    from backend.servicios.vision.validacion_posicion import comparar_con_esperada
+
+    fen = cuerpo.fen or chess.STARTING_FEN
+    try:
+        chess.Board(fen)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=f"FEN inválido: {error}") from error
+    try:
+        lecturas = leer_lecturas_estables(camaras=cuerpo.camaras)
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=503, detail="Falta el modelo de ocupación entrenado") from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return comparar_con_esperada(fen, lecturas)
+
+
 @router.get("/dataset/resumen", response_model=ResumenDatasetResponse)
 def resumen_dataset(_facilitador_id: int = Depends(get_current_facilitador)) -> ResumenDatasetResponse:
     """Muestras por clase del dataset propio."""

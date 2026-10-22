@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 from backend.esquemas.analisis_red_esquema import AnalisisRedResponse
 from backend.esquemas.calibracion_esquema import CalibracionResponse
 from backend.esquemas.partida_esquema import (
+    DetectarJugadaRequest,
+    JugadaDetectadaResponse,
     ActualizarPermisosPartidaRequest,
     AnalisisCompletoResponse,
     CrearPartidaRequest,
@@ -41,6 +43,7 @@ from backend.servicios.partida.servicio_partida import (
     limpiar_partidas_inactivas,
     listar_partidas,
     mover,
+    detectar_jugada_en_tablero,
     mover_desde_foto,
     obtener_partida,
     obtener_partida_en_demostracion,
@@ -418,6 +421,7 @@ def tiempo_agotado(
 @router.post("/{partida_id}/mover-desde-foto", response_model=ResultadoMovimientoResponse)
 def mover_partida_desde_foto(
     partida_id: str,
+    cuerpo: DetectarJugadaRequest | None = None,
     usuario_id: int = Depends(get_current_user),
 ) -> ResultadoMovimientoResponse:
     """Detecta la jugada hecha en el tablero físico (cámara fija) y la aplica (RF11).
@@ -427,7 +431,7 @@ def mover_partida_desde_foto(
     """
     _exigir_dueno(partida_id, usuario_id)
     try:
-        resultado = mover_desde_foto(partida_id)
+        resultado = mover_desde_foto(partida_id, cuerpo.camaras if cuerpo else None)
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except (RuntimeError, FileNotFoundError) as error:
@@ -435,6 +439,29 @@ def mover_partida_desde_foto(
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     return ResultadoMovimientoResponse(**resultado)
+
+
+@router.post("/{partida_id}/detectar-jugada", response_model=JugadaDetectadaResponse)
+def detectar_jugada_partida(
+    partida_id: str,
+    cuerpo: DetectarJugadaRequest | None = None,
+    usuario_id: int = Depends(get_current_user),
+) -> JugadaDetectadaResponse:
+    """Qué jugada se ve en el tablero físico y qué tan segura es, SIN aplicarla.
+
+    Si `estado` es `dudosa`, `alternativas` trae las más probables para que el jugador confirme una (con `POST /partida/{id}/mover`).
+    `camaras` elige con cuáles leer (`principal`, `secundaria` o ambas).
+    """
+    _exigir_dueno(partida_id, usuario_id)
+    try:
+        resultado = detectar_jugada_en_tablero(partida_id, cuerpo.camaras if cuerpo else None)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except (RuntimeError, FileNotFoundError) as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return JugadaDetectadaResponse(**resultado)
 
 
 @router.get("/{partida_id}/analisis-red", response_model=AnalisisRedResponse)

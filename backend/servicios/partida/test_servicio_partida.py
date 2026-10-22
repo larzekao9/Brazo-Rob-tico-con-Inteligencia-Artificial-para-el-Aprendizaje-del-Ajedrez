@@ -295,7 +295,7 @@ def test_mover_desde_foto_detecta_y_aplica_la_jugada(monkeypatch: pytest.MonkeyP
     # Simula que la cámara/reconocimiento ya vieron la posición tras 1. e4 —
     # detectar_jugada no usa el turno de fen_despues, así que el valor exacto no importa acá.
     fen_despues_e4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
-    monkeypatch.setattr(servicio_partida, "_detectar_por_ocupacion", lambda fen: False)  # método de respaldo
+    monkeypatch.setattr(servicio_partida, "_detectar_por_ocupacion", lambda fen, camaras=None: False)  # método de respaldo
     monkeypatch.setattr(servicio_partida, "capturar_foto_tablero", lambda: None)
     monkeypatch.setattr(servicio_partida, "reconocer_tablero", lambda imagen, turno: fen_despues_e4)
 
@@ -311,7 +311,7 @@ def test_mover_desde_foto_sin_jugada_legal_que_coincida_lanza_valueerror(
     partida = crear_partida(nivel=5)
     # Posición imposible de alcanzar con una sola jugada legal desde la inicial.
     fen_irreconciliable = "8/8/8/8/8/8/8/8 b - - 0 1"
-    monkeypatch.setattr(servicio_partida, "_detectar_por_ocupacion", lambda fen: False)  # método de respaldo
+    monkeypatch.setattr(servicio_partida, "_detectar_por_ocupacion", lambda fen, camaras=None: False)  # método de respaldo
     monkeypatch.setattr(servicio_partida, "capturar_foto_tablero", lambda: None)
     monkeypatch.setattr(servicio_partida, "reconocer_tablero", lambda imagen, turno: fen_irreconciliable)
 
@@ -321,14 +321,14 @@ def test_mover_desde_foto_sin_jugada_legal_que_coincida_lanza_valueerror(
 
 def test_mover_desde_foto_por_ocupacion_aplica_la_jugada(monkeypatch: pytest.MonkeyPatch) -> None:
     partida = crear_partida(nivel=5)
-    monkeypatch.setattr(servicio_partida, "_detectar_por_ocupacion", lambda fen: "e4")
+    monkeypatch.setattr(servicio_partida, "_detectar_por_ocupacion", lambda fen, camaras=None: "e4")
 
     assert mover_desde_foto(partida.id)["jugadas"][0] == "e4"
 
 
 def test_mover_desde_foto_por_ocupacion_sin_jugada_clara_pide_reintentar(monkeypatch: pytest.MonkeyPatch) -> None:
     partida = crear_partida(nivel=5)
-    monkeypatch.setattr(servicio_partida, "_detectar_por_ocupacion", lambda fen: None)
+    monkeypatch.setattr(servicio_partida, "_detectar_por_ocupacion", lambda fen, camaras=None: None)
 
     with pytest.raises(ValueError, match="sacá la mano"):
         mover_desde_foto(partida.id)
@@ -747,3 +747,41 @@ def test_crear_partida_con_tipo_rechazado_no_cierra_la_partida_pendiente() -> No
     with pytest.raises(ValueError):
         crear_partida(nivel=5, tipo_oponente="humano", usuario_id=4321)
     assert servicio_partida.obtener_partida(pendiente.id).estado == "en_curso"
+
+
+def test_detectar_jugada_en_tablero_devuelve_el_resultado_sin_aplicarlo(monkeypatch: pytest.MonkeyPatch) -> None:
+    partida = crear_partida(nivel=5)
+    pedidas = {}
+    resultado_visto = {"estado": "dudosa", "jugada": None, "uci": None, "margen": 0.5, "motivo": "x", "alternativas": [], "coronacion_asumida": False}
+
+    def _falso(fen, camaras=None):
+        pedidas["camaras"] = camaras
+        return resultado_visto
+
+    monkeypatch.setattr(servicio_partida, "_leer_jugada_probable", _falso)
+
+    assert servicio_partida.detectar_jugada_en_tablero(partida.id, ["secundaria"]) == resultado_visto
+    assert pedidas["camaras"] == ["secundaria"]
+    assert obtener_partida(partida.id).fen == partida.fen  # no se movió nada
+
+
+def test_detectar_jugada_en_tablero_sin_modelo_de_ocupacion_pide_el_modelo(monkeypatch: pytest.MonkeyPatch) -> None:
+    partida = crear_partida(nivel=5)
+    monkeypatch.setattr(servicio_partida, "_leer_jugada_probable", lambda fen, camaras=None: False)
+
+    with pytest.raises(FileNotFoundError):
+        servicio_partida.detectar_jugada_en_tablero(partida.id)
+
+
+def test_mover_desde_foto_pasa_las_camaras_elegidas(monkeypatch: pytest.MonkeyPatch) -> None:
+    partida = crear_partida(nivel=5)
+    pedidas = {}
+
+    def _falso(fen, camaras=None):
+        pedidas["camaras"] = camaras
+        return "e4"
+
+    monkeypatch.setattr(servicio_partida, "_detectar_por_ocupacion", _falso)
+    mover_desde_foto(partida.id, ["principal"])
+
+    assert pedidas["camaras"] == ["principal"]
