@@ -149,7 +149,7 @@ kit genérico con ESP32 que estaba contemplado originalmente en el plan de 3
 semanas), con software propio **DobotStudio**. El usuario compartió un video del
 brazo en la universidad y una ficha técnica (PDF de DIDACTECH).
 
-> Nota de proceso: esto toca directamente la Regla 3 de `CLAUDE.md` ("no tocar el
+> Nota de proceso: esto toca directamente la Regla 3 de las reglas del proyecto ("no tocar el
 > brazo físico real todavía... es una fase posterior, fuera de este plan de 3
 > semanas"). Se marcó explícitamente esa tensión antes de avanzar y se pidió
 > confirmación; el usuario confirmó que quiere investigar y preparar la integración
@@ -277,7 +277,7 @@ DIDACTECH):**
   encoder incremental ABZ. Soporta EtherCAT, Ethernet, Modbus, TCP/IP, EtherNet/IP
   y ROS.
 - 22 funciones de seguridad incorporadas (relevante para el checklist de seguridad
-  de la Sección 6 del CLAUDE.md del proyecto — uso en ambiente universitario con
+  de la Sección 6 de las reglas del proyecto — uso en ambiente universitario con
   estudiantes alrededor).
 
 **Protocolo TCP/IP — más detalle sobre lo ya documentado el 26/09:**
@@ -390,7 +390,7 @@ el ejecutor nunca ve) para confirmar que ya no se desincroniza.
   `False`. Si está prendido, obtiene (lazy, cacheado a nivel módulo) un
   `EjecutorMovimiento` vía `crear_ejecutor_movimiento(modo, **kwargs)`, con `modo`
   desde `AJEDREZ_MODO_BRAZO` (default `"simulado"`, **nunca** `"real"` por defecto —
-  regla 3 del `CLAUDE.md` del proyecto) y, si `modo="real"`, `host`/
+  regla 3 de las reglas del proyecto) y, si `modo="real"`, `host`/
   `puerto_dashboard` desde `AJEDREZ_BRAZO_HOST`/`AJEDREZ_BRAZO_PUERTO_DASHBOARD`.
   Cualquier excepción al ejecutar (brazo desconectado, sin calibración, captura no
   implementada, o incluso el host real sin configurar) se loguea

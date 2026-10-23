@@ -524,3 +524,13 @@ def test_nivel_bajo_sin_jugadas_legales_falla(checkpoint_de_prueba):
     fen_ahogado = "7k/5Q2/6K1/8/8/8/8/8 b - - 0 1"
     with pytest.raises(ValueError):
         predecir_jugada_maestra(fen_ahogado, checkpoint_de_prueba, nivel=0)
+
+
+def test_el_checkpoint_por_defecto_es_el_de_la_version_mas_alta_aunque_el_texto_no_lo_sea(tmp_path) -> None:
+    from backend.servicios.aprendizaje.inferencia import _obtener_checkpoint_por_defecto
+
+    for nombre in ("modelo_jugadas_v5_2026-09-24.pt", "modelo_jugadas_v10_2026-12-01.pt", "modelo_jugadas_v6_2026-10-12.pt"):
+        (tmp_path / nombre).write_bytes(b"")
+
+    assert _obtener_checkpoint_por_defecto(tmp_path).name == "modelo_jugadas_v10_2026-12-01.pt"
+    assert _obtener_checkpoint_por_defecto(tmp_path / "no_existe").name == "modelo_jugadas_v1_2026-09-14.pt"

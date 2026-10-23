@@ -4,7 +4,7 @@ Usa el dataset auto-etiquetado de `dataset_piezas.py` sobre los splits ya
 armados en `dataset_tablero/` (train/valid/test, heredados del dataset de
 Roboflow). Guarda el mejor checkpoint (por accuracy de validación) en
 `training/checkpoints/clasificador_piezas.pt` — ignorado por git, se
-referencia por este script, no se commitea (ver CLAUDE.md).
+referencia por este script, no se commitea (ver las reglas del proyecto).
 
 La arquitectura de la red y el preprocesamiento viven en
 `backend/servicios/vision/modelo_piezas.py`, no acá — así este script y

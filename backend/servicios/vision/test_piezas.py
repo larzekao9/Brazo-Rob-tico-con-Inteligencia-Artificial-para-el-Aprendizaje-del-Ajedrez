@@ -2,7 +2,7 @@
 
 `clasificar_pieza` necesita el checkpoint que genera
 `training/entrenar_clasificador_piezas.py` — ignorado por git (ver
-CLAUDE.md), así que el test que lo usa se saltea si nadie lo entrenó
+las reglas del proyecto), así que el test que lo usa se saltea si nadie lo entrenó
 todavía en esta máquina. El test de manejo de error sí corre siempre.
 """
 from __future__ import annotations

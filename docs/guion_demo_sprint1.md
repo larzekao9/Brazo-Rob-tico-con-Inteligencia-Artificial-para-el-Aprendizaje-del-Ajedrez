@@ -7,7 +7,7 @@ inestable (reconocimiento de tablero sobre un tablero real distinto al
 dataset de entrenamiento) se muestra de forma controlada, no en el momento
 más expuesto de la demo.
 
-Referencia rápida de por qué está armado así: `CLAUDE.md` dice
+Referencia rápida de por qué está armado así: las reglas del proyecto dicen
 *"priorizá siempre lo que se pueda demostrar funcionando por sobre lo que sea
 técnicamente más elegante pero arriesgado de terminar a tiempo"*. Este guión
 sigue esa regla al pie de la letra.
@@ -42,7 +42,7 @@ Una frase: *"Una plataforma de ajedrez con IA — un motor consolidado
 (Stockfish) y, en paralelo, un modelo propio que aprende a jugar y a
 explicar jugadas al estilo humano, con un brazo robótico como capa de
 ejecución física opcional."* No entrar en detalle del brazo acá — se explica
-solo si preguntan, no es el centro (ver `CLAUDE.md`, "Dónde concentrar el
+solo si preguntan, no es el centro (ver las reglas del proyecto, "Dónde concentrar el
 esfuerzo").
 
 ---

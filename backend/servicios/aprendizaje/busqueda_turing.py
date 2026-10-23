@@ -1,7 +1,7 @@
 """Búsqueda de variantes de Turing: la intuición de la red neuronal + cálculo propio de unas pocas jugadas.
 
 La red sola imita jugadas de maestros pero no calcula: no ve que una jugada pierde una pieza dos jugadas después. Este módulo
-le suma lo que le falta, sin consultar a Stockfish (regla 1 de `CLAUDE.md`):
+le suma lo que le falta, sin consultar a Stockfish (regla 1 de las reglas del proyecto):
 
 1. La red propone y puntúa las jugadas (probabilidad de cada jugada legal).
 2. Un buscador propio (negamax con poda alfa-beta, búsqueda de capturas y profundización iterativa) calcula las variantes de

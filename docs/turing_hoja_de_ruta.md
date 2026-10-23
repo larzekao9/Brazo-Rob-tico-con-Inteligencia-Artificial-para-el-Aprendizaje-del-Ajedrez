@@ -4,7 +4,7 @@
 maestro humano, es explicable y tiene su **fuerza medida y versionada**. No se promete igualar a Stockfish (años de
 desarrollo, millones de posiciones por segundo); se promete **un número real** y una curva de mejora comprobable.
 
-**Reglas que no cambian** (`CLAUDE.md`): Turing decide sin Stockfish al jugar; Stockfish solo mide (rival de
+**Reglas que no cambian** (las reglas del proyecto): Turing decide sin Stockfish al jugar; Stockfish solo mide (rival de
 comparación) y puede dar etiquetas durante el entrenamiento; nada de aprendizaje en vivo (solo lotes versionados);
 los checkpoints no se suben a git.
 

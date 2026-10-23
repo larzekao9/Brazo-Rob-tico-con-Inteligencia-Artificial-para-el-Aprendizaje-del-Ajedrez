@@ -14,8 +14,10 @@ en la raíz del repo. Este archivo (`CLAUDE.md`) define reglas de comportamiento
 Estás ayudando a implementar el sistema descrito en `PLAN_IMPLEMENTACION_COMPLETO.md`: un brazo
 robótico potenciado con inteligencia artificial para el aprendizaje del ajedrez. El equipo es
 Suárez Burgos Hebert y Arze Kao Luis Ángel, estudiantes de Ingeniería Informática (UAGRM). Es un
-proyecto académico con fecha de defensa próxima — priorizá siempre lo que se pueda demostrar
-funcionando por sobre lo que sea técnicamente más elegante pero arriesgado de terminar a tiempo.
+proyecto académico con fecha de defensa próxima — **el proyecto tiene que quedar terminado entre
+el 26 y el 27 de octubre de 2026** (Expociencia y presentación al ingeniero). Priorizá siempre lo
+que se pueda demostrar funcionando por sobre lo que sea técnicamente más elegante pero arriesgado
+de terminar a tiempo.
 
 ---
 
@@ -44,9 +46,16 @@ confirmación antes de desviarte.
 2. **Nunca implementar aprendizaje "en vivo" durante una partida en curso.** El modelo solo se
    reentrena en lotes controlados y versionados, después de acumular partidas, nunca de forma
    directa mientras el sistema está en uso.
-3. **No tocar el brazo físico real todavía.** Todo lo que sea ejecución del brazo se hace contra
-   el simulador (PyBullet). La integración con hardware real depende de la llegada del kit
-   importado y es una fase posterior, fuera de este plan de 3 semanas.
+3. **El brazo físico real se mueve solo con estas precauciones.** El kit llegó y su integración
+   (DOBOT CR5AS + pinza DH PGE-50-26) se adelantó por la Expociencia y la fecha de presentación
+   que fijó el ingeniero. El simulador (PyBullet y el gemelo digital 3D) sigue siendo el camino
+   por defecto para desarrollar y probar. El hardware real solo se mueve cuando Hebert avisa que
+   está en el laboratorio, y siempre con: (a) velocidad global al 20 %; (b) una mano en la parada
+   de emergencia; (c) una pieza o casilla nueva se prueba primero sin cerrar la pinza
+   (`--solo-bajar`); (d) cada tipo de pieza con su propia apertura medida (si falta, el ejecutor
+   no mueve nada); (e) con la calibración local (`calibracion_local/`, no se versiona). Lo que ya
+   funciona y lo que falta del brazo está en `docs/bitacora_brazo_robotico.md` y en HU9 de
+   `docs/plan_sprints.md`.
 4. **Fijar versiones exactas en `requirements.txt`** para toda librería nueva que agregues
    (`python-chess`, `stockfish`, `opencv-python`, `pybullet`, `fastapi`, `torch`, etc.). Nunca
    dejar una dependencia sin versión fijada.

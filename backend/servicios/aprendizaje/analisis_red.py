@@ -3,7 +3,7 @@
 Recorre la partida desde su posición inicial y, en cada posición, le pregunta a la red
 qué jugada elegiría (`predecir_top_jugadas`). Después compara esa elección con la jugada
 que realmente se jugó. La red decide sola: acá solo se mide lo que hace en partidas reales,
-sin usar Stockfish para decidir (regla 1 de CLAUDE.md).
+sin usar Stockfish para decidir (regla 1 de las reglas del proyecto).
 
 Uso exclusivo del facilitador: ver `GET /partida/{id}/analisis-red`.
 """

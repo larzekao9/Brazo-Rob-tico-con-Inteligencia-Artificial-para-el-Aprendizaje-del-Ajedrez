@@ -20,8 +20,8 @@ def crear_ejecutor_movimiento(modo: str, **kwargs) -> EjecutorMovimiento:
 
     Args:
         modo: `"simulado"` (PyBullet, `EjecutorSimulado`) o `"real"` (Dobot
-            CR5AS por TCP/IP, `EjecutorReal` — todavía sin cinemática
-            inversa real, ver `EjecutorReal.ejecutar_movimiento`).
+            CR5AS por TCP/IP con su pinza, `EjecutorReal`; hoy mueve jugadas sin
+            captura, ver `EjecutorReal.ejecutar_movimiento`).
         **kwargs: argumentos propios de cada ejecutor. `"real"` requiere al
             menos `host`; si falta, el `TypeError` nativo de la
             instanciación ya explica el problema.

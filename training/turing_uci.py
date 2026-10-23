@@ -2,7 +2,7 @@
 
 Con esta interfaz, Turing se puede conectar a cualquier programa que acepte motores UCI (Arena, Cute Chess, Lichess-bot,
 `python-chess`, etc.), igual que Stockfish. Turing decide solo: red neuronal + filtro táctico (`predecir_jugada_maestra`),
-sin consultar a Stockfish (regla 1 de `CLAUDE.md`).
+sin consultar a Stockfish (regla 1 de las reglas del proyecto).
 
 Uso desde una terminal (queda esperando comandos UCI por la entrada estándar):
 

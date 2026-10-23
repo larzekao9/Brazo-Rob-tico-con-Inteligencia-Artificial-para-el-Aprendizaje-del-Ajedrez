@@ -7,7 +7,7 @@ Este módulo mide lo segundo: juega partidas enteras con la misma lógica que us
 Cada apertura se juega dos veces, cambiando de color, para que ningún lado tenga ventaja. Como el modelo en modo
 maestro es determinista, la variedad sale de las aperturas: hay que dar varias.
 
-Stockfish aparece solo como rival de comparación (regla 1 de `CLAUDE.md`): el modelo decide sus jugadas sin consultarlo.
+Stockfish aparece solo como rival de comparación (regla 1 de las reglas del proyecto): el modelo decide sus jugadas sin consultarlo.
 
 Uso:
     python -m training.enfrentar_modelos --a training/checkpoints/modelo_jugadas_v5_2026-09-24.pt \

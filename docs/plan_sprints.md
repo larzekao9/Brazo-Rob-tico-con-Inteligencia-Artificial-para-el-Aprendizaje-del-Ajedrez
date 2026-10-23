@@ -387,7 +387,7 @@ Ciclo de mejora automática del modelo propio:
   - Coincidencia con Stockfish (%)
 - [ ] **Promoción:** si métricas mejoran → promueve versión; si no → rollback
 
-**Nota importante (regla 1 de `CLAUDE.md`):** El modelo decide **solo**, sin depender de
+**Nota importante (regla 1 de las reglas del proyecto):** El modelo decide **solo**, sin depender de
 Stockfish para jugar. Stockfish es **solo para medir** — comparación paralela, no en el camino
 de decisión.
 
@@ -574,25 +574,37 @@ de DIDACTECH SRL revisada). Tiene protocolo TCP/IP oficial documentado (puertos 
 comandos/30004 feedback, SDK Python oficial `Dobot-Arm/TCP-IP-Python-V4`) — mucho más viable que
 armar un controlador propio desde cero. Software de configuración inicial: DobotStudio Pro
 (activar modo TCP/IP una sola vez, no es lo que habla nuestro backend en tiempo real).
-Conexión real programada para probar en la universidad — pendiente confirmar en persona.
+Conectado y probado en la universidad desde el 2026-10-16 (ver `docs/bitacora_brazo_robotico.md`).
 
-**Todavía sin empezar (el núcleo real de HU9):**
-- [ ] `EjecutorReal` (interfaz `ejecutar_movimiento(origen, destino, captura)`, mismo patrón
-      Strategy que `EjecutorSimulado`) que hable con el Dobot real por TCP/IP — no escrito
-      todavía, ni siquiera un esqueleto; recién se investigó el protocolo, no se implementó.
-- [ ] Cinemática inversa real (coordenadas de casilla del tablero físico → posición XYZ del
-      brazo) — depende de calibrar el tablero físico real contra el espacio de trabajo del Dobot,
-      todavía no hecho.
-- [ ] **Visión para guiar el brazo real (distinto de HU1):** HU1 ya reconoce el tablero desde una
-      foto para actualizar el estado digital de la partida — eso está resuelto desde Sprint 1. Lo
-      que falta es un problema distinto: que el Dobot ubique con precisión una pieza física
-      específica para agarrarla (pick-and-place guiado por cámara), que es lo que dilucida el PDF
-      de DIDACTECH (visión 2D/3D + calibración cámara-robot + herramienta final) — nada de esto
-      arrancó, es trabajo nuevo de HU9, no una extensión de HU1.
+**Estado real de HU9 (2026-10-23).** El brazo ya se mueve de verdad. El proyecto debe quedar terminado el 26 o 27 de
+octubre de 2026 (Expociencia y presentación al ingeniero), así que lo que sigue se prioriza por lo que se pueda mostrar.
+
+Hecho:
+- [x] `ClienteDobot`: conexión TCP/IP al controlador (puerto 29999), lectura de estado y movimiento por pose o ángulos.
+- [x] Calibración del tablero con puntos enseñados en DobotStudio (`scripts/importar_puntos_dobotstudio.py`, ajuste por
+      mínimos cuadrados; se guarda en `calibracion_local/brazo.json`, que no se versiona).
+- [x] Cámara fija calibrada (según los commits del equipo: dos cámaras, geometría 3D, jugada por ocupación de la base
+      y estados de confianza de la jugada detectada).
+- [x] Pinza DH PGE-50-26 por Modbus (`pinza_dh.py`), dedos largos impresos en 3D, agarre con los dedos girados 45° y
+      apertura medida por tipo de pieza (peón 560, caballo 860, dama 840 de 1000).
+- [x] `EjecutorReal`: mueve una pieza de una casilla a otra (sin captura), verifica que la agarró y vuelve a la
+      posición cero. Probado con el brazo real con peón, caballo y dama, a 20 % de velocidad.
+- [x] Conectado a la partida: con `usa_brazo` y `AJEDREZ_MODO_BRAZO=real` ejecuta la respuesta del oponente.
+- [x] Control desde la web: conectar, habilitar, parada, pinza, parámetros, configuraciones guardadas, mover una pieza
+      (con ensayo previo) y posición inicial; más el gemelo digital 3D.
+
+Falta:
+- [ ] Medir la apertura del alfil, la torre y el rey (`scripts/ajustar_apertura_pieza.py`): sin ella el ejecutor no mueve
+      esas piezas.
+- [ ] Capturas (retirar la pieza capturada a una zona fuera del tablero), enroque, captura al paso y coronación (poner
+      la pieza elegida): hoy `EjecutorReal` lanza `NotImplementedError` si la jugada captura.
+- [ ] Verificar con la cámara que la jugada del brazo quedó bien hecha (bucle de verificación).
+- [ ] Verificar la altura Z en las cuatro esquinas con los dedos actuales y pegar goma fina en los dedos.
 - [ ] Integración de punta a punta con al menos 10 posiciones de prueba documentadas.
-- [ ] Colchón de 2-3 días antes de la defensa para bugs de integración.
+- [ ] Colchón de 2-3 días antes de la defensa para bugs de integración (con el plazo del 26-27 de octubre queda
+      reducido: priorizar lo mostrable).
 
-- [ ] HU7, HU8, HU11: interfaz y lógica de cada una — sin empezar (Luis Ángel).
+- [ ] HU7, HU8, HU11: interfaz y lógica de cada una (HU11 tiene hecha la base con los cursos, ver arriba).
 
 ---
 

@@ -30,12 +30,19 @@ from backend.servicios.aprendizaje.modelo_jugadas import (
 from backend.servicios.aprendizaje.niveles import NIVEL_MAESTRO, NIVEL_MAX_MODELO  # noqa: F401
 from training.data_pipeline import board_to_tensor, jugada_a_etiqueta
 
-def _obtener_checkpoint_por_defecto() -> Path:
-    carpeta = Path("training/checkpoints")
+def _numero_de_version(ruta: Path) -> int:
+    """Número de versión de `modelo_jugadas_v<N>_<fecha>.pt` (0 si el nombre no lo trae)."""
+    coincidencia = re.search(r"modelo_jugadas_v(\d+)", ruta.name)
+    return int(coincidencia.group(1)) if coincidencia else 0
+
+
+def _obtener_checkpoint_por_defecto(carpeta: Path = Path("training/checkpoints")) -> Path:
+    """El checkpoint de la versión más alta de `carpeta`. Se compara el NÚMERO de versión, no el texto del nombre
+    (como texto, `v10` quedaría antes que `v5`)."""
     if carpeta.exists():
-        checkpoints = sorted(carpeta.glob("modelo_jugadas_v*.pt"))
+        checkpoints = list(carpeta.glob("modelo_jugadas_v*.pt"))
         if checkpoints:
-            return checkpoints[-1]
+            return max(checkpoints, key=lambda ruta: (_numero_de_version(ruta), ruta.name))
     return Path("training/checkpoints/modelo_jugadas_v1_2026-09-14.pt")
 
 

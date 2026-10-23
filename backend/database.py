@@ -1,7 +1,7 @@
 """Conexión a la base de datos (PostgreSQL) — sección 7 de PLAN_IMPLEMENTACION_COMPLETO.md.
 
 `DATABASE_URL` se lee de una variable de entorno para no hardcodear ninguna
-credencial en el repositorio (ver regla de CLAUDE.md sobre no commitear
+credencial en el repositorio (ver las reglas del proyecto sobre no commitear
 secretos). Si no está seteada, el backend sigue funcionando igual que hasta
 ahora — en memoria, vía `RepositorioPartidasEnMemoria` — porque no todas las
 máquinas del equipo tienen Postgres corriendo (ver `backend/repositorios/repositorio_partida.py::crear_repositorio_partidas`).

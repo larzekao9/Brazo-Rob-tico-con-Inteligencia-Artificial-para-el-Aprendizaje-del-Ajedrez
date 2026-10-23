@@ -9,10 +9,10 @@ __pycache__/
 .envdoc.txt
 
 
-# Configuración local de Claude Code (personal, no compartida)
+# Configuración local personal (no compartida)
 .claude/settings.local.json
 
-# Datasets y checkpoints — no se commitean (ver CLAUDE.md)
+# Datasets y checkpoints — no se commitean (ver las reglas del proyecto)
 *.pgn
 *.pgn.zst
 training/checkpoints/

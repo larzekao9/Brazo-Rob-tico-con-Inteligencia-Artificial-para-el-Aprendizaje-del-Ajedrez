@@ -1,6 +1,6 @@
 """Tutor conversacional "Turing": orquestador ReAct sobre la API de Groq (GroqCloud).
 
-Regla no negociable de este módulo (ver plan del tutor y CLAUDE.md): el LLM
+Regla no negociable de este módulo (ver plan del tutor y las reglas del proyecto): el LLM
 NUNCA inventa reglas de ajedrez ni resume una partida de memoria. Es un
 orquestador que, antes de responder sobre reglas o partidas, tiene que llamar
 a una de las tools de abajo (`regla_pieza`, `regla_general_ajedrez`,

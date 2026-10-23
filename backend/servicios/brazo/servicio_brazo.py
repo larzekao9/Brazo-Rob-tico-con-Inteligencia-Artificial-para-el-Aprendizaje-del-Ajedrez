@@ -52,11 +52,10 @@ def _obtener_ejecutor() -> EjecutorMovimiento:
     de movimiento configurado para todo el backend.
 
     El modo sale de `AJEDREZ_MODO_BRAZO` — `"simulado"` por defecto. Nunca
-    `"real"` por defecto (regla 3 de `CLAUDE.md`: no tocar el brazo físico
-    real todavía, salvo prueba explícita en el sitio, que no pasó). Los
-    kwargs de `EjecutorReal` (host, puerto) también salen de variables de
-    entorno en vez de ir hardcodeados acá, porque todavía no hay un host de
-    Dobot ni una calibración de sitio fijos para este proyecto.
+    `"real"` por defecto (regla 3 de las reglas del proyecto: el brazo físico solo se
+    mueve en el laboratorio y con sus precauciones). En modo `"real"` el host del
+    Dobot sale de `AJEDREZ_BRAZO_HOST` y la calibración y los parámetros de agarre de
+    `calibracion_local/brazo.json`; si falta alguno, no se mueve nada.
     """
     global _ejecutor
     if _ejecutor is not None:

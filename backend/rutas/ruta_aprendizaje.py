@@ -115,7 +115,7 @@ def inferencia_endpoint(request: InferenciaModeloRequest) -> InferenciaModeloRes
         saliencia = calcular_saliencia(request.fen)
         atencion_por_bloque = calcular_atencion(request.fen)
 
-        # Comparación como oráculo (regla 1 del CLAUDE.md del proyecto): nunca decide la
+        # Comparación como oráculo (regla 1 de las reglas del proyecto): nunca decide la
         # jugada, solo mide qué tan buena fue la elegida por el modelo. Mismo patrón de
         # "antes/después con signo invertido" que `servicio_partida.analisis_completo`.
         antes = analizar_posicion(request.fen, nivel=20, tiempo_limite=0.5)
