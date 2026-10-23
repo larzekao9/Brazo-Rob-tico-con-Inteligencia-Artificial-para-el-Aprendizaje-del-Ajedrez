@@ -43,7 +43,9 @@ def obtener_engine() -> Engine:
     db_url = os.environ.get("DATABASE_URL") or DATABASE_URL or "sqlite:///./ajedrez.db"
     if db_url.startswith("sqlite"):
         return create_engine(db_url, connect_args={"check_same_thread": False})
-    return create_engine(db_url, connect_args={"options": "-c timezone=utc"})
+    # `pool_pre_ping`: antes de usar una conexión del pool comprueba que siga viva. Sin esto, tras reiniciar Postgres, dormir la máquina o un corte de red,
+    # la primera consulta usa una conexión muerta y la ruta responde 500 (después se recupera sola).
+    return create_engine(db_url, connect_args={"options": "-c timezone=utc"}, pool_pre_ping=True)
 
 
 def fecha_a_iso(valor: datetime | None) -> str | None:
