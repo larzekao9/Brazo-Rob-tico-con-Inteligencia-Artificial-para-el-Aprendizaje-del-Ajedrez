@@ -175,3 +175,26 @@ def test_corregir_capturas_invertidas_gira_las_esquinas_y_vuelve_a_recortar(tmp_
     recorte_a1 = cv2.imread(str(dataset / "white-rook" / f"{captura_id}_a1.png"))
     assert recorte_a1.mean() > 120  # ahora la "torre blanca" de a1 es el disco claro
     assert capturar.corregir_capturas_invertidas() == []
+
+
+def test_captura_de_una_pieza_guarda_las_demas_como_vacias_seguras(tmp_path, monkeypatch) -> None:
+    import json
+
+    from backend.servicios.vision.test_validacion_orientacion import foto_con_piezas
+
+    capturar, dataset = _preparar_captura_calibrada(tmp_path, monkeypatch)
+    captura_id, guardadas = capturar.capturar_muestras_con_id(
+        "8/8/8/8/4P3/8/8/8", imagen=foto_con_piezas({"e4": "white-pawn"}), solo_piezas=True
+    )
+    manifiesto = json.loads((tmp_path / "dataset_propio_cuadros" / f"{captura_id}.json").read_text())
+    assert guardadas == 1 and manifiesto["etiquetas"] == {"e4": "white-pawn"}
+    assert len(manifiesto["vacias_seguras"]) == 63 and "e4" not in manifiesto["vacias_seguras"]
+    assert not (dataset / "vacia").exists()  # las vacías no van al dataset de piezas
+
+
+def test_captura_completa_no_agrega_vacias_seguras(tmp_path, monkeypatch) -> None:
+    import json
+
+    capturar, _ = _preparar_captura_calibrada(tmp_path, monkeypatch)
+    captura_id, _ = capturar.capturar_muestras_con_id("8/8/8/8/8/8/8/8", imagen=np.full((750, 900, 3), 110, np.uint8))
+    assert "vacias_seguras" not in json.loads((tmp_path / "dataset_propio_cuadros" / f"{captura_id}.json").read_text())

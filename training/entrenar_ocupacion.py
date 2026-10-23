@@ -28,10 +28,27 @@ TAMANO_LOTE = 16
 
 MINIMO_BASE = 100
 """Casillas con cuadro completo que hacen falta para entrenar con el recorte de la base."""
+DISTANCIA_VACIAS_SEGURAS = 2
+"""De las `vacias_seguras` de una captura de pocas piezas se usan las que están a esta distancia (en casillas, contando diagonales) o menos
+de alguna pieza: es donde cae la cabeza de una pieza inclinada, el caso que el modelo confundía con "ocupada". Las lejanas son casillas
+vacías comunes, que ya sobran, y solo desbalancearían las clases."""
+
+
+def _distancia(a: str, b: str) -> int:
+    return max(abs(ord(a[0]) - ord(b[0])), abs(int(a[1]) - int(b[1])))
+
+
+def vacias_cercanas(datos: dict) -> list[str]:
+    """Las `vacias_seguras` del manifiesto `datos` a `DISTANCIA_VACIAS_SEGURAS` o menos de alguna pieza de sus `etiquetas`."""
+    piezas = [c for c, clase in datos["etiquetas"].items() if clase != "vacia"]
+    return [c for c in datos.get("vacias_seguras", []) if any(_distancia(c, p) <= DISTANCIA_VACIAS_SEGURAS for p in piezas)]
 
 
 def _cargar_base() -> list[tuple[np.ndarray, str, str]]:
-    """`(recorte de la huella, ocupación, captura)` de cada casilla guardada con su cuadro completo (ver `geometria3d.recortes_base`)."""
+    """`(recorte de la huella, ocupación, captura)` de cada casilla guardada con su cuadro completo (ver `geometria3d.recortes_base`).
+
+    Además de las casillas etiquetadas, suma como "vacia" las `vacias_seguras` cercanas a una pieza (`vacias_cercanas`), siempre que la captura
+    siga en el dataset (que tenga alguno de sus recortes: si se deshizo, no se usa)."""
     import json
 
     import cv2
@@ -52,9 +69,13 @@ def _cargar_base() -> list[tuple[np.ndarray, str, str]]:
             )
         except ValueError:
             continue
+        vigente = False
         for casilla, clase in datos["etiquetas"].items():
             if (CARPETA_DATASET_PROPIO / clase / f"{manifiesto.stem}_{casilla}.png").exists():
                 muestras.append((recortes[casilla], clase_a_ocupacion(clase), manifiesto.stem))
+                vigente = True
+        if vigente:
+            muestras += [(recortes[casilla], "vacia", manifiesto.stem) for casilla in vacias_cercanas(datos)]
     return muestras
 
 

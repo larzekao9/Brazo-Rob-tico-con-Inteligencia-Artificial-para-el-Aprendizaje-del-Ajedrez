@@ -147,24 +147,27 @@ def _recortes_volumen(imagen: np.ndarray, esquinas: np.ndarray, camara: str) -> 
 def _guardar_cuadro(
     marca: int, imagen: np.ndarray, esquinas: np.ndarray, ocupacion: dict[str, str], solo_piezas: bool, camara: str = "principal", grupo: str | None = None
 ) -> None:
-    """Guarda la foto completa y el manifiesto de la captura `marca` (ver `carpeta_cuadros()`)."""
+    """Guarda la foto completa y el manifiesto de la captura `marca` (ver `carpeta_cuadros()`).
+
+    Con `solo_piezas`, `etiquetas` tiene solo las casillas de las piezas (son las únicas que van al dataset de piezas) y `vacias_seguras` el
+    resto: en ese modo el tablero tiene únicamente esas piezas, así que las demás casillas están vacías. Las usa el clasificador de ocupación
+    para aprender que la cabeza de una pieza inclinada sobre la casilla vecina no es otra pieza (ver `entrenar_ocupacion`).
+    """
     import json
 
     destino = carpeta_cuadros()
     destino.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(destino / f"{marca}.jpg"), imagen, [cv2.IMWRITE_JPEG_QUALITY, 95])
-    etiquetas = dict(ocupacion) if solo_piezas else {c: ocupacion.get(c, CLASE_VACIA) for c in (f"{f}{r}" for f in "abcdefgh" for r in "12345678")}
-    (destino / f"{marca}.json").write_text(
-        json.dumps(
-            {
-                "esquinas": [[float(x), float(y)] for x, y in np.asarray(esquinas)],
-                "etiquetas": etiquetas,
-                "camara": camara,
-                "grupo": grupo or str(marca),  # las fotos de varias cámaras de un mismo instante comparten grupo
-            }
-        ),
-        encoding="utf-8",
-    )
+    etiquetas = dict(ocupacion) if solo_piezas else {c: ocupacion.get(c, CLASE_VACIA) for c in _CASILLAS}
+    manifiesto = {
+        "esquinas": [[float(x), float(y)] for x, y in np.asarray(esquinas)],
+        "etiquetas": etiquetas,
+        "camara": camara,
+        "grupo": grupo or str(marca),  # las fotos de varias cámaras de un mismo instante comparten grupo
+    }
+    if solo_piezas:
+        manifiesto["vacias_seguras"] = [c for c in _CASILLAS if c not in ocupacion]
+    (destino / f"{marca}.json").write_text(json.dumps(manifiesto), encoding="utf-8")
 
 
 def capturar_muestras(fen_piezas: str, ruta_imagen: str | None = None) -> int:
