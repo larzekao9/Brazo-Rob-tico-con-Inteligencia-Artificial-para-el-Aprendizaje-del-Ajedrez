@@ -34,6 +34,7 @@ from backend.rutas.ruta_entrenamiento import router as entrenamiento_router
 from backend.servicios.facilitador.servicio_videos import MEDIA_VIDEOS_DIR, URL_BASE_VIDEOS_PIEZAS
 from backend.servicios.partida.servicio_partida import limpiar_partidas_inactivas
 from backend.servicios.sala import limpiar_salas_inactivas
+from backend.servicios.medallas.servicio_medallas import MEDIA_MEDALLAS_DIR, URL_BASE_MEDALLAS
 from backend.servicios.usuario.servicio_avatar import MEDIA_AVATARES_DIR, URL_BASE_AVATARES
 
 logger = logging.getLogger(__name__)
@@ -91,6 +92,9 @@ app.mount(URL_BASE_VIDEOS_PIEZAS, StaticFiles(directory=MEDIA_VIDEOS_DIR), name=
 
 MEDIA_AVATARES_DIR.mkdir(parents=True, exist_ok=True)
 app.mount(URL_BASE_AVATARES, StaticFiles(directory=MEDIA_AVATARES_DIR), name="avatares")
+
+MEDIA_MEDALLAS_DIR.mkdir(parents=True, exist_ok=True)
+app.mount(URL_BASE_MEDALLAS, StaticFiles(directory=MEDIA_MEDALLAS_DIR), name="medallas")
 
 
 @app.get("/health")

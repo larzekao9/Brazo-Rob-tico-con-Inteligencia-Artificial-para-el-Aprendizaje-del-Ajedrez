@@ -119,6 +119,10 @@ _COLUMNAS_AGREGADAS: dict[str, dict[str, str]] = {
         "descripcion": "VARCHAR",
         "preset_ensenanza": "VARCHAR",
     },
+    "curso": {
+        "cupo": "INTEGER NOT NULL DEFAULT 60",
+        "preset_ensenanza": "VARCHAR",
+    },
     "partida": {
         "permite_simulacion_3d": "BOOLEAN NOT NULL DEFAULT FALSE",
         "permite_camara": "BOOLEAN NOT NULL DEFAULT FALSE",

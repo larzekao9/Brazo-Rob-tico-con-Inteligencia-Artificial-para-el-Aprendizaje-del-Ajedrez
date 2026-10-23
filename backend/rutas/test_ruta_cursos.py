@@ -391,3 +391,111 @@ def test_un_curso_no_puede_pasarse_a_un_facilitador_con_el_cupo_lleno(contexto, 
     respuesta = cliente.patch(f"/cursos/{curso['id']}", json={"facilitador_id": lleno["id"]}, headers=principal["headers"])
 
     assert respuesta.status_code == 400 and "máximo" in respuesta.json()["detail"]
+
+
+# --- cupo de alumnos por curso ------------------------------------------------------------------------------------
+def test_el_curso_nace_con_cupo_60_o_el_que_elige_el_creador_y_tiene_tope_120(contexto) -> None:
+    cliente, registrar, _ = contexto
+    facilitador = registrar("prof@test.com", "facilitador")
+
+    assert _crear(cliente, facilitador)["cupo"] == 60
+    creado = cliente.post("/cursos", json={"nombre": "Curso chico", "cupo": 2}, headers=facilitador["headers"])
+    assert creado.status_code == 201 and creado.json()["cupo"] == 2
+    for invalido in (0, 121, -5):
+        assert cliente.post("/cursos", json={"nombre": "Mal cupo", "cupo": invalido}, headers=facilitador["headers"]).status_code == 422
+
+
+def test_un_curso_lleno_rechaza_a_otro_jugador_sin_contarlo_como_codigo_mal_escrito(contexto) -> None:
+    cliente, registrar, _ = contexto
+    facilitador = registrar("prof@test.com", "facilitador")
+    uno, dos, tres = registrar("a@test.com"), registrar("b@test.com"), registrar("c@test.com")
+    curso = cliente.post("/cursos", json={"nombre": "De dos", "cupo": 2}, headers=facilitador["headers"]).json()
+    assert _unirse(cliente, uno, curso["codigo"]).status_code == 200
+    assert _unirse(cliente, dos, curso["codigo"]).status_code == 200
+
+    for _ in range(MAX_INTENTOS_FALLIDOS + 2):  # muchos rechazos por curso lleno: nunca llega al 429
+        respuesta = _unirse(cliente, tres, curso["codigo"])
+        assert respuesta.status_code == 400 and "completo" in respuesta.json()["detail"]
+    assert _unirse(cliente, uno, curso["codigo"]).status_code == 200  # quien ya está adentro no queda afuera
+    assert cliente.get("/cursos", headers=facilitador["headers"]).json()[0]["estudiantes"] == 2
+
+
+def test_subir_el_cupo_deja_entrar_y_no_se_puede_bajar_por_debajo_de_los_inscritos(contexto) -> None:
+    cliente, registrar, _ = contexto
+    facilitador, uno, dos = registrar("prof@test.com", "facilitador"), registrar("a@test.com"), registrar("b@test.com")
+    curso = cliente.post("/cursos", json={"nombre": "De uno", "cupo": 1}, headers=facilitador["headers"]).json()
+    _unirse(cliente, uno, curso["codigo"])
+    assert _unirse(cliente, dos, curso["codigo"]).status_code == 400
+
+    bajar = cliente.patch(f"/cursos/{curso['id']}", json={"cupo": 1}, headers=facilitador["headers"])
+    assert bajar.status_code == 200  # igual a los inscritos: permitido
+    subir = cliente.patch(f"/cursos/{curso['id']}", json={"cupo": 5}, headers=facilitador["headers"])
+    assert subir.status_code == 200 and subir.json()["cupo"] == 5
+    assert _unirse(cliente, dos, curso["codigo"]).status_code == 200
+
+    demasiado_bajo = cliente.patch(f"/cursos/{curso['id']}", json={"cupo": 1}, headers=facilitador["headers"])
+    assert demasiado_bajo.status_code == 400 and "2 alumnos" in demasiado_bajo.json()["detail"]
+    assert cliente.patch(f"/cursos/{curso['id']}", json={"cupo": 500}, headers=facilitador["headers"]).status_code == 422
+
+
+def test_una_base_con_la_tabla_curso_vieja_recibe_la_columna_cupo() -> None:
+    from sqlalchemy import create_engine, inspect, text
+    from sqlalchemy.pool import StaticPool
+
+    from backend.database import _agregar_columnas_faltantes
+
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    with engine.begin() as conexion:
+        conexion.execute(text("CREATE TABLE curso (id INTEGER PRIMARY KEY, nombre VARCHAR NOT NULL, facilitador_id INTEGER, codigo VARCHAR)"))
+        conexion.execute(text("INSERT INTO curso (id, nombre, facilitador_id, codigo) VALUES (1, 'Viejo', 1, 'AAA111')"))
+
+    _agregar_columnas_faltantes(engine)
+
+    columnas = {c["name"] for c in inspect(engine).get_columns("curso")}
+    assert {"cupo", "preset_ensenanza"} <= columnas
+    with engine.connect() as conexion:
+        assert conexion.execute(text("SELECT cupo FROM curso WHERE id = 1")).scalar() == 60  # los cursos ya creados quedan en 60
+
+
+# --- tono de Turing por curso -------------------------------------------------------------------------------------
+def test_el_tono_propio_del_curso_manda_sobre_el_del_facilitador_y_se_puede_volver_a_heredar(contexto) -> None:
+    cliente, registrar, fabrica = contexto
+    profe, jugador = registrar("prof@test.com", "facilitador"), registrar("j@test.com")
+    cliente.patch("/auth/me", json={"preset_ensenanza": "adultos"}, headers=profe["headers"])
+    sin_tono = _crear(cliente, profe, "Hereda")
+    con_tono = cliente.post("/cursos", json={"nombre": "De niños", "preset_ensenanza": "infantil"}, headers=profe["headers"]).json()
+
+    assert (sin_tono["preset_ensenanza"], sin_tono["preset_efectivo"]) == (None, "adultos")
+    assert (con_tono["preset_ensenanza"], con_tono["preset_efectivo"]) == ("infantil", "infantil")
+
+    assert _unirse(cliente, jugador, con_tono["codigo"]).json()["preset_ensenanza"] == "infantil"
+    with fabrica() as sesion:
+        assert preset_efectivo(sesion, sesion.get(UsuarioORM, jugador["id"])) == "infantil"
+
+    heredar = cliente.patch(f"/cursos/{con_tono['id']}", json={"preset_ensenanza": "facilitador"}, headers=profe["headers"]).json()
+    assert (heredar["preset_ensenanza"], heredar["preset_efectivo"]) == (None, "adultos")
+    assert cliente.get("/cursos/mio", headers=jugador["headers"]).json()["preset_ensenanza"] == "adultos"
+    with fabrica() as sesion:
+        assert preset_efectivo(sesion, sesion.get(UsuarioORM, jugador["id"])) == "adultos"
+
+    cambiado = cliente.patch(f"/cursos/{con_tono['id']}", json={"preset_ensenanza": "estandar"}, headers=profe["headers"]).json()
+    assert cambiado["preset_efectivo"] == "estandar"
+    # editar otra cosa no toca el tono
+    assert cliente.patch(f"/cursos/{con_tono['id']}", json={"nombre": "Otro nombre"}, headers=profe["headers"]).json()["preset_ensenanza"] == "estandar"
+    assert cliente.post("/cursos", json={"nombre": "Mal tono", "preset_ensenanza": "gracioso"}, headers=profe["headers"]).status_code == 422
+
+
+def test_un_curso_reasignado_conserva_su_tono_propio(contexto, monkeypatch) -> None:
+    cliente, registrar, _ = contexto
+    principal, viejo, nuevo = registrar("admin@test.com", "facilitador"), registrar("viejo@test.com", "facilitador"), registrar("nuevo@test.com", "facilitador")
+    cliente.patch("/auth/me", json={"preset_ensenanza": "adultos"}, headers=nuevo["headers"])
+    curso = cliente.post("/cursos", json={"nombre": "Infantil", "preset_ensenanza": "infantil"}, headers=viejo["headers"]).json()
+    sin_tono = _crear(cliente, viejo, "Sin tono")
+    _solo_principal(monkeypatch, "admin@test.com")
+
+    for c in (curso, sin_tono):
+        assert cliente.patch(f"/cursos/{c['id']}", json={"facilitador_id": nuevo["id"]}, headers=principal["headers"]).status_code == 200
+
+    por_nombre = {c["nombre"]: c for c in cliente.get("/cursos", headers=nuevo["headers"]).json()}
+    assert por_nombre["Infantil"]["preset_efectivo"] == "infantil"  # conserva el suyo
+    assert por_nombre["Sin tono"]["preset_efectivo"] == "adultos"  # pasa a heredar el del nuevo facilitador

@@ -10,11 +10,14 @@ from sqlalchemy.orm import Session
 
 from backend.database import fecha_a_iso
 from backend.esquemas.curso_esquema import (
+    AlumnoReporteResponse,
     CrearCursoRequest,
     CursoDelJugadorResponse,
     CursoResponse,
     EditarCursoRequest,
     EstudianteDeCursoResponse,
+    RankingResponse,
+    ReporteCursoResponse,
     UnirseCursoRequest,
 )
 from backend.modelos.tablas_orm import CursoORM
@@ -22,7 +25,8 @@ from backend.rutas.ruta_auth import _cliente_de, _exigir_intentos_disponibles, g
 from backend.servicios.auth import get_user_by_id
 from backend.servicios.auth.servicio_invitaciones import registrar_intento_fallido
 from backend.servicios.curso import servicio_cursos as cursos
-from backend.servicios.curso.servicio_cursos import ErrorCurso
+from backend.servicios.curso import servicio_reporte as reportes
+from backend.servicios.curso.servicio_cursos import CursoCompleto, ErrorCurso
 
 router = APIRouter(prefix="/cursos", tags=["cursos"])
 
@@ -34,6 +38,9 @@ def _respuesta_curso(db: Session, curso: CursoORM, estudiantes: int) -> CursoRes
         nombre=curso.nombre,
         codigo=cursos.formatear_codigo(curso.codigo),
         acepta_ingresos=curso.acepta_ingresos,
+        cupo=curso.cupo,
+        preset_ensenanza=curso.preset_ensenanza,
+        preset_efectivo=cursos.preset_de_curso(db, curso),
         estudiantes=estudiantes,
         creado_en=fecha_a_iso(curso.creado_en),
         facilitador_id=curso.facilitador_id,
@@ -65,7 +72,7 @@ def _respuesta_del_jugador(db: Session, curso: CursoORM) -> CursoDelJugadorRespo
         nombre=curso.nombre,
         facilitador_nombre=facilitador.nombre,
         facilitador_avatar_url=facilitador.avatar_url,
-        preset_ensenanza=facilitador.preset_ensenanza,
+        preset_ensenanza=cursos.preset_de_curso(db, curso),
     )
 
 
@@ -84,6 +91,8 @@ def unirse(
     usuario = get_user_by_id(db, user_id)
     try:
         curso = cursos.unirse_con_codigo(db, usuario, data.codigo)
+    except CursoCompleto as error:  # el código era correcto: no cuenta como intento fallido
+        raise HTTPException(status_code=400, detail=str(error)) from error
     except ErrorCurso as error:
         registrar_intento_fallido(cliente)
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -103,6 +112,26 @@ def videos_para_mi(user_id: int = Depends(get_current_user), db: Session = Depen
     jugadores, con o sin curso; si el facilitador del curso del jugador subió el suyo para una pieza, ese reemplaza al
     general de esa pieza. Una pieza sin video en ninguno de los dos no aparece."""
     return cursos.videos_visibles(db, user_id)
+
+
+@router.get("/ranking", response_model=RankingResponse, summary="Ranking por nivel (de mi curso o de los jugadores sin curso)")
+def ranking(
+    limite: int = reportes.LIMITE_POR_DEFECTO,
+    curso_id: int | None = None,
+    user_id: int = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> RankingResponse:
+    """Ranking por nivel (el que mide la calibración de cada partida). Un jugador inscrito en un curso ve el de su
+    curso; uno sin curso ve el de los jugadores sin curso. Se muestran los primeros `limite` (10 por defecto, máximo 20)
+    con nombre y apellido abreviado, más la fila propia si quedó afuera. Un facilitador puede pasar `curso_id` para ver
+    el de uno de sus cursos (el principal, el de cualquiera)."""
+    usuario = get_user_by_id(db, user_id)
+    curso = None
+    if curso_id is not None:
+        if usuario.rol != "facilitador":
+            raise HTTPException(status_code=403, detail="Solo un facilitador puede ver el ranking de un curso ajeno")
+        curso = _del_facilitador(db, curso_id, user_id)
+    return RankingResponse(**reportes.ranking(db, usuario, limite, curso))
 
 
 @router.post("/salir", status_code=status.HTTP_204_NO_CONTENT, summary="Salir del curso (jugador)")
@@ -128,7 +157,7 @@ def crear_curso(
     try:
         if dueno_id != facilitador_id:
             cursos.facilitador_asignable(db, dueno_id)
-        curso = cursos.crear_curso(db, dueno_id, data.nombre)
+        curso = cursos.crear_curso(db, dueno_id, data.nombre, data.cupo, data.preset_ensenanza)
     except ErrorCurso as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     return _respuesta_curso(db, curso, 0)
@@ -163,7 +192,7 @@ def editar_curso(
     try:
         if data.facilitador_id is not None:
             curso = cursos.reasignar_curso(db, curso, data.facilitador_id)  # primero lo que puede fallar
-        curso = cursos.actualizar_curso(db, curso, data.nombre, data.acepta_ingresos)
+        curso = cursos.actualizar_curso(db, curso, data.nombre, data.acepta_ingresos, data.cupo, data.preset_ensenanza)
     except ErrorCurso as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     return _respuesta_curso(db, curso, len(cursos.estudiantes_del_curso(db, curso)))
@@ -189,6 +218,22 @@ def eliminar_curso(
     """Borra el curso. Sus estudiantes no se borran: quedan sin curso."""
     cursos.eliminar_curso(db, _del_facilitador(db, curso_id, facilitador_id))
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{curso_id}/reporte", response_model=ReporteCursoResponse, summary="Reporte de participación y progreso del curso")
+def reporte(
+    curso_id: int,
+    facilitador_id: int = Depends(get_current_facilitador),
+    db: Session = Depends(get_db),
+) -> ReporteCursoResponse:
+    """Indicadores del curso (alumnos activos en los últimos 7 días, partidas por alumno en la semana y precisión de la
+    primera semana frente a la última) y una fila por alumno, ordenada por puesto en el ranking."""
+    datos = reportes.reporte_curso(db, _del_facilitador(db, curso_id, facilitador_id))
+    datos["alumnos"] = [
+        AlumnoReporteResponse(**{**fila, "ultima_partida": fecha_a_iso(fila["ultima_partida"]) if fila["ultima_partida"] else None})
+        for fila in datos["alumnos"]
+    ]
+    return ReporteCursoResponse(**datos)
 
 
 @router.get(

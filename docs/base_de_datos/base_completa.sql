@@ -93,6 +93,8 @@ CREATE TABLE curso (
 	facilitador_id INTEGER NOT NULL, 
 	codigo VARCHAR NOT NULL, 
 	acepta_ingresos BOOLEAN DEFAULT 'true' NOT NULL, 
+	cupo INTEGER DEFAULT '60' NOT NULL, 
+	preset_ensenanza VARCHAR, 
 	creado_en TIMESTAMP WITHOUT TIME ZONE DEFAULT now() NOT NULL, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(facilitador_id) REFERENCES usuario (id)
@@ -113,6 +115,19 @@ CREATE TABLE exportacion_dataset (
 	FOREIGN KEY(usuario_id) REFERENCES usuario (id)
 );
 CREATE INDEX ix_exportacion_dataset_usuario_id ON exportacion_dataset (usuario_id);
+
+-- medalla_ganada: Medallas (figuritas) que cada jugador ya ganó, con la fecha. Son permanentes. El catálogo de medallas vive en el código (`backend/servicios/medallas/catalogo.py`).
+CREATE TABLE medalla_ganada (
+	id SERIAL NOT NULL, 
+	usuario_id INTEGER NOT NULL, 
+	codigo VARCHAR NOT NULL, 
+	ganada_en TIMESTAMP WITHOUT TIME ZONE DEFAULT now() NOT NULL, 
+	vista_en TIMESTAMP WITHOUT TIME ZONE, 
+	PRIMARY KEY (id), 
+	CONSTRAINT uq_medalla_ganada_usuario_codigo UNIQUE (usuario_id, codigo), 
+	FOREIGN KEY(usuario_id) REFERENCES usuario (id)
+);
+CREATE INDEX ix_medalla_ganada_usuario_id ON medalla_ganada (usuario_id);
 
 -- mensaje_tutor: Historial de la conversación de cada jugador con el tutor Turing (memoria multi-turno).
 CREATE TABLE mensaje_tutor (
@@ -242,6 +257,8 @@ COMMENT ON COLUMN curso.nombre IS 'Nombre del curso, que elige el facilitador (p
 COMMENT ON COLUMN curso.facilitador_id IS 'Facilitador dueño del curso. FK → usuario.id.';
 COMMENT ON COLUMN curso.codigo IS 'Código de 6 caracteres (alfabeto sin ambiguos) que el facilitador le da a la clase. Es único, sirve para muchos jugadores y se guarda en claro porque solo permite entrar al curso como jugador.';
 COMMENT ON COLUMN curso.acepta_ingresos IS 'Si es falso, el código no deja entrar a nadie más; los ya inscritos siguen.';
+COMMENT ON COLUMN curso.cupo IS 'Cantidad máxima de jugadores que pueden inscribirse, de 1 a 120 (60 por defecto). Lo define quien crea el curso.';
+COMMENT ON COLUMN curso.preset_ensenanza IS 'Tono con el que Turing les habla a los jugadores de este curso: infantil, estandar o adultos. Nulo = se usa el tono que eligió el facilitador en su perfil.';
 COMMENT ON COLUMN curso.creado_en IS 'Fecha y hora de creación.';
 COMMENT ON TABLE exportacion_dataset IS 'Una fila por cada vez que un facilitador descargó el dataset de partidas para reentrenar el modelo propio (HU4, todavía pendiente de construir).';
 COMMENT ON COLUMN exportacion_dataset.id IS 'Identificador de la descarga.';
@@ -251,6 +268,12 @@ COMMENT ON COLUMN exportacion_dataset.corte_en IS 'Instante de corte de esta des
 COMMENT ON COLUMN exportacion_dataset.cantidad_partidas IS 'Cuántas partidas incluyó esta descarga.';
 COMMENT ON COLUMN exportacion_dataset.cantidad_jugadas IS 'Cuántas jugadas del jugador incluyó esta descarga.';
 COMMENT ON COLUMN exportacion_dataset.formato IS 'Formato del archivo entregado, por ejemplo pgn+csv.';
+COMMENT ON TABLE medalla_ganada IS 'Medallas (figuritas) que cada jugador ya ganó, con la fecha. Son permanentes. El catálogo de medallas vive en el código (`backend/servicios/medallas/catalogo.py`).';
+COMMENT ON COLUMN medalla_ganada.id IS 'Identificador de la medalla ganada.';
+COMMENT ON COLUMN medalla_ganada.usuario_id IS 'Jugador que la ganó. FK → usuario.id.';
+COMMENT ON COLUMN medalla_ganada.codigo IS 'Código de la medalla en el catálogo (por ejemplo primer_peon). Único por jugador.';
+COMMENT ON COLUMN medalla_ganada.ganada_en IS 'Fecha y hora en que la ganó.';
+COMMENT ON COLUMN medalla_ganada.vista_en IS 'Cuándo se le mostró el aviso de nueva medalla. Nulo = todavía no se le avisó.';
 COMMENT ON TABLE mensaje_tutor IS 'Historial de la conversación de cada jugador con el tutor Turing (memoria multi-turno).';
 COMMENT ON COLUMN mensaje_tutor.id IS 'Identificador del mensaje.';
 COMMENT ON COLUMN mensaje_tutor.usuario_id IS 'Jugador que conversa con el tutor.';

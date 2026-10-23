@@ -711,6 +711,38 @@ un solo curso a la vez: entrar a otro lo mueve). Desde ahí ve los videos por pi
     Turing o Stockfish sigue siendo una experiencia completa.
   - Videos: "Aprendé cada pieza" muestra el video general o el del facilitador del curso; Configuración de Enseñanza
     muestra el estado de cada pieza ("Video propio", "Se usa el video general", "Sin video") y permite quitar el propio.
+- **Cupo por curso (2026-10-23):** quien crea el curso define cuántos alumnos pueden inscribirse (de 1 a 120, 60 por
+  defecto; 120 es el tope del plan de colegios del Canvas). Con el curso lleno el código responde "El curso está
+  completo" (no cuenta como código mal escrito); el cupo se puede subir o bajar, pero no por debajo de los inscritos.
+  Columna `curso.cupo` (migración en `_COLUMNAS_AGREGADAS`). El tope por institución (60 o 120 alumnos en total, según el
+  plan) se controla a mano en el piloto: el sistema solo limita por curso.
+- **Invitación en la Sala de Control:** una franja compacta "¿Tenés un código de curso?" para el jugador nuevo sin curso,
+  con "No, juego por mi cuenta" (comparte con el Panel de Aprendizaje la clave que recuerda el descarte).
+- **Ranking y reporte del curso (2026-10-23):** `GET /cursos/ranking` ordena por el nivel vigente del jugador (el de la
+  calibración, 0 a 20) y desempata por su precisión promedio. Un jugador inscrito ve el ranking de su curso; uno sin
+  curso, el de los jugadores sin curso (los alumnos de una institución no aparecen en el general). Se muestran los
+  primeros 10 con el nombre abreviado ("Ana P.") y la fila propia si quedó afuera; el nivel es *provisional* hasta 3
+  partidas calibradas. `GET /cursos/{id}/reporte` (solo el facilitador dueño o el principal) calcula los indicadores de la
+  prueba piloto: alumnos activos en 7 días, partidas por alumno por semana y precisión de la primera semana frente a la
+  última, más una fila por alumno. **Límite:** el aprendizaje se mide con la precisión, no con los "errores graves por
+  partida" de la Tabla 9 del Canvas, porque el sistema no guarda ese conteo por semana. Código en
+  `backend/servicios/curso/servicio_reporte.py`; tests en `backend/rutas/test_ruta_ranking.py` (8).
+- **Tono de Turing por curso (2026-10-23):** cada curso puede tener su propio tono (`curso.preset_ensenanza`: infantil,
+  estándar o adultos). Si no tiene uno, usa el del perfil de su facilitador; un curso reasignado conserva el suyo. Lo
+  usa el tutor (`servicio_cursos.preset_efectivo`) y lo ve el jugador en "Mi curso". Un facilitador con un curso de
+  niños y otro de adultos puede darle a cada uno el tono que corresponde.
+- **Medallas / figuritas (2026-10-23):** para motivar a jugar más. El catálogo (13 medallas: Primer Peón, Salto de Caballo,
+  Torre Incansable, Mate Relámpago, Rey de la Racha, Domador de Turing, Rompe Motores…) vive en un solo lugar
+  (`backend/servicios/medallas/catalogo.py`): agregar una medalla es sumar una entrada con su regla, sin tocar la base de
+  datos ni la pantalla, y se otorga con retroactividad. Las medallas ganadas se guardan (`medalla_ganada`) y no se pierden.
+  `GET /usuario/medallas` evalúa y devuelve el álbum; `POST /usuario/medallas/vistas` marca el aviso como visto. La primera
+  medalla de un jugador se celebra con una revelación a pantalla completa; las siguientes, con una notificación arriba.
+  El álbum (Panel de Aprendizaje → Tus logros), Mi Perfil y el ranking las muestran. Cada medalla tiene una figurita
+  dibujada por defecto (SVG); el facilitador principal puede subir una imagen propia por medalla (PNG/JPG/WEBP de hasta
+  2 MB, se valida el contenido) que se guarda como archivo en `backend/media/medallas/` (volumen `ajedrez_media_medallas`
+  en el despliegue) y reemplaza a la de fábrica. **Límite:** las medallas nuevas se agregan por código; que el facilitador
+  las cree desde la pantalla (con reglas elegidas de una lista y medallas manuales) queda para una fase posterior.
+  Tests: `backend/rutas/test_ruta_medallas.py` (14).
 - Límites conocidos: el jugador entra desde Mi Perfil (el código no se pide todavía al registrarse); un jugador está
   en un solo curso y para cambiar de curso primero sale; los videos dependen de que el facilitador los haya subido. No se probó el reproductor con
   otros códecs ni navegadores, ni en un celular real (solo ancho emulado).

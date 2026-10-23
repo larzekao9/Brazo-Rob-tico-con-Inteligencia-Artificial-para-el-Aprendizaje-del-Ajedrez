@@ -3,8 +3,14 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 
+from sqlalchemy.orm import Session
+
 from backend.esquemas.facilitador_esquema import VideoSubidoResponse
-from backend.rutas.ruta_auth import get_current_facilitador
+from backend.esquemas.medallas_esquema import ImagenMedallaResponse
+from backend.rutas.ruta_auth import get_current_facilitador, get_db
+from backend.servicios.auth import get_user_by_id
+from backend.servicios.curso.servicio_cursos import es_principal
+from backend.servicios.medallas import servicio_medallas
 from backend.servicios.facilitador.servicio_videos import (
     borrar_video_pieza,
     guardar_video_pieza,
@@ -69,3 +75,44 @@ def videos_del_facilitador(usuario_id: int = Depends(get_current_facilitador)) -
     para que un video reemplazado no quede en la caché del navegador.
     """
     return listar_videos_piezas(usuario_id, con_version=True)
+
+
+def _exigir_principal(db: Session, usuario_id: int) -> None:
+    if not es_principal(get_user_by_id(db, usuario_id)):
+        raise HTTPException(status_code=403, detail="Solo un facilitador principal puede cambiar las imágenes de las medallas")
+
+
+@router.post(
+    "/medallas/{codigo}/imagen",
+    response_model=ImagenMedallaResponse,
+    summary="Subir la imagen de una medalla (solo facilitador principal)",
+)
+async def subir_imagen_medalla(
+    codigo: str,
+    archivo: UploadFile = File(...),
+    usuario_id: int = Depends(get_current_facilitador),
+    db: Session = Depends(get_db),
+) -> ImagenMedallaResponse:
+    """Sube (o reemplaza) la figurita de una medalla. PNG, JPG o WEBP de hasta 2 MB; se comprueba el contenido, no solo la
+    extensión. Reemplaza a la figurita dibujada de fábrica para todos los jugadores."""
+    _exigir_principal(db, usuario_id)
+    contenido = await archivo.read()
+    try:
+        url = servicio_medallas.guardar_imagen(db, codigo, archivo.filename or "", contenido)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return ImagenMedallaResponse(codigo=codigo, imagen_url=url)
+
+
+@router.delete(
+    "/medallas/{codigo}/imagen",
+    status_code=204,
+    summary="Quitar la imagen subida de una medalla y volver a la de fábrica (solo facilitador principal)",
+)
+def quitar_imagen_medalla(
+    codigo: str, usuario_id: int = Depends(get_current_facilitador), db: Session = Depends(get_db)
+) -> Response:
+    _exigir_principal(db, usuario_id)
+    if not servicio_medallas.borrar_imagen(codigo):
+        raise HTTPException(status_code=404, detail="Esa medalla no tiene una imagen subida")
+    return Response(status_code=204)

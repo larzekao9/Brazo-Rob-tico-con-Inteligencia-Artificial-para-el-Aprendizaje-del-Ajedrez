@@ -3,7 +3,7 @@
 Generado automáticamente desde `backend/modelos/tablas_orm.py` con `docs/base_de_datos/generar_esquema.py`. No editar a mano.
 
 - Motor: PostgreSQL 16. La aplicación crea las tablas sola al arrancar; el script equivalente está en [base_completa.sql](base_completa.sql); para producción en Supabase, [base_supabase_produccion.sql](base_supabase_produccion.sql).
-- Tablas: 11 (9 en uso, 2 reservadas para sesiones de clase).
+- Tablas: 12 (10 en uso, 2 reservadas para sesiones de clase).
 - Sin `DATABASE_URL` configurada, la aplicación guarda las partidas en memoria y no usa estas tablas para ellas.
 
 ## Relaciones
@@ -18,6 +18,7 @@ Generado automáticamente desde `backend/modelos/tablas_orm.py` con `docs/base_d
 | `usuario` | `codigo_invitacion` | 1 a N | Un facilitador genera muchos códigos de invitación; cada uno lo usa, a lo sumo, una persona. |
 | `usuario` | `curso` | 1 a N | Un facilitador crea varios cursos; cada curso tiene un solo facilitador. |
 | `curso` | `inscripcion` | 1 a N | Un curso tiene muchos jugadores inscritos. |
+| `usuario` | `medalla_ganada` | 1 a N | Un jugador gana muchas medallas; cada una la gana una sola vez. |
 | `usuario` | `inscripcion` | 1 a 1 | Un jugador tiene, a lo sumo, una inscripción: está en un solo curso a la vez. |
 | `participante` | `partida` | 1 a N | Opcional y reservada: una partida puede asignarse a un participante. |
 | `sesion` | `partida` | 1 a N | Opcional y reservada: una partida puede pertenecer a una sesión de clase. |
@@ -121,6 +122,8 @@ Grupo de estudiantes de un facilitador. Los jugadores entran con un código del 
 | `facilitador_id` | INTEGER | no | FK → usuario.id |  | Facilitador dueño del curso. FK → usuario.id. |
 | `codigo` | VARCHAR | no | único |  | Código de 6 caracteres (alfabeto sin ambiguos) que el facilitador le da a la clase. Es único, sirve para muchos jugadores y se guarda en claro porque solo permite entrar al curso como jugador. |
 | `acepta_ingresos` | BOOLEAN | no |  | true | Si es falso, el código no deja entrar a nadie más; los ya inscritos siguen. |
+| `cupo` | INTEGER | no |  | 60 | Cantidad máxima de jugadores que pueden inscribirse, de 1 a 120 (60 por defecto). Lo define quien crea el curso. |
+| `preset_ensenanza` | VARCHAR | sí |  |  | Tono con el que Turing les habla a los jugadores de este curso: `infantil`, `estandar` o `adultos`. Nulo = se usa el tono que eligió el facilitador en su perfil. |
 | `creado_en` | TIMESTAMP WITHOUT TIME ZONE | no |  | now() | Fecha y hora de creación. |
 
 ## `exportacion_dataset`
@@ -138,6 +141,22 @@ Una fila por cada vez que un facilitador descargó el dataset de partidas para r
 | `cantidad_partidas` | INTEGER | no |  |  | Cuántas partidas incluyó esta descarga. |
 | `cantidad_jugadas` | INTEGER | no |  |  | Cuántas jugadas del jugador incluyó esta descarga. |
 | `formato` | VARCHAR | no |  |  | Formato del archivo entregado, por ejemplo `pgn+csv`. |
+
+## `medalla_ganada`
+
+Medallas (figuritas) que cada jugador ya ganó, con la fecha. Son permanentes. El catálogo de medallas vive en el código (`backend/servicios/medallas/catalogo.py`).
+
+**Estado:** En uso
+
+| Columna | Tipo | Nulo | Clave | Por defecto | Descripción |
+| :-- | :-- | :-: | :-- | :-- | :-- |
+| `id` | INTEGER | no | PK |  | Identificador de la medalla ganada. |
+| `usuario_id` | INTEGER | no | FK → usuario.id |  | Jugador que la ganó. FK → usuario.id. |
+| `codigo` | VARCHAR | no |  |  | Código de la medalla en el catálogo (por ejemplo `primer_peon`). Único por jugador. |
+| `ganada_en` | TIMESTAMP WITHOUT TIME ZONE | no |  | now() | Fecha y hora en que la ganó. |
+| `vista_en` | TIMESTAMP WITHOUT TIME ZONE | sí |  |  | Cuándo se le mostró el aviso de nueva medalla. Nulo = todavía no se le avisó. |
+
+**Restricciones:** `uq_medalla_ganada_usuario_codigo` único (usuario_id, codigo).
 
 ## `mensaje_tutor`
 
@@ -234,6 +253,7 @@ erDiagram
     usuario ||--o{ codigo_invitacion : tiene
     usuario ||--o{ curso : tiene
     curso ||--o{ inscripcion : tiene
+    usuario ||--o{ medalla_ganada : tiene
     usuario ||--o{ inscripcion : tiene
     participante |o--o{ partida : tiene
     sesion |o--o{ partida : tiene
@@ -292,6 +312,8 @@ erDiagram
         INTEGER facilitador_id FK
         VARCHAR codigo
         BOOLEAN acepta_ingresos
+        INTEGER cupo
+        VARCHAR preset_ensenanza
         TIMESTAMP creado_en
     }
     exportacion_dataset {
@@ -302,6 +324,13 @@ erDiagram
         INTEGER cantidad_partidas
         INTEGER cantidad_jugadas
         VARCHAR formato
+    }
+    medalla_ganada {
+        INTEGER id PK
+        INTEGER usuario_id FK
+        VARCHAR codigo
+        TIMESTAMP ganada_en
+        TIMESTAMP vista_en
     }
     mensaje_tutor {
         INTEGER id PK
@@ -419,6 +448,8 @@ classDiagram
         -INTEGER facilitador_id
         -VARCHAR codigo
         -BOOLEAN acepta_ingresos
+        -INTEGER cupo
+        -VARCHAR preset_ensenanza
         -TIMESTAMP creado_en
     }
     class ExportacionDataset {
@@ -429,6 +460,13 @@ classDiagram
         -INTEGER cantidad_partidas
         -INTEGER cantidad_jugadas
         -VARCHAR formato
+    }
+    class MedallaGanada {
+        -INTEGER id
+        -INTEGER usuario_id
+        -VARCHAR codigo
+        -TIMESTAMP ganada_en
+        -TIMESTAMP vista_en
     }
     class MensajeTutor {
         -INTEGER id
@@ -493,6 +531,7 @@ classDiagram
     Usuario "1" --> "0..*" CodigoInvitacion
     Usuario "1" --> "0..*" Curso
     Curso "1" --> "0..*" Inscripcion
+    Usuario "1" --> "0..*" MedallaGanada
     Usuario "1" --> "0..*" Inscripcion
     Participante "1" --> "0..*" Partida
     Sesion "1" --> "0..*" Partida

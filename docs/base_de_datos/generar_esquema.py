@@ -77,6 +77,11 @@ TABLAS: dict[str, tuple[str, str]] = {
         "Un jugador dentro de un curso. Un jugador está en un solo curso a la vez.",
         "En uso",
     ),
+    "medalla_ganada": (
+        "Medallas (figuritas) que cada jugador ya ganó, con la fecha. Son permanentes. El catálogo de medallas vive en "
+        "el código (`backend/servicios/medallas/catalogo.py`).",
+        "En uso",
+    ),
     "participante": (
         "Estudiantes de un curso, para sesiones del facilitador.",
         "Reservada: el modelo existe pero ningún flujo la usa todavía",
@@ -199,12 +204,23 @@ COLUMNAS: dict[tuple[str, str], str] = {
         "muchos jugadores y se guarda en claro porque solo permite entrar al curso como jugador."
     ),
     ("curso", "acepta_ingresos"): "Si es falso, el código no deja entrar a nadie más; los ya inscritos siguen.",
+    ("curso", "preset_ensenanza"): (
+        "Tono con el que Turing les habla a los jugadores de este curso: `infantil`, `estandar` o `adultos`. "
+        "Nulo = se usa el tono que eligió el facilitador en su perfil."
+    ),
+    ("curso", "cupo"): "Cantidad máxima de jugadores que pueden inscribirse, de 1 a 120 (60 por defecto). Lo define quien crea el curso.",
     ("curso", "creado_en"): "Fecha y hora de creación.",
     # inscripcion
     ("inscripcion", "id"): "Identificador de la inscripción.",
     ("inscripcion", "curso_id"): "Curso en el que está el jugador. FK → curso.id.",
     ("inscripcion", "usuario_id"): "Jugador inscrito. Único: está en un solo curso a la vez. FK → usuario.id.",
     ("inscripcion", "unido_en"): "Fecha y hora en que entró al curso.",
+    # medalla_ganada
+    ("medalla_ganada", "id"): "Identificador de la medalla ganada.",
+    ("medalla_ganada", "usuario_id"): "Jugador que la ganó. FK → usuario.id.",
+    ("medalla_ganada", "codigo"): "Código de la medalla en el catálogo (por ejemplo `primer_peon`). Único por jugador.",
+    ("medalla_ganada", "ganada_en"): "Fecha y hora en que la ganó.",
+    ("medalla_ganada", "vista_en"): "Cuándo se le mostró el aviso de nueva medalla. Nulo = todavía no se le avisó.",
     # exportacion_dataset
     ("exportacion_dataset", "id"): "Identificador de la descarga.",
     ("exportacion_dataset", "usuario_id"): "Facilitador que descargó el dataset.",
@@ -227,6 +243,7 @@ RELACIONES = [
     ("usuario", "codigo_invitacion", "1 a N", "Un facilitador genera muchos códigos de invitación; cada uno lo usa, a lo sumo, una persona."),
     ("usuario", "curso", "1 a N", "Un facilitador crea varios cursos; cada curso tiene un solo facilitador."),
     ("curso", "inscripcion", "1 a N", "Un curso tiene muchos jugadores inscritos."),
+    ("usuario", "medalla_ganada", "1 a N", "Un jugador gana muchas medallas; cada una la gana una sola vez."),
     ("usuario", "inscripcion", "1 a 1", "Un jugador tiene, a lo sumo, una inscripción: está en un solo curso a la vez."),
     ("participante", "partida", "1 a N", "Opcional y reservada: una partida puede asignarse a un participante."),
     ("sesion", "partida", "1 a N", "Opcional y reservada: una partida puede pertenecer a una sesión de clase."),

@@ -23,13 +23,23 @@ from backend.servicios.facilitador.servicio_videos import listar_videos_piezas
 
 LONGITUD_CODIGO_CURSO = 6
 MAX_CURSOS_POR_FACILITADOR = 20
+CUPO_POR_DEFECTO = 60
+CUPO_MAXIMO = 120
+"""Tope del sistema: lo que cubre la suscripción más grande del plan de negocio (colegios, hasta 120 alumnos)."""
 PRESETS_VALIDOS = ("infantil", "estandar", "adultos")
+
+HEREDAR_TONO = "facilitador"
+"""Valor que se manda para que el curso vuelva a usar el tono del perfil del facilitador (se guarda como nulo)."""
 
 MENSAJE_CODIGO_INVALIDO = "Código de curso inválido o el curso no está aceptando ingresos."
 
 
 class ErrorCurso(ValueError):
     """Un pedido sobre cursos que no se puede cumplir (el mensaje es apto para mostrarle al usuario)."""
+
+
+class CursoCompleto(ErrorCurso):
+    """El código es válido pero el curso ya tiene todos los lugares ocupados (no cuenta como código mal escrito)."""
 
 
 def formatear_codigo(codigo: str) -> str:
@@ -43,6 +53,25 @@ def _codigo_nuevo(db: Session) -> str:
         codigo = "".join(secrets.choice(ALFABETO) for _ in range(LONGITUD_CODIGO_CURSO))
         if db.scalar(select(CursoORM.id).where(CursoORM.codigo == codigo)) is None:
             return codigo
+
+
+def _cupo_valido(cupo: int) -> int:
+    if not isinstance(cupo, int) or isinstance(cupo, bool) or not 1 <= cupo <= CUPO_MAXIMO:
+        raise ErrorCurso(f"El cupo tiene que estar entre 1 y {CUPO_MAXIMO} alumnos")
+    return cupo
+
+
+def _inscritos(db: Session, curso_id: int) -> int:
+    return db.scalar(select(func.count()).select_from(InscripcionORM).where(InscripcionORM.curso_id == curso_id)) or 0
+
+
+def _tono_valido(tono: str | None) -> str | None:
+    """`None` = sin tono propio (hereda el del facilitador); si no, uno de `PRESETS_VALIDOS`."""
+    if tono is None or tono == HEREDAR_TONO:
+        return None
+    if tono not in PRESETS_VALIDOS:
+        raise ErrorCurso(f"Tono inválido: usá uno de {', '.join(PRESETS_VALIDOS)}")
+    return tono
 
 
 def _nombre_valido(nombre: str) -> str:
@@ -80,15 +109,19 @@ def _exigir_cupo(db: Session, facilitador_id: int) -> None:
 
 
 # --- facilitador ----------------------------------------------------------------------------------------------
-def crear_curso(db: Session, facilitador_id: int, nombre: str) -> CursoORM:
-    """Crea un curso del facilitador con un código nuevo.
+def crear_curso(
+    db: Session, facilitador_id: int, nombre: str, cupo: int = CUPO_POR_DEFECTO, tono: str | None = None
+) -> CursoORM:
+    """Crea un curso del facilitador con un código nuevo, un cupo (60 por defecto, máximo 120) y, opcional, su tono.
 
     Raises:
-        ErrorCurso: si el nombre no es válido o ya tiene el máximo de cursos.
+        ErrorCurso: si el nombre, el cupo o el tono no son válidos, o ya tiene el máximo de cursos.
     """
     nombre = _nombre_valido(nombre)
+    cupo = _cupo_valido(cupo)
+    tono = _tono_valido(tono)
     _exigir_cupo(db, facilitador_id)
-    curso = CursoORM(nombre=nombre, facilitador_id=facilitador_id, codigo=_codigo_nuevo(db))
+    curso = CursoORM(nombre=nombre, facilitador_id=facilitador_id, codigo=_codigo_nuevo(db), cupo=cupo, preset_ensenanza=tono)
     db.add(curso)
     db.commit()
     db.refresh(curso)
@@ -126,11 +159,30 @@ def listar_cursos(db: Session, facilitador_id: int | None = None) -> list[dict]:
 
 
 def actualizar_curso(
-    db: Session, curso: CursoORM, nombre: str | None = None, acepta_ingresos: bool | None = None
+    db: Session,
+    curso: CursoORM,
+    nombre: str | None = None,
+    acepta_ingresos: bool | None = None,
+    cupo: int | None = None,
+    tono: str | None = None,
 ) -> CursoORM:
-    """Cambia el nombre y/o abre y cierra los ingresos (cerrado: el código no deja entrar a nadie más)."""
+    """Cambia el nombre, el cupo, el tono de Turing y/o abre y cierra los ingresos (cerrado: el código no deja entrar).
+
+    `tono=None` no lo toca; `tono="facilitador"` hace que el curso vuelva a usar el del facilitador.
+
+    Raises:
+        ErrorCurso: si el nombre, el cupo o el tono no son válidos, o el cupo es menor que los alumnos ya inscritos.
+    """
+    if tono is not None:
+        curso.preset_ensenanza = _tono_valido(tono)
     if nombre is not None:
         curso.nombre = _nombre_valido(nombre)
+    if cupo is not None:
+        cupo = _cupo_valido(cupo)
+        inscritos = _inscritos(db, curso.id)
+        if cupo < inscritos:
+            raise ErrorCurso(f"Ya hay {inscritos} alumnos inscritos: el cupo no puede ser menor")
+        curso.cupo = cupo
     if acepta_ingresos is not None:
         curso.acepta_ingresos = acepta_ingresos
     db.commit()
@@ -196,6 +248,7 @@ def unirse_con_codigo(db: Session, usuario: UsuarioORM, codigo: str) -> CursoORM
     """Inscribe al jugador en el curso del código; si ya estaba en otro, lo mueve.
 
     Raises:
+        CursoCompleto: si el código sirve pero el curso ya no tiene lugares.
         ErrorCurso: si no es jugador, o el código no existe o el curso cerró los ingresos (el mensaje no
             distingue cuál, a propósito).
     """
@@ -206,6 +259,8 @@ def unirse_con_codigo(db: Session, usuario: UsuarioORM, codigo: str) -> CursoORM
     if curso is None or not curso.acepta_ingresos:
         raise ErrorCurso(MENSAJE_CODIGO_INVALIDO)
     inscripcion = db.scalar(select(InscripcionORM).where(InscripcionORM.usuario_id == usuario.id))
+    if (inscripcion is None or inscripcion.curso_id != curso.id) and _inscritos(db, curso.id) >= curso.cupo:
+        raise CursoCompleto(f"El curso está completo ({curso.cupo} de {curso.cupo} lugares). Pedile otro código a tu facilitador.")
     if inscripcion is None:
         db.add(InscripcionORM(curso_id=curso.id, usuario_id=usuario.id))
     else:
@@ -267,16 +322,26 @@ def videos_visibles(db: Session, usuario_id: int) -> dict[str, str]:
     return videos
 
 
+def preset_de_curso(db: Session, curso: CursoORM) -> str | None:
+    """El tono de Turing de un curso: el propio del curso si tiene, y si no el del perfil de su facilitador."""
+    if curso.preset_ensenanza in PRESETS_VALIDOS:
+        return curso.preset_ensenanza
+    dueno = facilitador_de_curso(db, curso)
+    return dueno.preset_ensenanza if dueno is not None and dueno.preset_ensenanza in PRESETS_VALIDOS else None
+
+
 def preset_efectivo(db: Session, usuario: UsuarioORM) -> str | None:
     """El tono de enseñanza que le corresponde a `usuario`.
 
-    Un jugador inscrito en un curso recibe el de su facilitador (si lo eligió); si no, el suyo propio. Es lo que
-    hace que la preferencia del facilitador llegue de verdad a sus estudiantes.
+    Un jugador inscrito en un curso recibe el tono de ese curso (o, si el curso no tiene uno propio, el del perfil de
+    su facilitador); si no está en un curso, el suyo propio. Es lo que hace que la preferencia del facilitador llegue de
+    verdad a sus estudiantes.
     """
     if usuario.rol == "jugador":
-        facilitador = facilitador_de(db, usuario.id)
-        if facilitador is not None and facilitador.preset_ensenanza in PRESETS_VALIDOS:
-            return facilitador.preset_ensenanza
+        curso = curso_de(db, usuario.id)
+        tono = preset_de_curso(db, curso) if curso is not None else None
+        if tono is not None:
+            return tono
     return usuario.preset_ensenanza
 
 

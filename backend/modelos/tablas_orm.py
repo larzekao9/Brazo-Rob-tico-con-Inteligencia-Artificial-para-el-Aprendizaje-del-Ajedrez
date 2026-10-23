@@ -288,6 +288,9 @@ class CursoORM(Base):
     facilitador_id: Mapped[int] = mapped_column(ForeignKey("usuario.id"), nullable=False, index=True)
     codigo: Mapped[str] = mapped_column(unique=True, nullable=False, index=True)
     acepta_ingresos: Mapped[bool] = mapped_column(default=True, server_default="true", nullable=False)
+    cupo: Mapped[int] = mapped_column(default=60, server_default="60", nullable=False)
+    # Tono de Turing para los jugadores de este curso ('infantil' | 'estandar' | 'adultos'); nulo = el del facilitador.
+    preset_ensenanza: Mapped[str | None] = mapped_column(nullable=True)
     creado_en: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
@@ -301,3 +304,17 @@ class InscripcionORM(Base):
     curso_id: Mapped[int] = mapped_column(ForeignKey("curso.id"), nullable=False, index=True)
     usuario_id: Mapped[int] = mapped_column(ForeignKey("usuario.id"), nullable=False, unique=True)
     unido_en: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class MedallaGanadaORM(Base):
+    """Una medalla que un jugador ya ganó. Es permanente: queda aunque después se borre la partida o cambie la regla.
+    `vista_en` nulo = todavía no se le mostró el aviso de "nueva medalla". Tabla nueva: `create_all` la crea sola."""
+
+    __tablename__ = "medalla_ganada"
+    __table_args__ = (UniqueConstraint("usuario_id", "codigo", name="uq_medalla_ganada_usuario_codigo"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuario.id"), nullable=False, index=True)
+    codigo: Mapped[str] = mapped_column(nullable=False)
+    ganada_en: Mapped[datetime] = mapped_column(server_default=func.now())
+    vista_en: Mapped[datetime | None] = mapped_column(nullable=True)
