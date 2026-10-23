@@ -29,6 +29,7 @@ from backend.rutas.ruta_aprendizaje import router as aprendizaje_router
 from backend.rutas.ruta_simulacion import router as simulacion_router
 from backend.rutas.ruta_facilitador import router as facilitador_router
 from backend.rutas.ruta_curso import router as curso_router
+from backend.rutas.ruta_medallas import router as medallas_router
 from backend.rutas.ruta_tutor import router as tutor_router
 from backend.rutas.ruta_entrenamiento import router as entrenamiento_router
 from backend.servicios.facilitador.servicio_videos import MEDIA_VIDEOS_DIR, URL_BASE_VIDEOS_PIEZAS
@@ -84,6 +85,7 @@ app.include_router(aprendizaje_router)
 app.include_router(simulacion_router)
 app.include_router(facilitador_router)
 app.include_router(curso_router)
+app.include_router(medallas_router)
 app.include_router(tutor_router)
 app.include_router(entrenamiento_router)
 

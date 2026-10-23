@@ -3,7 +3,7 @@
 Generado automáticamente desde `backend/modelos/tablas_orm.py` con `docs/base_de_datos/generar_esquema.py`. No editar a mano.
 
 - Motor: PostgreSQL 16. La aplicación crea las tablas sola al arrancar; el script equivalente está en [base_completa.sql](base_completa.sql); para producción en Supabase, [base_supabase_produccion.sql](base_supabase_produccion.sql).
-- Tablas: 12 (10 en uso, 2 reservadas para sesiones de clase).
+- Tablas: 13 (11 en uso, 2 reservadas para sesiones de clase).
 - Sin `DATABASE_URL` configurada, la aplicación guarda las partidas en memoria y no usa estas tablas para ellas.
 
 ## Relaciones
@@ -18,6 +18,7 @@ Generado automáticamente desde `backend/modelos/tablas_orm.py` con `docs/base_d
 | `usuario` | `codigo_invitacion` | 1 a N | Un facilitador genera muchos códigos de invitación; cada uno lo usa, a lo sumo, una persona. |
 | `usuario` | `curso` | 1 a N | Un facilitador crea varios cursos; cada curso tiene un solo facilitador. |
 | `curso` | `inscripcion` | 1 a N | Un curso tiene muchos jugadores inscritos. |
+| `usuario` | `medalla_personalizada` | 1 a N | Un facilitador crea muchas medallas propias. |
 | `usuario` | `medalla_ganada` | 1 a N | Un jugador gana muchas medallas; cada una la gana una sola vez. |
 | `usuario` | `inscripcion` | 1 a 1 | Un jugador tiene, a lo sumo, una inscripción: está en un solo curso a la vez. |
 | `participante` | `partida` | 1 a N | Opcional y reservada: una partida puede asignarse a un participante. |
@@ -158,6 +159,26 @@ Medallas (figuritas) que cada jugador ya ganó, con la fecha. Son permanentes. E
 
 **Restricciones:** `uq_medalla_ganada_usuario_codigo` único (usuario_id, codigo).
 
+## `medalla_personalizada`
+
+Medallas que crean los facilitadores (nombre, descripción, nivel, pieza, regla para ganarla y alcance). Las 13 medallas de fábrica no están acá: viven en el código.
+
+**Estado:** En uso
+
+| Columna | Tipo | Nulo | Clave | Por defecto | Descripción |
+| :-- | :-- | :-: | :-- | :-- | :-- |
+| `id` | INTEGER | no | PK |  | Identificador de la medalla. |
+| `codigo` | VARCHAR | no | único |  | Código único y estable (`propia_` y 8 caracteres): es la clave de las medallas ganadas y de su imagen. |
+| `nombre` | VARCHAR | no |  |  | Nombre corto de la medalla. |
+| `descripcion` | VARCHAR | no |  |  | Frase que dice cómo se gana. |
+| `nivel` | VARCHAR | no |  |  | `bronce`, `plata`, `oro` o `legendaria`: define el color y el brillo del escudo. |
+| `pieza` | VARCHAR | no |  | peon | Silueta de pieza que se muestra mientras no tenga imagen propia. |
+| `regla` | VARCHAR | no |  |  | Cómo se gana: una regla automática (por ejemplo `victorias`) o `manual`. |
+| `meta` | INTEGER | no |  | 1 | Cantidad que hay que alcanzar con la regla (1 en las manuales y en las de sí o no). |
+| `general` | BOOLEAN | no |  | false | Verdadero: la ven todos los jugadores (solo el facilitador principal puede crearlas así). Falso: solo los de los cursos de su creador. |
+| `creada_por` | INTEGER | no | FK → usuario.id |  | Facilitador que la creó. FK → usuario.id. |
+| `creada_en` | TIMESTAMP WITHOUT TIME ZONE | no |  | now() | Fecha y hora de creación. |
+
 ## `mensaje_tutor`
 
 Historial de la conversación de cada jugador con el tutor Turing (memoria multi-turno).
@@ -253,6 +274,7 @@ erDiagram
     usuario ||--o{ codigo_invitacion : tiene
     usuario ||--o{ curso : tiene
     curso ||--o{ inscripcion : tiene
+    usuario ||--o{ medalla_personalizada : tiene
     usuario ||--o{ medalla_ganada : tiene
     usuario ||--o{ inscripcion : tiene
     participante |o--o{ partida : tiene
@@ -331,6 +353,19 @@ erDiagram
         VARCHAR codigo
         TIMESTAMP ganada_en
         TIMESTAMP vista_en
+    }
+    medalla_personalizada {
+        INTEGER id PK
+        VARCHAR codigo
+        VARCHAR nombre
+        VARCHAR descripcion
+        VARCHAR nivel
+        VARCHAR pieza
+        VARCHAR regla
+        INTEGER meta
+        BOOLEAN general
+        INTEGER creada_por FK
+        TIMESTAMP creada_en
     }
     mensaje_tutor {
         INTEGER id PK
@@ -468,6 +503,19 @@ classDiagram
         -TIMESTAMP ganada_en
         -TIMESTAMP vista_en
     }
+    class MedallaPersonalizada {
+        -INTEGER id
+        -VARCHAR codigo
+        -VARCHAR nombre
+        -VARCHAR descripcion
+        -VARCHAR nivel
+        -VARCHAR pieza
+        -VARCHAR regla
+        -INTEGER meta
+        -BOOLEAN general
+        -INTEGER creada_por
+        -TIMESTAMP creada_en
+    }
     class MensajeTutor {
         -INTEGER id
         -INTEGER usuario_id
@@ -531,6 +579,7 @@ classDiagram
     Usuario "1" --> "0..*" CodigoInvitacion
     Usuario "1" --> "0..*" Curso
     Curso "1" --> "0..*" Inscripcion
+    Usuario "1" --> "0..*" MedallaPersonalizada
     Usuario "1" --> "0..*" MedallaGanada
     Usuario "1" --> "0..*" Inscripcion
     Participante "1" --> "0..*" Partida

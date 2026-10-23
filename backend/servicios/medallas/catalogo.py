@@ -83,3 +83,47 @@ CATALOGO: tuple[Medalla, ...] = (
 POR_CODIGO: dict[str, Medalla] = {m.codigo: m for m in CATALOGO}
 if len(POR_CODIGO) != len(CATALOGO):
     raise RuntimeError("Hay códigos de medalla repetidos en el catálogo")
+
+
+# --- reglas que un facilitador puede elegir al crear una medalla propia ------------------------------------------------
+REGLA_MANUAL = "manual"
+"""Medalla que no se gana sola: la entrega el facilitador a mano (a un jugador o a todo un curso)."""
+
+REGLAS: dict[str, dict] = {
+    "terminadas": {"nombre": "Partidas jugadas", "tipo": "contador", "minimo": 1, "maximo": 500, "unidad": "partidas"},
+    "victorias": {"nombre": "Partidas ganadas", "tipo": "contador", "minimo": 1, "maximo": 500, "unidad": "victorias"},
+    "racha": {"nombre": "Victorias seguidas", "tipo": "contador", "minimo": 2, "maximo": 50, "unidad": "victorias seguidas"},
+    "max_en_un_dia": {"nombre": "Partidas en un mismo día", "tipo": "contador", "minimo": 2, "maximo": 50, "unidad": "partidas en un día"},
+    "max_dias_semana": {"nombre": "Días distintos jugados en una semana", "tipo": "contador", "minimo": 2, "maximo": 7, "unidad": "días"},
+    "mejor_precision": {"nombre": "Precisión en una partida (%)", "tipo": "contador", "minimo": 50, "maximo": 100, "unidad": "% de precisión"},
+    "calibradas": {"nombre": "Partidas de diagnóstico completadas", "tipo": "contador", "minimo": 1, "maximo": 50, "unidad": "diagnósticos"},
+    "mensajes_tutor": {"nombre": "Preguntas al tutor", "tipo": "contador", "minimo": 1, "maximo": 500, "unidad": "preguntas"},
+    "corono": {"nombre": "Coronar un peón", "tipo": "si_no"},
+    "mate_rapido": {"nombre": "Ganar por jaque mate en 20 jugadas o menos", "tipo": "si_no"},
+    "vencio_turing": {"nombre": "Ganarle a Turing", "tipo": "si_no"},
+    "vencio_stockfish_8": {"nombre": "Ganarle a Stockfish de nivel 8 o más", "tipo": "si_no"},
+}
+"""Cada regla usa un dato que ya calcula `servicio_medallas.calcular_datos`. Para sumar una regla nueva: calcular el dato allá y
+agregar una entrada acá (`contador` con mínimo y máximo, o `si_no`); la pantalla de creación la muestra sola."""
+
+PLANTILLAS: tuple[dict, ...] = (
+    {"nombre": "Constante del Club", "descripcion": "Jugá 25 partidas.", "nivel": "plata", "pieza": "peon", "regla": "terminadas", "meta": 25},
+    {"nombre": "Racha de Fuego", "descripcion": "Ganá 4 partidas seguidas.", "nivel": "oro", "pieza": "rey", "regla": "racha", "meta": 4},
+    {"nombre": "Jugador Madrugador", "descripcion": "Jugá 4 días distintos en una semana.", "nivel": "plata", "pieza": "torre", "regla": "max_dias_semana", "meta": 4},
+    {"nombre": "Mente Afilada", "descripcion": "Llegá al 90 % de precisión en una partida.", "nivel": "oro", "pieza": "alfil", "regla": "mejor_precision", "meta": 90},
+    {"nombre": "Curioso del Tablero", "descripcion": "Hacele 25 preguntas al tutor.", "nivel": "bronce", "pieza": "alfil", "regla": "mensajes_tutor", "meta": 25},
+    {"nombre": "Cazador de Robots", "descripcion": "Ganale una partida a Turing.", "nivel": "oro", "pieza": "caballo", "regla": "vencio_turing", "meta": 1},
+    {"nombre": "Campeón del Torneo", "descripcion": "Ganaste el torneo de la clase.", "nivel": "legendaria", "pieza": "rey", "regla": "manual", "meta": 1},
+    {"nombre": "Mejor Compañero", "descripcion": "Ayudaste a tus compañeros a mejorar.", "nivel": "oro", "pieza": "dama", "regla": "manual", "meta": 1},
+    {"nombre": "Esfuerzo Destacado", "descripcion": "Tu esfuerzo esta semana fue ejemplar.", "nivel": "plata", "pieza": "caballo", "regla": "manual", "meta": 1},
+)
+"""Ideas de medalla para que el facilitador las use como punto de partida (llenan el formulario con un clic)."""
+
+
+def medidor_de_regla(regla: str) -> Callable[[dict], int]:
+    """La función `medir` de una medalla propia según su regla (las manuales nunca se ganan solas)."""
+    if regla == REGLA_MANUAL:
+        return lambda datos: 0
+    if REGLAS[regla]["tipo"] == "si_no":
+        return lambda datos: _si(bool(datos[regla]))
+    return lambda datos: int(datos[regla])

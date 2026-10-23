@@ -741,8 +741,19 @@ un solo curso a la vez: entrar a otro lo mueve). Desde ahí ve los videos por pi
   dibujada por defecto (SVG); el facilitador principal puede subir una imagen propia por medalla (PNG/JPG/WEBP de hasta
   2 MB, se valida el contenido) que se guarda como archivo en `backend/media/medallas/` (volumen `ajedrez_media_medallas`
   en el despliegue) y reemplaza a la de fábrica. **Límite:** las medallas nuevas se agregan por código; que el facilitador
-  las cree desde la pantalla (con reglas elegidas de una lista y medallas manuales) queda para una fase posterior.
-  Tests: `backend/rutas/test_ruta_medallas.py` (14).
+  las cree desde la pantalla se resolvió después (ver abajo). Tests: `backend/rutas/test_ruta_medallas.py` (14).
+  **El escudo es igual para todas** (forma, color y brillo según el nivel); la imagen que se sube es solo la ilustración del
+  centro (PNG transparente de 512×512 px, un dibujo centrado en un círculo del 85 %, sin marco ni texto).
+- **Medallas creadas por facilitadores (2026-10-23):** el principal crea medallas **generales** (las ven todos los
+  jugadores) y cada facilitador crea medallas **para sus cursos**. Se eligen nombre (hasta 30 letras), descripción (hasta 80),
+  nivel (selector: define el color y el brillo), pieza (silueta mientras no haya ilustración), ilustración y cómo se gana:
+  una regla de una lista con su cantidad (partidas, victorias, racha, días de práctica, precisión, preguntas al tutor,
+  coronar, mate rápido, ganarle a Turing o a Stockfish fuerte) o **manual**, que el facilitador entrega a un curso o a
+  jugadores. Nunca se escribe código: las reglas son una lista cerrada (`catalogo.REGLAS`) y se pueden sumar más. La pantalla
+  tiene vista previa en vivo, un boceto que numera qué va en cada campo, ideas listas para usar y un prompt para generar la
+  ilustración con una IA de imágenes. Tabla `medalla_personalizada`; máximo 30 por facilitador; borrar una medalla la quita
+  también a quienes la ganaron. Tests: `backend/rutas/test_ruta_medallas_propias.py`. De paso se corrigió que eliminar la
+  cuenta de un jugador con medallas fallaba por una referencia de la base.
 - Límites conocidos: el jugador entra desde Mi Perfil (el código no se pide todavía al registrarse); un jugador está
   en un solo curso y para cambiar de curso primero sale; los videos dependen de que el facilitador los haya subido. No se probó el reproductor con
   otros códecs ni navegadores, ni en un celular real (solo ancho emulado).

@@ -129,6 +129,25 @@ CREATE TABLE medalla_ganada (
 );
 CREATE INDEX ix_medalla_ganada_usuario_id ON medalla_ganada (usuario_id);
 
+-- medalla_personalizada: Medallas que crean los facilitadores (nombre, descripción, nivel, pieza, regla para ganarla y alcance). Las 13 medallas de fábrica no están acá: viven en el código.
+CREATE TABLE medalla_personalizada (
+	id SERIAL NOT NULL, 
+	codigo VARCHAR NOT NULL, 
+	nombre VARCHAR NOT NULL, 
+	descripcion VARCHAR NOT NULL, 
+	nivel VARCHAR NOT NULL, 
+	pieza VARCHAR DEFAULT 'peon' NOT NULL, 
+	regla VARCHAR NOT NULL, 
+	meta INTEGER DEFAULT '1' NOT NULL, 
+	general BOOLEAN DEFAULT 'false' NOT NULL, 
+	creada_por INTEGER NOT NULL, 
+	creada_en TIMESTAMP WITHOUT TIME ZONE DEFAULT now() NOT NULL, 
+	PRIMARY KEY (id), 
+	FOREIGN KEY(creada_por) REFERENCES usuario (id)
+);
+CREATE UNIQUE INDEX ix_medalla_personalizada_codigo ON medalla_personalizada (codigo);
+CREATE INDEX ix_medalla_personalizada_creada_por ON medalla_personalizada (creada_por);
+
 -- mensaje_tutor: Historial de la conversación de cada jugador con el tutor Turing (memoria multi-turno).
 CREATE TABLE mensaje_tutor (
 	id SERIAL NOT NULL, 
@@ -274,6 +293,18 @@ COMMENT ON COLUMN medalla_ganada.usuario_id IS 'Jugador que la ganó. FK → usu
 COMMENT ON COLUMN medalla_ganada.codigo IS 'Código de la medalla en el catálogo (por ejemplo primer_peon). Único por jugador.';
 COMMENT ON COLUMN medalla_ganada.ganada_en IS 'Fecha y hora en que la ganó.';
 COMMENT ON COLUMN medalla_ganada.vista_en IS 'Cuándo se le mostró el aviso de nueva medalla. Nulo = todavía no se le avisó.';
+COMMENT ON TABLE medalla_personalizada IS 'Medallas que crean los facilitadores (nombre, descripción, nivel, pieza, regla para ganarla y alcance). Las 13 medallas de fábrica no están acá: viven en el código.';
+COMMENT ON COLUMN medalla_personalizada.id IS 'Identificador de la medalla.';
+COMMENT ON COLUMN medalla_personalizada.codigo IS 'Código único y estable (propia_ y 8 caracteres): es la clave de las medallas ganadas y de su imagen.';
+COMMENT ON COLUMN medalla_personalizada.nombre IS 'Nombre corto de la medalla.';
+COMMENT ON COLUMN medalla_personalizada.descripcion IS 'Frase que dice cómo se gana.';
+COMMENT ON COLUMN medalla_personalizada.nivel IS 'bronce, plata, oro o legendaria: define el color y el brillo del escudo.';
+COMMENT ON COLUMN medalla_personalizada.pieza IS 'Silueta de pieza que se muestra mientras no tenga imagen propia.';
+COMMENT ON COLUMN medalla_personalizada.regla IS 'Cómo se gana: una regla automática (por ejemplo victorias) o manual.';
+COMMENT ON COLUMN medalla_personalizada.meta IS 'Cantidad que hay que alcanzar con la regla (1 en las manuales y en las de sí o no).';
+COMMENT ON COLUMN medalla_personalizada.general IS 'Verdadero: la ven todos los jugadores (solo el facilitador principal puede crearlas así). Falso: solo los de los cursos de su creador.';
+COMMENT ON COLUMN medalla_personalizada.creada_por IS 'Facilitador que la creó. FK → usuario.id.';
+COMMENT ON COLUMN medalla_personalizada.creada_en IS 'Fecha y hora de creación.';
 COMMENT ON TABLE mensaje_tutor IS 'Historial de la conversación de cada jugador con el tutor Turing (memoria multi-turno).';
 COMMENT ON COLUMN mensaje_tutor.id IS 'Identificador del mensaje.';
 COMMENT ON COLUMN mensaje_tutor.usuario_id IS 'Jugador que conversa con el tutor.';

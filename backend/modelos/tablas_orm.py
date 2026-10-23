@@ -318,3 +318,23 @@ class MedallaGanadaORM(Base):
     codigo: Mapped[str] = mapped_column(nullable=False)
     ganada_en: Mapped[datetime] = mapped_column(server_default=func.now())
     vista_en: Mapped[datetime | None] = mapped_column(nullable=True)
+
+
+class MedallaPersonalizadaORM(Base):
+    """Medalla creada por un facilitador. `general` (solo el principal) la ven todos los jugadores; si no, solo los jugadores
+    de los cursos de quien la creó. `regla` es una de las del catálogo (`REGLAS`) o `manual`. La imagen es un archivo en
+    `backend/media/medallas/<codigo>.<ext>`, como las de las medallas de fábrica. Tabla nueva: `create_all` la crea sola."""
+
+    __tablename__ = "medalla_personalizada"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    codigo: Mapped[str] = mapped_column(unique=True, nullable=False, index=True)
+    nombre: Mapped[str] = mapped_column(nullable=False)
+    descripcion: Mapped[str] = mapped_column(nullable=False)
+    nivel: Mapped[str] = mapped_column(nullable=False)
+    pieza: Mapped[str] = mapped_column(nullable=False, default="peon", server_default="peon")
+    regla: Mapped[str] = mapped_column(nullable=False)
+    meta: Mapped[int] = mapped_column(nullable=False, default=1, server_default="1")
+    general: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
+    creada_por: Mapped[int] = mapped_column(ForeignKey("usuario.id"), nullable=False, index=True)
+    creada_en: Mapped[datetime] = mapped_column(server_default=func.now())

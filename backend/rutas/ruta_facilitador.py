@@ -9,7 +9,7 @@ from backend.esquemas.facilitador_esquema import VideoSubidoResponse
 from backend.esquemas.medallas_esquema import ImagenMedallaResponse
 from backend.rutas.ruta_auth import get_current_facilitador, get_db
 from backend.servicios.auth import get_user_by_id
-from backend.servicios.curso.servicio_cursos import es_principal
+from backend.servicios.medallas import servicio_creacion as creacion
 from backend.servicios.medallas import servicio_medallas
 from backend.servicios.facilitador.servicio_videos import (
     borrar_video_pieza,
@@ -77,9 +77,13 @@ def videos_del_facilitador(usuario_id: int = Depends(get_current_facilitador)) -
     return listar_videos_piezas(usuario_id, con_version=True)
 
 
-def _exigir_principal(db: Session, usuario_id: int) -> None:
-    if not es_principal(get_user_by_id(db, usuario_id)):
-        raise HTTPException(status_code=403, detail="Solo un facilitador principal puede cambiar las imágenes de las medallas")
+def _exigir_permiso_imagen(db: Session, usuario_id: int, codigo: str) -> None:
+    """Las medallas de fábrica las cambia solo el principal; las propias, su creador o el principal."""
+    if not creacion.puede_cambiar_imagen(db, get_user_by_id(db, usuario_id), codigo):
+        raise HTTPException(
+            status_code=403,
+            detail="Solo el facilitador principal cambia las imágenes de las medallas de fábrica, y cada uno las de sus medallas",
+        )
 
 
 @router.post(
@@ -93,9 +97,9 @@ async def subir_imagen_medalla(
     usuario_id: int = Depends(get_current_facilitador),
     db: Session = Depends(get_db),
 ) -> ImagenMedallaResponse:
-    """Sube (o reemplaza) la figurita de una medalla. PNG, JPG o WEBP de hasta 2 MB; se comprueba el contenido, no solo la
-    extensión. Reemplaza a la figurita dibujada de fábrica para todos los jugadores."""
-    _exigir_principal(db, usuario_id)
+    """Sube (o reemplaza) la ilustración del centro de una medalla. PNG, JPG o WEBP de hasta 2 MB; se comprueba el contenido,
+    no solo la extensión. Las de fábrica las cambia el facilitador principal; las propias, su creador o el principal."""
+    _exigir_permiso_imagen(db, usuario_id, codigo)
     contenido = await archivo.read()
     try:
         url = servicio_medallas.guardar_imagen(db, codigo, archivo.filename or "", contenido)
@@ -112,7 +116,7 @@ async def subir_imagen_medalla(
 def quitar_imagen_medalla(
     codigo: str, usuario_id: int = Depends(get_current_facilitador), db: Session = Depends(get_db)
 ) -> Response:
-    _exigir_principal(db, usuario_id)
+    _exigir_permiso_imagen(db, usuario_id, codigo)
     if not servicio_medallas.borrar_imagen(codigo):
         raise HTTPException(status_code=404, detail="Esa medalla no tiene una imagen subida")
     return Response(status_code=204)

@@ -77,6 +77,11 @@ TABLAS: dict[str, tuple[str, str]] = {
         "Un jugador dentro de un curso. Un jugador está en un solo curso a la vez.",
         "En uso",
     ),
+    "medalla_personalizada": (
+        "Medallas que crean los facilitadores (nombre, descripción, nivel, pieza, regla para ganarla y alcance). Las 13 "
+        "medallas de fábrica no están acá: viven en el código.",
+        "En uso",
+    ),
     "medalla_ganada": (
         "Medallas (figuritas) que cada jugador ya ganó, con la fecha. Son permanentes. El catálogo de medallas vive en "
         "el código (`backend/servicios/medallas/catalogo.py`).",
@@ -215,6 +220,18 @@ COLUMNAS: dict[tuple[str, str], str] = {
     ("inscripcion", "curso_id"): "Curso en el que está el jugador. FK → curso.id.",
     ("inscripcion", "usuario_id"): "Jugador inscrito. Único: está en un solo curso a la vez. FK → usuario.id.",
     ("inscripcion", "unido_en"): "Fecha y hora en que entró al curso.",
+    # medalla_personalizada
+    ("medalla_personalizada", "id"): "Identificador de la medalla.",
+    ("medalla_personalizada", "codigo"): "Código único y estable (`propia_` y 8 caracteres): es la clave de las medallas ganadas y de su imagen.",
+    ("medalla_personalizada", "nombre"): "Nombre corto de la medalla.",
+    ("medalla_personalizada", "descripcion"): "Frase que dice cómo se gana.",
+    ("medalla_personalizada", "nivel"): "`bronce`, `plata`, `oro` o `legendaria`: define el color y el brillo del escudo.",
+    ("medalla_personalizada", "pieza"): "Silueta de pieza que se muestra mientras no tenga imagen propia.",
+    ("medalla_personalizada", "regla"): "Cómo se gana: una regla automática (por ejemplo `victorias`) o `manual`.",
+    ("medalla_personalizada", "meta"): "Cantidad que hay que alcanzar con la regla (1 en las manuales y en las de sí o no).",
+    ("medalla_personalizada", "general"): "Verdadero: la ven todos los jugadores (solo el facilitador principal puede crearlas así). Falso: solo los de los cursos de su creador.",
+    ("medalla_personalizada", "creada_por"): "Facilitador que la creó. FK → usuario.id.",
+    ("medalla_personalizada", "creada_en"): "Fecha y hora de creación.",
     # medalla_ganada
     ("medalla_ganada", "id"): "Identificador de la medalla ganada.",
     ("medalla_ganada", "usuario_id"): "Jugador que la ganó. FK → usuario.id.",
@@ -243,6 +260,7 @@ RELACIONES = [
     ("usuario", "codigo_invitacion", "1 a N", "Un facilitador genera muchos códigos de invitación; cada uno lo usa, a lo sumo, una persona."),
     ("usuario", "curso", "1 a N", "Un facilitador crea varios cursos; cada curso tiene un solo facilitador."),
     ("curso", "inscripcion", "1 a N", "Un curso tiene muchos jugadores inscritos."),
+    ("usuario", "medalla_personalizada", "1 a N", "Un facilitador crea muchas medallas propias."),
     ("usuario", "medalla_ganada", "1 a N", "Un jugador gana muchas medallas; cada una la gana una sola vez."),
     ("usuario", "inscripcion", "1 a 1", "Un jugador tiene, a lo sumo, una inscripción: está en un solo curso a la vez."),
     ("participante", "partida", "1 a N", "Opcional y reservada: una partida puede asignarse a un participante."),

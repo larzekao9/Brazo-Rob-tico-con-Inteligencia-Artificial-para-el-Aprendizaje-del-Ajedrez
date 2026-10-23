@@ -19,6 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.modelos.tablas_orm import CalibracionORM, MedallaGanadaORM, MensajeTutorORM, PartidaORM, UsuarioORM
+from backend.servicios.medallas import personalizadas
 from backend.servicios.medallas.catalogo import CATALOGO, NIVELES, Medalla
 
 MEDIA_MEDALLAS_DIR = Path(__file__).resolve().parent.parent.parent / "media" / "medallas"
@@ -37,6 +38,17 @@ def _ahora() -> datetime:
 def catalogo_completo(db: Session) -> tuple[Medalla, ...]:
     """Las medallas vigentes: hoy las del catálogo en código (después se podrán sumar las que cree el facilitador)."""
     return CATALOGO
+
+
+def catalogo_para(db: Session, usuario_id: int) -> list[Medalla]:
+    """Las medallas que ve y puede ganar `usuario_id`: las de fábrica, las generales, las de los cursos de su facilitador y
+    las propias que ya ganó aunque haya dejado de ver su curso."""
+    return list(catalogo_completo(db)) + personalizadas.visibles_para(db, usuario_id)
+
+
+def definiciones_todas(db: Session) -> list[Medalla]:
+    """Todas las medallas que existen (de fábrica y propias), para buscar la definición de una por su código."""
+    return list(catalogo_completo(db)) + personalizadas.todas(db)
 
 
 # --- datos del jugador -----------------------------------------------------------------------------------------
@@ -120,14 +132,15 @@ def _ganadas(db: Session, usuario_id: int) -> dict[str, MedallaGanadaORM]:
     return {fila.codigo: fila for fila in filas}
 
 
-def _evaluar(db: Session, usuario_id: int) -> tuple[dict, dict[str, MedallaGanadaORM], list[str]]:
-    """Otorga las medallas merecidas que faltan. Devuelve `(datos, ganadas, códigos recién otorgados)`."""
+def _evaluar(db: Session, usuario_id: int) -> tuple[dict, dict[str, MedallaGanadaORM], list[str], list[Medalla]]:
+    """Otorga las medallas merecidas que faltan. Devuelve `(datos, ganadas, códigos recién otorgados, medallas visibles)`."""
     usuario = db.get(UsuarioORM, usuario_id)
     if usuario is None or usuario.rol != "jugador":
-        return {}, {}, []
+        return {}, {}, [], list(catalogo_completo(db))
     datos = calcular_datos(db, usuario_id)
     ganadas = _ganadas(db, usuario_id)
-    nuevas = [m.codigo for m in catalogo_completo(db) if m.codigo not in ganadas and m.medir(datos) >= m.meta]
+    catalogo = catalogo_para(db, usuario_id)
+    nuevas = [m.codigo for m in catalogo if m.codigo not in ganadas and m.medir(datos) >= m.meta]
     for codigo in nuevas:
         db.add(MedallaGanadaORM(usuario_id=usuario_id, codigo=codigo, ganada_en=_ahora()))
     if nuevas:
@@ -136,7 +149,7 @@ def _evaluar(db: Session, usuario_id: int) -> tuple[dict, dict[str, MedallaGanad
         except IntegrityError:  # dos pedidos a la vez otorgaron la misma: se queda con lo que ya había
             db.rollback()
         ganadas = _ganadas(db, usuario_id)
-    return datos, ganadas, nuevas
+    return datos, ganadas, nuevas, catalogo
 
 
 def evaluar_y_otorgar(db: Session, usuario_id: int) -> list[str]:
@@ -154,9 +167,9 @@ def listar_para_usuario(db: Session, usuario_id: int) -> dict:
     `nuevas` son las ganadas que todavía no se le mostraron; `es_primera` es verdadero cuando entre ellas está su primera
     medalla (la pantalla hace la celebración grande); las siguientes se avisan con una notificación arriba.
     """
-    datos, ganadas, _ = _evaluar(db, usuario_id)
+    datos, ganadas, _, catalogo = _evaluar(db, usuario_id)
     medallas = []
-    for m in catalogo_completo(db):
+    for m in catalogo:
         fila = ganadas.get(m.codigo)
         medallas.append(
             {
@@ -188,7 +201,7 @@ def resumen_para_ranking(db: Session, ids: list[int]) -> dict[int, dict]:
     """Por jugador: cuántas medallas tiene y las `DESTACADAS_EN_RANKING` mejores (por nivel y, si empatan, la más nueva)."""
     if not ids:
         return {}
-    por_codigo = {m.codigo: m for m in catalogo_completo(db)}
+    por_codigo = {m.codigo: m for m in definiciones_todas(db)}
     filas = db.scalars(select(MedallaGanadaORM).where(MedallaGanadaORM.usuario_id.in_(ids))).all()
     por_usuario: dict[int, list[MedallaGanadaORM]] = {}
     for fila in filas:
@@ -235,7 +248,7 @@ def guardar_imagen(db: Session, codigo: str, nombre_original: str, contenido: by
         ValueError: si la medalla no existe, la extensión no es png/jpg/webp, el archivo no es realmente una imagen o pesa
             más de 2 MB.
     """
-    if codigo not in {m.codigo for m in catalogo_completo(db)}:
+    if codigo not in {m.codigo for m in definiciones_todas(db)}:
         raise ValueError(f"No existe la medalla '{codigo}'")
     extension = Path(nombre_original).suffix.lower()
     if extension not in EXTENSIONES_IMAGEN:
