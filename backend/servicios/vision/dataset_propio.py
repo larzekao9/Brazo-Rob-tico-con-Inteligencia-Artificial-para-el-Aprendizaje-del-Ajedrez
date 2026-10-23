@@ -330,12 +330,17 @@ def regenerar_ampliados() -> dict[str, int]:
     return {"escritos": escritos, "volumen": len(esperados_volumen), "borrados": borrados, "sin_cuadro": sin_cuadro}
 
 
-def _recortes_ampliados_del_dataset():
-    """`(clase/archivo.png, recorte ampliado)` de cada casilla guardada que tiene su cuadro completo (ver `capturar_dataset_propio`)."""
+def _recortes_del_dataset():
+    """`(clase/archivo.png, recorte ampliado, recorte de volumen o None, manifiesto)` de cada casilla guardada que tiene su cuadro completo.
+
+    Los recortes se vuelven a calcular desde la foto completa con la geometría de HOY (esquinas de la captura, lente actual de la cámara): son
+    los mismos que va a ver el backend al reconocer, que es lo que importa para entrenar.
+    """
     import json
 
     import numpy as np
 
+    from backend.servicios.vision import geometria3d
     from backend.servicios.vision.tablero import recortes_ampliados
     from training import capturar_dataset_propio
 
@@ -347,20 +352,35 @@ def _recortes_ampliados_del_dataset():
         if cuadro is None:
             continue
         datos = json.loads(manifiesto.read_text(encoding="utf-8"))
-        recortes = recortes_ampliados(cuadro, np.array(datos["esquinas"], dtype=np.float32))
+        esquinas = np.array(datos["esquinas"], dtype=np.float32)
+        ampliados = recortes_ampliados(cuadro, esquinas)
+        try:
+            alto, ancho = cuadro.shape[:2]
+            volumen = geometria3d.recortes_volumen(cuadro, esquinas[::-1], geometria3d.cargar_lente(datos.get("camara", "principal"), ancho, alto))
+        except ValueError:
+            volumen = {}
         for casilla, clase in datos["etiquetas"].items():
             if (_carpeta() / clase / f"{manifiesto.stem}_{casilla}.png").exists():  # sigue en el dataset (no se borró)
-                yield f"{clase}/{manifiesto.stem}_{casilla}.png", recortes[casilla]
+                yield f"{clase}/{manifiesto.stem}_{casilla}.png", ampliados[casilla], volumen.get(casilla), {**datos, "id": manifiesto.stem}
+
+
+COLUMNAS_METADATOS = ("archivo", "recorte", "clase", "captura", "casilla", "camara", "grupo")
+"""Columnas de `metadatos.csv` en el ZIP: una fila por recorte. `recorte` es justo, ampliado o volumen; `camara` y `grupo` quedan vacíos en las
+fotos viejas (sin foto completa) y en las subidas a mano; las capturas con foto completa de antes de las dos cámaras son de la principal. Las
+fotos de un mismo `grupo` son del mismo instante (una por cámara)."""
 
 
 def exportar_zip() -> Path:
-    """Empaqueta el dataset en un ZIP `<clase>/<archivo>.png` (+ `clases.json`) listo para subir a Colab y entrenar.
+    """Empaqueta el dataset en un ZIP listo para subir a Colab y entrenar (ver `training/colab_vision_piezas.ipynb`).
 
-    Devuelve la ruta de un archivo temporal; quien lo sirva debe borrarlo después.
+    Contenido: `<clase>/<archivo>.png` (recorte justo, como siempre), `ampliado/<clase>/…` y `volumen/<clase>/…` (de las capturas con foto
+    completa), `metadatos.csv` (ver `COLUMNAS_METADATOS`) y `clases.json`. Devuelve la ruta de un archivo temporal; quien lo sirva debe borrarlo.
 
     Raises:
         ValueError: si el dataset no tiene ninguna muestra.
     """
+    import csv
+    import io
     import json
 
     carpeta = _carpeta()
@@ -370,16 +390,40 @@ def exportar_zip() -> Path:
     descriptor, ruta_temporal = tempfile.mkstemp(suffix=".zip", prefix="dataset_piezas_")
     os.close(descriptor)
     por_clase: dict[str, int] = {}
+    filas: list[dict] = []
+    datos_por_archivo: dict[str, dict] = {}
     with zipfile.ZipFile(ruta_temporal, "w", zipfile.ZIP_STORED) as zip_salida:
+        for nombre, ampliado, volumen, datos in _recortes_del_dataset():
+            datos_por_archivo[nombre] = datos
+            for recorte, imagen in (("ampliado", ampliado), ("volumen", volumen)):
+                exito, buffer = cv2.imencode(".png", imagen) if imagen is not None else (False, None)
+                if exito:
+                    zip_salida.writestr(f"{recorte}/{nombre}", buffer.tobytes())
+                    filas.append(_fila_metadatos(f"{recorte}/{nombre}", recorte, nombre, datos))
         for archivo in archivos:
-            zip_salida.write(archivo, f"{archivo.parent.name}/{archivo.name}")
+            nombre = f"{archivo.parent.name}/{archivo.name}"
+            zip_salida.write(archivo, nombre)
             por_clase[archivo.parent.name] = por_clase.get(archivo.parent.name, 0) + 1
-        for nombre, imagen_ampliada in _recortes_ampliados_del_dataset():
-            exito, buffer = cv2.imencode(".png", imagen_ampliada)
-            if exito:
-                zip_salida.writestr(f"ampliado/{nombre}", buffer.tobytes())
+            filas.append(_fila_metadatos(nombre, "justo", nombre, datos_por_archivo.get(nombre)))
+        texto = io.StringIO()
+        escritor = csv.DictWriter(texto, fieldnames=COLUMNAS_METADATOS)
+        escritor.writeheader()
+        escritor.writerows(filas)
+        zip_salida.writestr("metadatos.csv", texto.getvalue())
         zip_salida.writestr("clases.json", json.dumps({"clases": sorted(por_clase), "muestras_por_clase": por_clase}, indent=2))
     return Path(ruta_temporal)
+
+
+def _fila_metadatos(archivo: str, recorte: str, nombre: str, datos: dict | None) -> dict:
+    """Una fila de `metadatos.csv` para el recorte `archivo` de la casilla `nombre` (`<clase>/<captura>_<casilla>.png`)."""
+    clase, base = nombre.split("/", 1)
+    captura, _, casilla = Path(base).stem.rpartition("_")
+    datos = datos or {}
+    return {
+        "archivo": archivo, "recorte": recorte, "clase": clase, "captura": datos.get("id", captura),
+        "casilla": casilla if re.fullmatch(r"[a-h][1-8]", casilla) else "",
+        "camara": datos.get("camara", "principal") if datos else "", "grupo": datos.get("grupo", datos.get("id", "")),
+    }
 
 
 class _Reentrenamiento:

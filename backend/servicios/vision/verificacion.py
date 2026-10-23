@@ -27,15 +27,36 @@ def _etiqueta_corta(clase: str) -> str:
     return letra if color == "white" else letra.lower()
 
 
-def probabilidades_de_camara(imagen: np.ndarray, camara: str = "principal") -> tuple[np.ndarray, list[str], np.ndarray, float]:
+def probabilidades_de_camara(
+    imagen: np.ndarray, camara: str = "principal", ocupadas: set[str] | None = None
+) -> tuple[np.ndarray, list[str], np.ndarray, float]:
     """`(probabilidades (64, clases), nombres de casilla, esquinas, margen)` de una foto de `camara`.
+
+    Con `ocupadas` (las casillas con pieza según la cámara de arriba, ver `ocupadas_de_arriba`) el modelo solo mira esas y las demás quedan
+    "vacía" con certeza: con una red preentrenada (la de Colab) clasificar las 64 casillas tarda más de un segundo por cámara en CPU.
 
     Raises:
         ValueError: tablero no detectado.
     """
     recortes, esquinas, margen = recortes_de_imagen(imagen, camara)
     nombres = list(recortes)
-    return piezas.probabilidades([recortes[n] for n in nombres]), nombres, esquinas, margen
+    if ocupadas is None:
+        return piezas.probabilidades([recortes[n] for n in nombres]), nombres, esquinas, margen
+    clases = piezas.clases_del_modelo()
+    probs = np.zeros((len(nombres), len(clases)))
+    probs[:, clases.index(CLASE_VACIA)] = 1.0
+    filas = [i for i, nombre in enumerate(nombres) if nombre in ocupadas]
+    if filas:
+        probs[filas] = piezas.probabilidades([recortes[nombres[i]] for i in filas])
+    return probs, nombres, esquinas, margen
+
+
+def ocupadas_de_arriba(fotos: dict[str, np.ndarray]) -> set[str] | None:
+    """Las casillas con pieza según la cámara menos inclinada (`referencia_vacia.ocupadas`), o `None` si ninguna tiene referencia del tablero vacío."""
+    from backend.servicios.vision import referencia_vacia
+
+    resultado = referencia_vacia.ocupadas(fotos)
+    return None if resultado is None else {nombre for nombre, ocupada in zip(referencia_vacia.NOMBRES, resultado[0]) if ocupada}
 
 
 def _con_ocupacion_de_arriba(probs: np.ndarray, nombres: list[str], clases: list[str], fotos: dict[str, np.ndarray] | None) -> np.ndarray:
@@ -169,9 +190,10 @@ def probabilidades_de_piezas(fotos: dict[str, np.ndarray]) -> tuple[np.ndarray, 
         probs, nombres, _ = _probabilidades_dos_vistas(fotos)
         return probs, nombres, piezas.clases_dos_vistas()
     lecturas = []
+    ocupadas = ocupadas_de_arriba(fotos)
     for camara, imagen in fotos.items():
         try:
-            lecturas.append(probabilidades_de_camara(imagen, camara))
+            lecturas.append(probabilidades_de_camara(imagen, camara, ocupadas))
         except ValueError:
             continue
     if not lecturas:
@@ -218,7 +240,7 @@ def analizar_tablero(imagen: np.ndarray, camara: str = "principal") -> tuple[np.
     """Reconoce las 64 casillas de `imagen` y devuelve `(imagen anotada BGR, predicciones por casilla)`."""
     if piezas.hay_dos_vistas():
         return _analizar_dos_vistas({camara: imagen})
-    probs, nombres, esquinas, margen = probabilidades_de_camara(imagen, camara)
+    probs, nombres, esquinas, margen = probabilidades_de_camara(imagen, camara, ocupadas_de_arriba({camara: imagen}))
     casillas = _casillas_de_probabilidades(probs, nombres, fotos={camara: imagen})
     return _vista_anotada(imagen, esquinas, margen, casillas), casillas
 
@@ -234,9 +256,10 @@ def analizar_camaras(fotos: dict[str, np.ndarray]) -> tuple[np.ndarray, list[dic
     if piezas.hay_dos_vistas():
         return _analizar_dos_vistas(fotos)
     lecturas = []
+    ocupadas = ocupadas_de_arriba(fotos)
     for camara, imagen in fotos.items():
         try:
-            lecturas.append((imagen, *probabilidades_de_camara(imagen, camara)))
+            lecturas.append((imagen, *probabilidades_de_camara(imagen, camara, ocupadas)))
         except ValueError:
             continue
     if not lecturas:

@@ -22,7 +22,25 @@ _ampliado: bool = False
 _recorte: str = "justo"
 
 
-def _cargar_modelo() -> tuple[RedClasificadoraPiezas, list[str]]:
+def cargar_red(checkpoint: dict, tamano: int) -> torch.nn.Module:
+    """La red de un checkpoint del clasificador de piezas, lista para inferir (en modo evaluación).
+
+    Dos formatos: el de siempre (`pesos` de `RedClasificadoraPiezas`) y el que sale de Colab (`training/colab_vision_piezas.ipynb`), con
+    `formato: "torchscript"` y la red completa en `torchscript` (bytes). Ese trae la normalización adentro y recibe lo mismo que la otra (RGB
+    de 0 a 1, `tamano` × `tamano`, ver `preprocesar_recorte`), así que se puede usar una red preentrenada sin instalar torchvision.
+    """
+    if checkpoint.get("formato") == "torchscript":
+        import io
+
+        red = torch.jit.load(io.BytesIO(checkpoint["torchscript"]), map_location="cpu")
+    else:
+        red = RedClasificadoraPiezas(cantidad_clases=len(checkpoint["clases"]), tamano=tamano)
+        red.load_state_dict(checkpoint["pesos"])
+    red.eval()
+    return red
+
+
+def _cargar_modelo() -> tuple[torch.nn.Module, list[str]]:
     global _modelo, _clases, _tamano, _ampliado, _recorte
     if _modelo is None:
         if not RUTA_CHECKPOINT.exists():
@@ -33,12 +51,9 @@ def _cargar_modelo() -> tuple[RedClasificadoraPiezas, list[str]]:
         checkpoint = torch.load(RUTA_CHECKPOINT, map_location="cpu", weights_only=False)
         _clases = checkpoint["clases"]
         _tamano = int(checkpoint.get("tamano", TAMANO_ENTRADA))
-        _ampliado = bool(checkpoint.get("ampliado", False))
+        _ampliado = bool(checkpoint.get("ampliado", checkpoint.get("recorte") == "ampliado"))
         _recorte = checkpoint.get("recorte") or ("ampliado" if _ampliado else "justo")
-        modelo = RedClasificadoraPiezas(cantidad_clases=len(_clases), tamano=_tamano)
-        modelo.load_state_dict(checkpoint["pesos"])
-        modelo.eval()
-        _modelo = modelo
+        _modelo = cargar_red(checkpoint, _tamano)
     return _modelo, _clases
 
 

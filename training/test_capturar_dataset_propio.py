@@ -198,3 +198,33 @@ def test_captura_completa_no_agrega_vacias_seguras(tmp_path, monkeypatch) -> Non
     capturar, _ = _preparar_captura_calibrada(tmp_path, monkeypatch)
     captura_id, _ = capturar.capturar_muestras_con_id("8/8/8/8/8/8/8/8", imagen=np.full((750, 900, 3), 110, np.uint8))
     assert "vacias_seguras" not in json.loads((tmp_path / "dataset_propio_cuadros" / f"{captura_id}.json").read_text())
+
+
+def test_exportar_zip_trae_los_tres_recortes_y_los_metadatos(tmp_path, monkeypatch) -> None:
+    import csv
+    import io
+    import zipfile
+
+    from backend.servicios.vision import dataset_propio, tablero
+    from backend.servicios.vision.test_validacion_orientacion import foto_con_piezas
+
+    capturar, dataset = _preparar_captura_calibrada(tmp_path, monkeypatch)
+    monkeypatch.setattr(dataset_propio, "_carpeta", lambda: dataset)
+    monkeypatch.setattr(tablero, "ARCHIVO_ESQUINAS", tmp_path / "esquinas.json")  # lente supuesto, sin archivos del equipo
+    captura_id, _ = capturar.capturar_muestras_con_id(
+        "8/8/8/8/4P3/8/8/8", imagen=foto_con_piezas({"e4": "white-pawn"}), solo_piezas=True, camara="secundaria", grupo="g1"
+    )
+    ruta = dataset_propio.exportar_zip()
+    try:
+        with zipfile.ZipFile(ruta) as zip_entrada:
+            nombres = set(zip_entrada.namelist())
+            filas = list(csv.DictReader(io.StringIO(zip_entrada.read("metadatos.csv").decode())))
+    finally:
+        ruta.unlink()
+    archivo = f"white-pawn/{captura_id}_e4.png"
+    assert {archivo, f"ampliado/{archivo}", f"volumen/{archivo}", "clases.json"} <= nombres
+    assert sorted(f["recorte"] for f in filas) == ["ampliado", "justo", "volumen"]
+    assert all(
+        (f["clase"], f["captura"], f["casilla"], f["camara"], f["grupo"]) == ("white-pawn", captura_id, "e4", "secundaria", "g1") for f in filas
+    )
+    assert all(f["archivo"] in nombres for f in filas)

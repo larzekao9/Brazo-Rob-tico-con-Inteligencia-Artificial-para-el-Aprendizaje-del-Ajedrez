@@ -89,7 +89,7 @@ def test_analizar_camaras_fusiona_las_probabilidades(monkeypatch) -> None:
 
     por_camara = {"principal": lectura([0.5, 0.45, 0.05]), "secundaria": lectura([0.9, 0.05, 0.05])}
     esquinas = np.array([[150, 80], [750, 40], [780, 620], [120, 660]], dtype=np.float32)
-    monkeypatch.setattr(verificacion, "probabilidades_de_camara", lambda img, cam: (por_camara[cam], nombres, esquinas, 0.0))
+    monkeypatch.setattr(verificacion, "probabilidades_de_camara", lambda img, cam, ocupadas=None: (por_camara[cam], nombres, esquinas, 0.0))
     monkeypatch.setattr(verificacion.piezas, "clases_del_modelo", lambda: clases)
     nombres_clases = clases
     monkeypatch.setattr(verificacion.piezas, "mejores_clases", lambda probs, n=3, clases=None: [

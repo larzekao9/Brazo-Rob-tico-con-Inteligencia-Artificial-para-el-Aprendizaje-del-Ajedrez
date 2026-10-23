@@ -119,3 +119,27 @@ def test_el_probador_toma_la_ocupacion_de_la_camara_de_arriba(monkeypatch) -> No
     casillas = verificacion._casillas_de_probabilidades(probs, rv.NOMBRES, list(CLASES), {"principal": _con_piezas("e4")})
     vistas = {c["casilla"]: c["clase"] for c in casillas if c["clase"] != "vacia"}
     assert vistas == {"e4": "white-pawn"}
+
+
+def test_el_probador_solo_clasifica_las_casillas_ocupadas(monkeypatch) -> None:
+    from backend.servicios.vision import piezas, verificacion
+    from backend.servicios.vision.modelo_piezas import CLASES
+
+    _guardar_calibracion_y_referencia()
+    mirados = []
+
+    def falso(recortes):
+        mirados.append(len(recortes))
+        salida = np.zeros((len(recortes), len(CLASES)))
+        salida[:, CLASES.index("white-pawn")] = 1.0
+        return salida
+
+    monkeypatch.setattr(piezas, "probabilidades", falso)
+    monkeypatch.setattr(piezas, "clases_del_modelo", lambda: list(CLASES))
+    monkeypatch.setattr(piezas, "hay_dos_vistas", lambda: False)
+    monkeypatch.setattr(verificacion, "recortes_de_imagen", lambda imagen, camara: ({n: imagen[:10, :10] for n in rv.NOMBRES}, ESQUINAS, 0.0))
+    foto = _con_piezas("e4", "d5")
+    probs, nombres, _ = verificacion.probabilidades_de_piezas({"principal": foto})
+    assert mirados == [2]  # el modelo solo vio las 2 casillas con pieza
+    vistas = {n for n, fila in zip(nombres, probs) if CLASES[fila.argmax()] != "vacia"}
+    assert vistas == {"e4", "d5"}
