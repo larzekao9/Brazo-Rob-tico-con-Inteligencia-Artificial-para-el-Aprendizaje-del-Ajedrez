@@ -182,6 +182,9 @@ class ParametrosAgarre:
     giro_diagonal_grados: float = 45.0
     apertura_aproximacion: int = 560
     """Posición de la pinza (0 a 1000) al bajar sobre un PEÓN: la apertura que dejó holgura a los lados sin rozar las vecinas."""
+    largo_pinza_mm: float = 217.0
+    """Distancia de la brida del brazo a la punta de los dedos, a lo largo de la herramienta. Por defecto los 177 mm del modelo (URDF) más los 40 mm de los
+    dedos largos: es una ESTIMACIÓN, hay que medirla. La usan las validaciones de mesa, tablero y choque, y el dibujo del esqueleto."""
     apertura_extra_soltar: int = 250
     """Cuánto más se abre la pinza al SOLTAR que al agarrar (se suma a la apertura de la pieza, tope 1000): así los dedos quedan bien lejos de la pieza."""
     aperturas_por_pieza: dict[str, int] = field(default_factory=dict)

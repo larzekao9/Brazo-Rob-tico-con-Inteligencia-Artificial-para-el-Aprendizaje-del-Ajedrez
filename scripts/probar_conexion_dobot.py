@@ -69,7 +69,7 @@ def consultar(host: str, puerto: int = 29999, timeout: float = 3.0, comandos: tu
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--host", default="192.168.5.1", help="IP del controlador (por defecto 192.168.5.1)")
+    parser.add_argument("--host", default="192.168.77.180", help="IP del controlador (por defecto 192.168.77.180)")
     parser.add_argument("--puerto", type=int, default=29999)
     parser.add_argument("--timeout", type=float, default=3.0)
     args = parser.parse_args()

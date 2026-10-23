@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import logging
 import threading
 import time
 from pathlib import Path
 
 import chess
+import numpy as np
 
 from backend.servicios.brazo.calibracion_brazo import (
     ARCHIVO_CALIBRACION_BRAZO,
@@ -23,10 +25,12 @@ from backend.servicios.brazo.calibracion_brazo import (
     cargar_parametros_agarre,
     guardar_parametros_agarre,
 )
+from backend.servicios.brazo import geometria_brazo, rutinas
 from backend.servicios.brazo.cliente_dobot import MODOS_DE_FALLA, ErrorDobot
 from backend.servicios.brazo.ejecutor_movimiento import EjecutorReal
 from backend.servicios.brazo.pinza_dh import REG_FUERZA, REG_VELOCIDAD
 
+logger = logging.getLogger(__name__)
 ARCHIVO_CONFIGURACIONES = Path(ARCHIVO_CALIBRACION_BRAZO).parent / "configuraciones_brazo.json"
 MODOS_TEXTO = {
     1: "inicializando", 2: "freno liberado", 3: "sin energía (apagado)", 4: "deshabilitado", 5: "habilitado y libre",
@@ -106,7 +110,8 @@ def conectar(host: str = "192.168.5.1", puerto: int = 29999, emulador: bool = Fa
             if simulado:
                 simulado[1].detener()
                 simulado[0].cerrar()
-            raise ErrorControl(503, f"No se pudo conectar con el brazo: {error}") from error
+            logger.warning("No se pudo conectar con el brazo en %s:%s (emulador=%s): %s: %s", host, puerto, emulador, type(error).__name__, error)
+            raise ErrorControl(503, f"No se pudo conectar con el brazo en {host}:{puerto}: {error}") from error
         _estado.ejecutor, _estado.calibracion, _estado.emulador = ejecutor, calibracion, simulado
         _estado.destino = "emulador" if emulador else f"{host}:{puerto}"
         _estado.tarea = {"estado": "inactiva", "descripcion": "", "mensaje": "", "pasos": []}
@@ -212,7 +217,7 @@ def parar() -> dict:
 # --- parámetros -----------------------------------------------------------------------------------------------------------
 _RANGOS = {
     "velocidad_global": (1, 100), "aceleracion": (1, 100), "velocidad": (1, 100), "fuerza": (20, 100), "velocidad_pinza": (1, 100),
-    "apertura_aproximacion": (0, 1000), "apertura_extra_soltar": (0, 1000), "altura_segura_mm": (20, 200), "margen_agarre_mm": (0, 30), "giro_diagonal_grados": (-180, 180),
+    "apertura_aproximacion": (0, 1000), "apertura_extra_soltar": (0, 1000), "largo_pinza_mm": (100, 400), "altura_segura_mm": (20, 200), "margen_agarre_mm": (0, 30), "giro_diagonal_grados": (-180, 180),
 }
 
 
@@ -222,7 +227,7 @@ def parametros() -> dict:
     return {
         "velocidad_global": cliente.velocidad_global, "aceleracion": cliente.aceleracion, "velocidad": cliente.velocidad,
         "fuerza": agarre.fuerza, "velocidad_pinza": agarre.velocidad_pinza, "apertura_aproximacion": agarre.apertura_aproximacion,
-        "apertura_extra_soltar": agarre.apertura_extra_soltar,
+        "apertura_extra_soltar": agarre.apertura_extra_soltar, "largo_pinza_mm": agarre.largo_pinza_mm,
         "aperturas_por_pieza": dict(agarre.aperturas_por_pieza), "altura_segura_mm": agarre.altura_segura_mm,
         "margen_agarre_mm": agarre.margen_agarre_mm, "giro_diagonal_grados": agarre.giro_diagonal_grados, "z_tope": agarre.z_tope,
     }
@@ -301,6 +306,209 @@ def mover_pinza(accion: str, ancho_mm: float | None = None) -> dict:
     return estado()
 
 
+# --- rutinas ----------------------------------------------------------------------------------------------------------------
+VELOCIDAD_MAXIMA_REAL = 50
+"""Tope de `SpeedFactor` (%) de una rutina en el brazo real, aunque el paso o el factor pidan más."""
+
+
+def _de_rutinas(funcion, *args):
+    try:
+        return funcion(*args)
+    except rutinas.ErrorRutina as error:
+        raise ErrorControl(error.codigo, error.mensaje) from error
+
+
+def listar_rutinas() -> list[dict]:
+    return rutinas.listar()
+
+
+def obtener_rutina(nombre: str) -> dict:
+    return _de_rutinas(rutinas.obtener, nombre)
+
+
+def guardar_rutina(nombre: str, pasos: list[dict]) -> dict:
+    return _de_rutinas(rutinas.guardar, nombre, pasos)
+
+
+def borrar_rutina(nombre: str) -> None:
+    _de_rutinas(rutinas.borrar, nombre)
+
+
+def _describir_paso(paso: dict) -> str:
+    if paso["tipo"] == "articulaciones":
+        return "Ir a " + ", ".join(f"{a:g}" for a in paso["angulos"])
+    if paso["tipo"] == "pinza":
+        return f"Pinza a {paso['apertura']}"
+    return f"Esperar {paso['segundos']:g} s"
+
+
+def _esperar(cliente, segundos: float) -> None:
+    """Espera `segundos` en tramos cortos para que la parada de emergencia corte también las esperas."""
+    fin = time.monotonic() + segundos
+    while time.monotonic() < fin:
+        if cliente.cancelado:
+            raise RuntimeError("Cancelado por el usuario")
+        time.sleep(min(0.1, max(0.0, fin - time.monotonic())))
+
+
+def _desenrollar(planos: list[dict], actuales: list[float]) -> list[dict]:
+    """Las poses de la rutina corridas por vueltas completas (múltiplos de 360°) para que la primera quede lo más cerca posible de `actuales`.
+
+    Un ángulo y ese mismo más 360° son la misma pose física, pero `MovJ` interpola en ángulos: de -45° a 302° la base daría casi una vuelta entera en vez
+    de 13°. Cada articulación se corre solo si todas las poses de la rutina siguen dentro de su rango; las demás quedan como están.
+    """
+    poses = [p for p in planos if p["tipo"] == "articulaciones"]
+    if not poses:
+        return planos
+    desfases = []
+    for i, (actual, objetivo) in enumerate(zip(actuales, poses[0]["angulos"])):
+        desfase = 360 * round((actual - objetivo) / 360)
+        minimo, maximo = LIMITES_ARTICULACIONES[i]
+        desfases.append(desfase if desfase and all(minimo <= p["angulos"][i] + desfase <= maximo for p in poses) else 0)
+    if not any(desfases):
+        return planos
+    return [{**p, "angulos": [a + d for a, d in zip(p["angulos"], desfases)]} if p["tipo"] == "articulaciones" else p for p in planos]
+
+
+def ejecutar_rutina(nombre: str, factor: float = 1.0, confirmar: bool = False) -> dict:
+    """Corre la rutina `nombre` paso a paso en un hilo (el avance se ve en `estado()["tarea"]`).
+
+    `factor` (0,25 a 2) multiplica la velocidad de cada paso. En el emulador corre sin más y, si termina completa, queda validada. En el brazo real
+    exige que esté validada con exactamente estos pasos y `confirmar=True`, y la velocidad no pasa de `VELOCIDAD_MAXIMA_REAL`. La primera pose no
+    puede quedar a más de `SALTO_MAXIMO_GRADOS` de donde está el brazo.
+    """
+    if not 0.25 <= factor <= 2.0:
+        raise ErrorControl(422, "El factor de velocidad debe estar entre 0,25 y 2")
+    planos, huella = _de_rutinas(rutinas.pasos_para_ejecutar, nombre)
+    ejecutor = _ejecutor()
+    emulador = _estado.emulador is not None
+    if not emulador:
+        if not _de_rutinas(rutinas.obtener, nombre)["validada"]:
+            raise ErrorControl(409, "Esta rutina todavía no corrió completa en el emulador con estos pasos: probala ahí primero")
+        if not confirmar:
+            raise ErrorControl(409, "Confirmá que querés ejecutarla en el brazo real")
+    tope = 100 if emulador else VELOCIDAD_MAXIMA_REAL
+    if any(p["tipo"] == "pinza" for p in planos):
+        try:  # sin inicializar, la pinza ignora los comandos y la rutina «terminaría bien» sin abrir ni cerrar nada
+            if ejecutor.pinza._maestro is None:
+                ejecutor.pinza.conectar()
+            inicializada = ejecutor.pinza.estado().inicializada
+        except (ErrorDobot, RuntimeError, ValueError) as error:
+            raise ErrorControl(503, f"Error en la pinza: {error}") from error
+        if not inicializada:
+            raise ErrorControl(409, "La rutina usa la pinza y todavía no está inicializada: inicializala primero")
+
+    def accion(cliente) -> None:
+        nonlocal planos
+        velocidad_inicial = cliente.velocidad_global
+        primera = next((p for p in planos if p["tipo"] == "articulaciones"), None)
+        if primera is not None:
+            actuales = list(cliente.angulos())
+            planos = _desenrollar(planos, actuales)
+            primera = next(p for p in planos if p["tipo"] == "articulaciones")
+            for j, (actual, pedido) in enumerate(zip(actuales, primera["angulos"]), start=1):
+                if abs(actual - pedido) > rutinas.SALTO_MAXIMO_GRADOS:
+                    raise RuntimeError(f"J{j} está a {abs(actual - pedido):.0f}° de la primera pose: llevá el brazo cerca (por ejemplo a la posición inicial) y probá de nuevo")
+            if problemas := geometria_brazo.problemas_de_trayectoria(actuales, primera["angulos"], _z_tope_mm(), _largo_pinza_m()):
+                raise RuntimeError(f"El camino desde donde está el brazo hasta la primera pose pasaría por una pose imposible: {problemas[0]}. Llevá el brazo antes a la posición inicial")
+        try:
+            for numero, paso in enumerate(planos, start=1):
+                if cliente.cancelado:
+                    raise RuntimeError("Cancelado por el usuario")
+                _estado.tarea.update(mensaje=f"Paso {numero}/{len(planos)}: {_describir_paso(paso)}")
+                if paso["tipo"] == "articulaciones":
+                    cliente.velocidad_global = max(1, min(tope, round(paso["velocidad"] * factor)))
+                    cliente.enviar(f"SpeedFactor({cliente.velocidad_global})")
+                    cliente.mover_a_angulos(tuple(paso["angulos"]))
+                elif paso["tipo"] == "pinza":
+                    if ejecutor.pinza._maestro is None:
+                        ejecutor.pinza.conectar()
+                    for campo, registro in (("fuerza", REG_FUERZA), ("velocidad", REG_VELOCIDAD)):
+                        if campo in paso:
+                            setattr(ejecutor.pinza, campo, paso[campo])
+                            ejecutor.pinza.escribir(registro, paso[campo])
+                    ejecutor.pinza.mover_a(paso["apertura"])
+                else:
+                    _esperar(cliente, paso["segundos"])
+        finally:
+            cliente.velocidad_global = velocidad_inicial
+            cliente.enviar(f"SpeedFactor({velocidad_inicial})")
+        if emulador:
+            rutinas.marcar_validada(nombre, huella)
+
+    return _lanzar_manual(f"Rutina «{nombre}»", accion)
+
+
+# --- geometría ------------------------------------------------------------------------------------------------------------
+def limites() -> dict:
+    """Lo que usan las validaciones de pose, para que el front las aplique igual al mover el esqueleto."""
+    z_tope = _z_tope_mm()
+    return {
+        "limites_articulaciones": [list(l) for l in geometria_brazo.LIMITES_ARTICULACIONES],
+        "margen_mesa_m": geometria_brazo.MARGEN_MESA,
+        "distancia_minima_eslabones_m": geometria_brazo.DISTANCIA_MINIMA_ENTRE_ESLABONES,
+        "punta_minima_m": geometria_brazo.punta_minima_para(z_tope, _largo_pinza_m()),
+        "largo_pinza_m": _largo_pinza_m(),
+        "z_tope_mm": z_tope,
+    }
+
+
+POSES_DE_VERIFICACION = ((0, 0, 90, 0, 90, 0), (0, 0, 0, 0, 0, 0), (30, -20, 60, 20, 80, 0), (-45, 30, -90, 0, 90, 45), (90, 10, 50, -30, 60, -60), (-120, 60, 20, 45, -70, 90))
+TOLERANCIA_VERIFICACION_MM = 5.0
+
+
+def verificar_geometria() -> dict:
+    """Compara la brida que calcula el modelo con la que calcula el propio controlador (`PositiveKin`, que no mueve el brazo) para los ángulos actuales y varias poses.
+
+    Es la prueba de que los ángulos del controlador significan lo mismo que los del URDF: si coinciden, el esqueleto y las validaciones de mesa y choque
+    son confiables. Si no coinciden se dice si la diferencia es solo un giro de la base (el radio y la altura sí coinciden) o algo más. También compara
+    `GetPose()` con `GetPose(user=0,tool=0)`: si difieren, el controlador tiene una herramienta activa y `z_tope` (que se leyó con `GetPose()`) es el de la
+    punta y no el de la brida. Solo con el brazo real: el emulador no calcula la cinemática.
+    """
+    ejecutor = _ejecutor()
+    if _estado.emulador is not None:
+        raise ErrorControl(409, "Solo se puede verificar con el brazo real conectado: el emulador no calcula la cinemática")
+    cliente = ejecutor.cliente
+    try:
+        poses = [list(cliente.angulos()), *map(list, POSES_DE_VERIFICACION)]
+        filas = []
+        for angulos in poses:
+            controlador = list(cliente.cinematica_directa(angulos)[:3])
+            modelo = [float(v) * 1000 for v in geometria_brazo.puntos_del_brazo(angulos)["articulaciones"][6]]
+            filas.append({"angulos": angulos, "controlador_mm": [round(v, 1) for v in controlador], "modelo_mm": [round(v, 1) for v in modelo], "controlador": controlador, "modelo": modelo})
+        por_defecto, de_la_brida = cliente.pose(), cliente.pose_con_herramienta(0, 0)
+    except (OSError, ErrorDobot, RuntimeError) as error:
+        raise ErrorControl(503, f"No se pudo consultar al controlador: {error}") from error
+    for fila in filas:
+        c, m = np.array(fila.pop("controlador")), np.array(fila.pop("modelo"))
+        fila["error_mm"] = round(float(np.linalg.norm(c - m)), 1)
+        fila["error_radio_altura_mm"] = round(max(abs(float(np.hypot(*c[:2]) - np.hypot(*m[:2]))), abs(float(c[2] - m[2]))), 1)
+    error_maximo = max(f["error_mm"] for f in filas)
+    solo_giro = max(f["error_radio_altura_mm"] for f in filas) <= TOLERANCIA_VERIFICACION_MM
+    coincide = error_maximo <= TOLERANCIA_VERIFICACION_MM
+    diferencia_herramienta = float(np.linalg.norm(np.array(por_defecto[:3]) - np.array(de_la_brida[:3])))
+    if coincide:
+        conclusion = f"Coincide (error máximo {error_maximo:.1f} mm): los ángulos del controlador significan lo mismo que los del modelo y las validaciones son confiables."
+    elif solo_giro:
+        conclusion = "El radio y la altura coinciden pero no el giro: la base está girada respecto del modelo. Las validaciones de mesa y choque valen igual; el dibujo se ve girado."
+    else:
+        conclusion = "NO coincide: los ángulos del controlador no significan lo mismo que los del modelo. No te fíes del esqueleto ni de las validaciones de mesa y choque hasta corregirlo."
+    return {
+        "poses": filas,
+        "error_maximo_mm": error_maximo,
+        "coincide": coincide,
+        "solo_giro_de_la_base": solo_giro and not coincide,
+        "herramienta_activa": diferencia_herramienta > 2.0,
+        "diferencia_herramienta_mm": round(diferencia_herramienta, 1),
+        "conclusion": conclusion,
+        "aviso_herramienta": (
+            "El controlador tiene una herramienta activa: GetPose() da la punta y no la brida, así que el z_tope medido es el de la punta."
+            if diferencia_herramienta > 2.0
+            else "GetPose() da la brida (herramienta 0): el z_tope medido es la altura de la brida con las puntas apoyadas en el tablero."
+        ),
+    }
+
+
 # --- configuraciones guardadas --------------------------------------------------------------------------------------------
 def _leer_configuraciones() -> dict:
     if not ARCHIVO_CONFIGURACIONES.exists():
@@ -352,7 +560,7 @@ def borrar_configuracion(nombre: str) -> list[dict]:
 
 
 # --- movimiento manual (canvas del brazo) -----------------------------------------------------------------------------------
-LIMITES_ARTICULACIONES = ((-360, 360), (-180, 180), (-160, 160), (-360, 360), (-360, 360), (-360, 360))
+LIMITES_ARTICULACIONES = geometria_brazo.LIMITES_ARTICULACIONES
 JOG_MAX_MM = 100.0
 
 
@@ -379,6 +587,20 @@ def _lanzar_manual(descripcion: str, accion) -> dict:
     return estado()
 
 
+def _largo_pinza_m() -> float:
+    """El largo de la pinza vigente (m): el del ejecutor conectado o, si no hay conexión, el guardado en la calibración."""
+    if _estado.ejecutor is not None:
+        return _estado.ejecutor.parametros.largo_pinza_mm / 1000
+    return rutinas.largo_pinza_guardado_m()
+
+
+def _z_tope_mm() -> float | None:
+    """La altura del tablero vigente: la del ejecutor conectado o, si no hay conexión, la guardada en la calibración."""
+    if _estado.ejecutor is not None:
+        return _estado.ejecutor.parametros.z_tope
+    return rutinas.z_tope_guardado_mm()
+
+
 def mover_articulaciones(angulos: list[float]) -> dict:
     """Lleva las 6 articulaciones a `angulos` (grados) con `MovJ(joint=...)`, a la velocidad global vigente."""
     if len(angulos) != 6:
@@ -387,6 +609,14 @@ def mover_articulaciones(angulos: list[float]) -> dict:
         if not minimo <= valor <= maximo:
             raise ErrorControl(422, f"J{indice} fuera de rango ({minimo} a {maximo} grados)")
     destino = tuple(float(v) for v in angulos)
+    problemas = geometria_brazo.problemas_de_pose(destino, _z_tope_mm(), _largo_pinza_m())
+    if not problemas:
+        try:
+            problemas = geometria_brazo.problemas_de_trayectoria(list(_ejecutor().cliente.angulos()), list(destino), _z_tope_mm(), _largo_pinza_m())
+        except (OSError, ErrorDobot, RuntimeError):
+            problemas = []  # sin lectura de la pose actual solo se valida el destino
+    if problemas:
+        raise ErrorControl(422, f"Movimiento imposible: {problemas[0]}")
     return _lanzar_manual("Mover articulaciones", lambda cliente: cliente.mover_a_angulos(destino))
 
 

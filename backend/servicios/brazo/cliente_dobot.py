@@ -143,6 +143,15 @@ class ClienteDobot:
         """`GetAngle()`: ángulos de las 6 articulaciones, en grados."""
         return _lista(self.enviar("GetAngle()").valores)
 
+    def pose_con_herramienta(self, usuario: int = 0, herramienta: int = 0) -> tuple[float, ...]:
+        """`GetPose(user=,tool=)`: la pose del sistema de usuario y la herramienta indicados (0 y 0 = la brida), sin cambiar los vigentes."""
+        return _lista(self.enviar(f"GetPose(user={usuario},tool={herramienta})").valores)
+
+    def cinematica_directa(self, angulos: list[float] | tuple[float, ...], usuario: int = 0, herramienta: int = 0) -> tuple[float, ...]:
+        """`PositiveKin(j1..j6,user=,tool=)`: la pose `(x, y, z, rx, ry, rz)` que el controlador calcula para esos ángulos. No mueve el brazo."""
+        cuerpo = ",".join(f"{a:g}" for a in angulos)
+        return _lista(self.enviar(f"PositiveKin({cuerpo},user={usuario},tool={herramienta})").valores)
+
     # --- movimiento ----------------------------------------------------------------------------------------------
     def esperar_fin(self, limite_segundos: float = 30.0, intervalo: float = 0.1) -> None:
         """Bloquea hasta que el brazo vuelve a estar libre. Si pasa a alarma/pausa/colisión o se agota el tiempo, corta con `Stop()`."""

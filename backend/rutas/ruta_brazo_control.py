@@ -50,6 +50,15 @@ class ConfiguracionRequest(BaseModel):
     descripcion: str = ""
 
 
+class RutinaRequest(BaseModel):
+    pasos: list[dict] = Field(min_length=1, max_length=200)
+
+
+class EjecutarRutinaRequest(BaseModel):
+    factor: float = Field(1.0, ge=0.25, le=2.0)
+    confirmar: bool = False
+
+
 class MoverPiezaRequest(BaseModel):
     origen: str = Field(max_length=2)
     destino: str = Field(max_length=2)
@@ -154,3 +163,44 @@ def mover_relativo(cuerpo: RelativoRequest) -> dict:
 @router.post("/posicion-inicial")
 def posicion_inicial() -> dict:
     return _llamar(control_brazo.ir_a_posicion_inicial)
+
+
+@router.get("/rutinas")
+def listar_rutinas() -> list[dict]:
+    """Las rutinas guardadas con su cantidad de pasos y si ya están validadas en el emulador (requisito para el brazo real)."""
+    return control_brazo.listar_rutinas()
+
+
+@router.get("/rutinas/{nombre}")
+def obtener_rutina(nombre: str) -> dict:
+    return _llamar(control_brazo.obtener_rutina, nombre)
+
+
+@router.put("/rutinas/{nombre}")
+def guardar_rutina(nombre: str, cuerpo: RutinaRequest) -> dict:
+    """Valida y guarda la rutina (la reemplaza si existe). Los pasos: `articulaciones`, `pinza`, `esperar` o `rutina` (llama a otra)."""
+    return _llamar(control_brazo.guardar_rutina, nombre, cuerpo.pasos)
+
+
+@router.delete("/rutinas/{nombre}")
+def borrar_rutina(nombre: str) -> dict:
+    _llamar(control_brazo.borrar_rutina, nombre)
+    return {"borrada": nombre}
+
+
+@router.post("/rutinas/{nombre}/ejecutar")
+def ejecutar_rutina(nombre: str, cuerpo: EjecutarRutinaRequest) -> dict:
+    """Corre la rutina. En el emulador sin más; en el brazo real solo si ya está validada y con `confirmar: true`."""
+    return _llamar(control_brazo.ejecutar_rutina, nombre, cuerpo.factor, cuerpo.confirmar)
+
+
+@router.get("/limites")
+def limites_geometricos() -> dict:
+    """Límites de las articulaciones y distancias de seguridad que usan las validaciones de pose (el front las aplica igual al mover el esqueleto)."""
+    return control_brazo.limites()
+
+
+@router.get("/verificar-geometria")
+def verificar_geometria() -> dict:
+    """Con el brazo real conectado: compara la pose del controlador con la del modelo para los mismos ángulos (prueba que el esqueleto es confiable)."""
+    return _llamar(control_brazo.verificar_geometria)
