@@ -86,7 +86,24 @@ def capturar_foto_etiquetada(fen_piezas: str, solo_piezas: bool = False, camaras
         capturas.append(captura_id)
         usadas.append(camara)
         guardadas += cantidad
+        if not solo_piezas and fen_sin_piezas(fen_piezas):
+            _actualizar_referencia_vacia(camara, imagen)
     return {"captura_id": capturas[0], "capturas": capturas, "guardadas": guardadas, "total": resumen()["total"], "camaras": usadas, "avisos": avisos}
+
+
+def fen_sin_piezas(fen_piezas: str) -> bool:
+    """Si el FEN de piezas describe el tablero vacío (`8/8/8/8/8/8/8/8`)."""
+    return all(caracter in "8/" for caracter in fen_piezas.strip())
+
+
+def _actualizar_referencia_vacia(camara: str, imagen) -> None:
+    """Con una foto del tablero vacío, renueva la referencia de `camara` con la que se detecta en qué casilla está una pieza
+    (`referencia_vacia`). Sin esquinas calibradas no hace nada."""
+    from backend.servicios.vision import referencia_vacia, tablero
+
+    esquinas = tablero.cargar_esquinas_calibradas(tablero.archivo_esquinas(camara))
+    if esquinas is not None:
+        referencia_vacia.guardar_referencia(camara, [(imagen, esquinas)])
 
 
 def guardar_foto_tablero_subida(fen_piezas: str, imagen, solo_piezas: bool = False) -> dict[str, int | str]:

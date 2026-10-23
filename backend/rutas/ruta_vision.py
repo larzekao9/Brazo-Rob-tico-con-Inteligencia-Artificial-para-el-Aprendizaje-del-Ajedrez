@@ -362,6 +362,7 @@ def _partes_del_flujo(modo: str, casillas: list[str], auto: str = "", camara: st
     """
     import json
 
+    from backend.servicios.vision import referencia_vacia
     from backend.servicios.vision.captura_estable import camaras_calibradas, detectar_casilla_de_pieza, ocupacion_de_imagen
 
     base = "principal" if camara == "todas" else camara
@@ -391,17 +392,22 @@ def _partes_del_flujo(modo: str, casillas: list[str], auto: str = "", camara: st
             elif modo == "vista":
                 elegidas = casillas
                 if auto:  # detecta sola la casilla de la pieza (única), con las cámaras que haya, y la resalta
-                    lecturas = {}
-                    for nombre, imagen in fotos.items():
-                        try:
-                            lecturas[nombre] = ocupacion_de_imagen(imagen, nombre)
-                        except ValueError:
-                            continue
-                    if not lecturas:
-                        raise ValueError("No se detectó el tablero")
-                    casilla, confianza, estado = detectar_casilla_de_pieza(fusionar_probabilidades(list(lecturas.values())), auto)
+                    # Primero por diferencia con el tablero vacío, decidiendo la cámara que mira más desde arriba; sin referencia, con el modelo.
+                    por_referencia = referencia_vacia.detectar_casilla(fotos)
+                    if por_referencia is not None:
+                        casilla, estado, confianza, por_camara = por_referencia
+                    else:
+                        lecturas = {}
+                        for nombre, imagen in fotos.items():
+                            try:
+                                lecturas[nombre] = ocupacion_de_imagen(imagen, nombre)
+                            except ValueError:
+                                continue
+                        if not lecturas:
+                            raise ValueError("No se detectó el tablero")
+                        casilla, confianza, estado = detectar_casilla_de_pieza(fusionar_probabilidades(list(lecturas.values())), auto)
+                        por_camara = {nombre: detectar_casilla_de_pieza(probs, auto)[0] or "" for nombre, probs in lecturas.items()}
                     elegidas = [casilla] if casilla else []
-                    por_camara = {nombre: detectar_casilla_de_pieza(probs, auto)[0] or "" for nombre, probs in lecturas.items()}
                     cabecera_extra = "X-Casillas: " + json.dumps([[casilla or "", estado, round(confianza, 3), por_camara]], separators=(",", ":")) + "\r\n"
                 vistas = [dataset_propio.vista_previa_imagen(elegidas, imagen, nombre) for nombre, imagen in fotos.items()]
                 exito, buffer = cv2.imencode(".jpg", _juntar_lado_a_lado(vistas), [cv2.IMWRITE_JPEG_QUALITY, CALIDAD_FLUJO_JPEG])
