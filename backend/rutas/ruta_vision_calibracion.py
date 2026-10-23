@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 import cv2
+import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 
 from backend.esquemas.vision_esquema import ComprobarCalibracionResponse, EstadoCalibracionResponse
@@ -88,6 +89,23 @@ def verificar_calibracion_unificada(_facilitador_id: int = Depends(get_current_f
         raise HTTPException(status_code=409, detail=str(error)) from error
 
 
+def _afinar_esquinas(imagen, puntos: dict) -> dict:
+    """Las esquinas marcadas a mano, afinadas con las 49 esquinas internas del damero si eso baja el error y no las saca de la foto.
+
+    Si se ven pocas esquinas (piezas encima, poca luz) o el afinado no mejora, devuelve las marcadas sin tocar.
+    """
+    try:
+        marcadas = np.array([puntos[nombre] for nombre in tablero.ORDEN_DE_ENDEREZADO], dtype=np.float32)
+        sugerencia = unificada.sugerir_esquinas(imagen, marcadas)
+    except (cv2.error, KeyError, ValueError):
+        return puntos
+    if sugerencia is None or sugerencia["error_sugeridas_casillas"] is None or sugerencia["error_sugeridas_casillas"] >= sugerencia["error_actual_casillas"]:
+        return puntos
+    alto, ancho = imagen.shape[:2]
+    afinadas = {nombre: (x, y) for nombre, (x, y) in sugerencia["esquinas"].items()}
+    return puntos if _fuera_de_la_foto(afinadas, ancho, alto) or any(x < 0 or y < 0 for x, y in afinadas.values()) else afinadas
+
+
 @router.post("/ajustar")
 def ajustar_esquinas(camara: str = "principal", _facilitador_id: int = Depends(get_current_facilitador)) -> dict:
     """Recalcula al subpíxel las 4 esquinas de `camara` con las 49 esquinas internas del damero (ver `unificada.sugerir_esquinas`) y, si
@@ -122,6 +140,34 @@ def ajustar_esquinas(camara: str = "principal", _facilitador_id: int = Depends(g
     calibracion_camara.guardar_calibracion(puntos, imagen, str(_fuente_por_defecto(camara)), advertencias, camara, rotacion)
     mensaje = f"Esquinas ajustadas: el error bajó de {antes:.2f} a {despues:.2f} casillas."
     return {**resultado, "aplicada": True, "mensaje": mensaje}
+
+
+@router.post("/aplicar-orientacion")
+def aplicar_orientacion(_facilitador_id: int = Depends(get_current_facilitador)) -> dict:
+    """Guarda las esquinas de la secundaria reordenadas para que coincidan con la principal (ver `unificada.corregir_orientacion`).
+
+    Toma una foto nueva de cada cámara y vuelve a comparar. Devuelve `{aplicada, mensaje}`; si no hay desorden de esquinas o el reordenado
+    tampoco coincide con la principal, no guarda nada. 409 si falta configurar o calibrar alguna cámara.
+    """
+    if _fuente_por_defecto("secundaria") is None:
+        raise HTTPException(status_code=409, detail="No hay cámara secundaria configurada: elegila en «Elegir cámaras»")
+    try:
+        principal, secundaria = (capturar_foto_tablero(camara=c) for c in ("principal", "secundaria"))
+        esquinas = {c: tablero.cargar_esquinas_calibradas(tablero.archivo_esquinas(c)) for c in ("principal", "secundaria")}
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    if any(valor is None for valor in esquinas.values()):
+        raise HTTPException(status_code=409, detail="Las dos cámaras tienen que estar calibradas")
+    corregida = unificada.comparar(principal, secundaria, esquinas["principal"], esquinas["secundaria"])["corregida"]
+    if corregida is None:
+        return {"aplicada": False, "mensaje": "No hace falta reordenar las esquinas de la secundaria: recalibrala marcando a1, h1, h8 y a8."}
+    alto, ancho = secundaria.shape[:2]
+    puntos = {nombre: (x, y) for nombre, (x, y) in corregida["esquinas"].items()}
+    advertencias = calibracion_camara.evaluar_calidad(puntos, (ancho, alto), secundaria)
+    calibracion_camara.guardar_calibracion(
+        puntos, secundaria, str(_fuente_por_defecto("secundaria")), advertencias, "secundaria", servicio_camara.rotacion_actual("secundaria")
+    )
+    return {"aplicada": True, "mensaje": f"Esquinas de la secundaria reordenadas (error de {corregida['error_casillas']:.2f} casillas)."}
 
 
 @router.post("/previsualizar")
@@ -162,6 +208,7 @@ async def guardar_calibracion(
     if fuera:
         raise HTTPException(status_code=422, detail=f"Las esquinas {', '.join(fuera)} caen fuera de la foto ({ancho}×{alto})")
     _camara_valida(camara)
+    puntos = _afinar_esquinas(imagen, puntos)
     advertencias = calibracion_camara.evaluar_calidad(puntos, (ancho, alto), imagen)
     fuente = str(_fuente_por_defecto(camara))
     rotacion = servicio_camara.rotacion_actual(camara)

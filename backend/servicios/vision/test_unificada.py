@@ -130,6 +130,18 @@ def test_detecta_la_secundaria_espejada_y_girada_90() -> None:
     assert girada["nivel"] == "orientacion" and girada["orientacion"]["mejor"] in ("girada 90°", "girada 270°")
 
 
+def test_corrige_solo_el_orden_de_las_esquinas_de_la_secundaria() -> None:
+    tablero = _tablero_sintetico()
+    foto_1, esq_1 = _camara(tablero, 0, 0)
+    foto_2, esq_2 = _camara(tablero, 0, 40)
+    for mal_puestas in (esq_2[[1, 0, 3, 2]], np.roll(esq_2, 1, axis=0), np.roll(esq_2, 3, axis=0)):
+        informe = unificada.comparar(foto_1, foto_2, esq_1, mal_puestas)
+        assert informe["nivel"] == "orientacion" and informe["corregida"]["nivel"] == "bien"
+        bien = np.array(list(informe["corregida"]["esquinas"].values()))
+        assert np.abs(bien - esq_2).max() < 0.2
+    assert unificada.comparar(foto_1, foto_2, esq_1, esq_2)["corregida"] is None
+
+
 def test_luz_y_contraste_distintos_no_parecen_un_giro() -> None:
     """Dos cámaras bien calibradas con exposición, color y ruido muy distintos: antes, con solo los bordes, salía "espejada"."""
     tablero = _tablero_sintetico()

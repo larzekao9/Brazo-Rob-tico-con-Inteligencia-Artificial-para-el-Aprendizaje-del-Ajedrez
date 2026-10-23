@@ -55,10 +55,40 @@ def guardar_referencia(camara: str, fotos: list[tuple[np.ndarray, np.ndarray]]) 
     cv2.imwrite(str(destino), np.median(enderezadas, axis=0).astype(np.uint8))
 
 
+_referencias: dict[Path, tuple[tuple[int, int], np.ndarray]] = {}
+_lab_de_referencias: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+
+
 def cargar_referencia(camara: str = "principal") -> np.ndarray | None:
-    """La referencia de `camara` (enderezada, BGR), o `None` si todavía no se guardó."""
+    """La referencia de `camara` (enderezada, BGR), o `None` si todavía no se guardó.
+
+    Se lee del disco solo cuando el archivo cambia (fecha o tamaño): en el video en vivo se pide en cada cuadro. El arreglo devuelto es
+    compartido, no hay que modificarlo.
+    """
     ruta = ruta_referencia(camara)
-    return cv2.imread(str(ruta)) if ruta.exists() else None
+    try:
+        estado = ruta.stat()
+    except FileNotFoundError:
+        _referencias.pop(ruta, None)
+        return None
+    marca = (estado.st_mtime_ns, estado.st_size)
+    guardada = _referencias.get(ruta)
+    if guardada is None or guardada[0] != marca:
+        imagen = cv2.imread(str(ruta))
+        if imagen is None:
+            return None
+        _referencias[ruta] = guardada = (marca, imagen)
+    return guardada[1]
+
+
+def _lab_de_referencia(referencia: np.ndarray) -> np.ndarray:
+    """`_lab(referencia)` guardado mientras sea el mismo arreglo (el de `cargar_referencia`), para no recalcularlo en cada cuadro."""
+    guardado = _lab_de_referencias.get(id(referencia))
+    if guardado is None or guardado[0] is not referencia:
+        if len(_lab_de_referencias) > 8:
+            _lab_de_referencias.clear()
+        guardado = _lab_de_referencias[id(referencia)] = (referencia, _lab(referencia))
+    return guardado[1]
 
 
 PERCENTIL_FONDO = 25
@@ -68,7 +98,7 @@ percentil 25 siempre cae en una vacía (la mediana, con más de 32 piezas, caer�
 
 def puntajes(imagen: np.ndarray, esquinas: np.ndarray, referencia: np.ndarray) -> np.ndarray:
     """Cuánto cambió cada casilla (`(64,)`, orden `NOMBRES`) respecto de la referencia, ya restado el fondo (`PERCENTIL_FONDO`)."""
-    diferencia = np.abs(_lab(_enderezada(imagen, esquinas)) - _lab(referencia)).sum(axis=2)
+    diferencia = np.abs(_lab(_enderezada(imagen, esquinas)) - _lab_de_referencia(referencia)).sum(axis=2)
     desde, hasta = CENTRO
     cambios = np.array(
         [diferencia[f * CASILLA + desde : f * CASILLA + hasta, c * CASILLA + desde : c * CASILLA + hasta].mean() for f in range(8) for c in range(8)]

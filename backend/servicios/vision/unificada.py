@@ -256,6 +256,29 @@ def _panel(principal: np.ndarray, secundaria: np.ndarray, cuarto: np.ndarray, ti
 
 
 # --- verificación ----------------------------------------------------------------------------------------------------------
+def _permutaciones_de_esquinas(esquinas: np.ndarray):
+    """Las 8 formas de ordenar las mismas 4 esquinas: 4 giros del ciclo, en un sentido y en el otro (espejo)."""
+    for sentido in (esquinas, esquinas[::-1]):
+        for desplazamiento in range(4):
+            yield np.roll(sentido, desplazamiento, axis=0)
+
+
+def corregir_orientacion(foto_secundaria: np.ndarray, esquinas_secundaria: np.ndarray, enderezada_principal: np.ndarray) -> np.ndarray:
+    """Reordena las esquinas de la secundaria para que su tablero enderezado coincida con el de la principal.
+
+    Prueba las 8 permutaciones, se queda con las que conservan los colores de casilla y entre ellas decide el marco con sus letras (igual
+    que `_orientacion`, pero sobre las esquinas en vez de la imagen, así el resultado se puede guardar como calibración).
+    """
+    gris_a, marco_a = _gris_del_juego(enderezada_principal), _bordes_del_marco(enderezada_principal)
+    candidatas = []
+    for orden in _permutaciones_de_esquinas(np.asarray(esquinas_secundaria, dtype=np.float32)):
+        version = enderezar_con_marco(foto_secundaria, orden, MARGEN_RELATIVO, TAMANO)
+        colores = float((gris_a * _gris_del_juego(version)).mean())
+        candidatas.append((colores, _correlacion(marco_a, _bordes_del_marco(version)), orden))
+    con_color = [c for c in candidatas if c[0] > 0] or candidatas
+    return max(con_color, key=lambda c: c[1])[2]
+
+
 def _informe_camara(foto: np.ndarray, esquinas: np.ndarray, posiciones: np.ndarray, validas: np.ndarray) -> dict:
     """Cuánto se aleja cada cámara de su propia grilla ideal y qué esquinas se le sugieren."""
     if validas.sum() < MINIMO_ESQUINAS:
@@ -268,13 +291,17 @@ def _informe_camara(foto: np.ndarray, esquinas: np.ndarray, posiciones: np.ndarr
     return resumen
 
 
-def comparar(foto_principal: np.ndarray, foto_secundaria: np.ndarray, esquinas_principal: np.ndarray, esquinas_secundaria: np.ndarray) -> dict:
+def comparar(
+    foto_principal: np.ndarray, foto_secundaria: np.ndarray, esquinas_principal: np.ndarray, esquinas_secundaria: np.ndarray,
+    _corregir: bool = True,
+) -> dict:
     """Compara las dos fotos enderezadas con sus esquinas (orden de `enderezar_tablero`) y devuelve el informe y la imagen.
 
     Returns:
-        `{nivel, ok, mensaje, error_px, error_casillas, orientacion, por_esquina, corrimiento_global, camaras, imagen}`. `error_*` es el de la
+        `{nivel, ok, mensaje, error_px, error_casillas, orientacion, por_esquina, corrimiento_global, camaras, corregida, imagen}`. `error_*` es el de la
         peor esquina interna entre las dos cámaras (o el corrimiento global si se ven pocas esquinas); `camaras` dice, para cada una, cuánto se
-        aleja de su propia grilla y las esquinas sugeridas para corregirlo.
+        aleja de su propia grilla y las esquinas sugeridas para corregirlo. Si la secundaria está desorientada, `corregida` trae sus esquinas
+        reordenadas (`{esquinas, nivel, error_casillas}`) para guardarlas tal cual; si no, es `None`.
     """
     a = enderezar_con_marco(foto_principal, esquinas_principal, MARGEN_RELATIVO, TAMANO)
     b = enderezar_con_marco(foto_secundaria, esquinas_secundaria, MARGEN_RELATIVO, TAMANO)
@@ -307,11 +334,25 @@ def comparar(foto_principal: np.ndarray, foto_secundaria: np.ndarray, esquinas_p
         ), "diferencia")
     error_px = error_casillas * CASILLA_PX
 
+    corregida = None
+    if desorientada and _corregir:
+        reordenadas = corregir_orientacion(foto_secundaria, esquinas_secundaria, a)
+        revisada = comparar(foto_principal, foto_secundaria, esquinas_principal, reordenadas, _corregir=False)
+        if revisada["nivel"] in ("bien", "regular"):
+            corregida = {
+                "esquinas": {nombre: [round(float(x), 1), round(float(y), 1)] for nombre, (x, y) in zip(ORDEN_DE_ENDEREZADO, reordenadas)},
+                "nivel": revisada["nivel"],
+                "error_casillas": revisada["error_casillas"],
+            }
     if desorientada:
         nivel = "orientacion"
         mensaje = (
-            f"La cámara secundaria parece estar {mejor} respecto de la principal. Giró la imagen de la secundaria (Elegir cámaras → "
-            "Girar la secundaria) o recalibrala marcando las esquinas en el mismo orden: a1, h1, h8 y a8 según las letras impresas."
+            f"Las esquinas de la cámara secundaria quedaron en otro orden que las de la principal (se ve {mejor}). "
+            + (
+                "Ya se calcularon las esquinas en el orden correcto: aplicalas y no hace falta volver a marcar nada."
+                if corregida else
+                "Recalibrala marcando las esquinas en el mismo orden: a1, h1, h8 y a8 según las letras impresas."
+            )
         )
     else:
         nivel = "bien" if error_casillas <= ERROR_BIEN else "regular" if error_casillas <= ERROR_REGULAR else "mal"
@@ -333,6 +374,7 @@ def comparar(foto_principal: np.ndarray, foto_secundaria: np.ndarray, esquinas_p
         "por_esquina": por_esquina,
         "corrimiento_global": {"error_px": round(global_px, 1), "error_casillas": round(global_px / CASILLA_PX, 2)},
         "camaras": camaras,
+        "corregida": corregida,
         "imagen": base64.b64encode(buffer.tobytes()).decode("ascii"),
     }
 
