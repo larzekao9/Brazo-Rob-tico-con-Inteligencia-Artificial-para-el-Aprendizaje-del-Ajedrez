@@ -211,3 +211,33 @@ def test_verificacion_unificada_devuelve_el_informe(cliente, tmp_path, monkeypat
     monkeypatch.setattr(ruta_vision_calibracion, "capturar_foto_tablero", lambda *a, **k: imagen)
     informe = cliente.get("/vision/calibracion/unificada").json()
     assert informe["nivel"] == "bien" and informe["imagen"] and informe["error_casillas"] < 0.15
+
+
+def test_ajustar_esquinas_las_mejora_y_las_guarda(cliente, tmp_path, monkeypatch) -> None:
+    from backend.servicios.vision import camara
+    from backend.servicios.vision.test_unificada import _camara, _tablero_sintetico
+
+    monkeypatch.setattr(tablero, "ARCHIVO_ESQUINAS", tmp_path / "esquinas.json")
+    monkeypatch.setattr(camara, "_preferencia", {"principal": {"fuente": "0"}})
+    foto, verdaderas = _camara(_tablero_sintetico(), 0, 40)  # a8, h8, h1, a1
+    marcadas = verdaderas + np.float32([[6, -4], [-5, 7], [4, 5], [-7, -3]])
+    tablero.guardar_esquinas_calibradas({n: tuple(p) for n, p in zip(tablero.ORDEN_DE_ENDEREZADO, marcadas)})
+    monkeypatch.setattr(ruta_vision_calibracion, "capturar_foto_tablero", lambda *a, **k: foto)
+
+    respuesta = cliente.post("/vision/calibracion/ajustar?camara=principal").json()
+
+    assert respuesta["aplicada"] and respuesta["error_despues_casillas"] < respuesta["error_antes_casillas"]
+    guardadas = tablero.cargar_esquinas_calibradas()
+    assert np.abs(guardadas - verdaderas).max() < 1.5
+    assert cliente.post("/vision/calibracion/ajustar?camara=principal").json()["aplicada"] is False  # ya no hay nada que mejorar
+
+
+def test_ajustar_esquinas_sin_damero_visible_es_409(cliente, tmp_path, monkeypatch) -> None:
+    from backend.servicios.vision import camara
+
+    monkeypatch.setattr(tablero, "ARCHIVO_ESQUINAS", tmp_path / "esquinas.json")
+    monkeypatch.setattr(camara, "_preferencia", {"principal": {"fuente": "0"}})
+    assert cliente.post("/vision/calibracion/ajustar?camara=principal").status_code == 409  # sin calibrar
+    tablero.guardar_esquinas_calibradas(ESQUINAS)
+    monkeypatch.setattr(ruta_vision_calibracion, "capturar_foto_tablero", lambda *a, **k: _foto())
+    assert cliente.post("/vision/calibracion/ajustar?camara=principal").status_code == 409  # foto sin damero

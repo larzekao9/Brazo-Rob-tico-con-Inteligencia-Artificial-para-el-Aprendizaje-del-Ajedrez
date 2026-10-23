@@ -83,3 +83,59 @@ def test_verificar_sin_calibrar_lanza_valueerror(tmp_path, monkeypatch) -> None:
     imagen = np.zeros((100, 100, 3), dtype=np.uint8)
     with pytest.raises(ValueError):
         unificada.verificar(imagen, imagen)
+
+
+def test_una_esquina_mal_marcada_se_ve_por_esquina_aunque_el_corrimiento_global_sea_chico() -> None:
+    tablero = _tablero_sintetico()
+    foto_1, esq_1 = _camara(tablero, 0, 0)
+    foto_2, esq_2 = _camara(tablero, 0, 40)
+    mal = esq_2.copy()
+    mal[1] += np.float32([35, -28])  # h8 marcada ~45 px corrida: el resto del tablero sigue casi en su lugar
+    informe = unificada.comparar(foto_1, foto_2, esq_1, mal)
+    assert informe["por_esquina"] is not None and informe["por_esquina"]["esquinas_medidas"] >= unificada.MINIMO_ESQUINAS
+    assert informe["error_casillas"] > informe["corrimiento_global"]["error_casillas"]
+    assert informe["nivel"] in ("regular", "mal") and "secundaria" in informe["mensaje"]
+    secundaria = informe["camaras"]["secundaria"]
+    assert secundaria["sugeridas"]["error_casillas"] < secundaria["error_max_casillas"]
+
+
+def test_sugerir_esquinas_recupera_las_esquinas_verdaderas() -> None:
+    foto, verdaderas = _camara(_tablero_sintetico(), 0, 40)
+    marcadas = verdaderas + np.float32([[6, -4], [-5, 7], [4, 5], [-7, -3]])  # clics imprecisos de unos pocos píxeles
+    sugerencia = unificada.sugerir_esquinas(foto, marcadas)
+    assert sugerencia is not None and sugerencia["esquinas_medidas"] >= 45
+    assert np.abs(sugerencia["esquinas_enderezado"] - verdaderas).max() < 1.5
+    assert sugerencia["error_sugeridas_casillas"] < sugerencia["error_actual_casillas"]
+    assert list(sugerencia["esquinas"]) == ["a8", "h8", "h1", "a1"]
+
+
+def test_con_piezas_tapando_las_esquinas_no_se_sugiere_nada() -> None:
+    foto, esquinas = _camara(_tablero_sintetico(), 0, 0)
+    tapada = enderezada = foto.copy()
+    for x in range(160, 1100, 45):
+        for y in range(150, 1100, 45):
+            cv2.circle(tapada, (x, y), 20, (230, 230, 230), -1)  # "piezas" por todo el tablero
+    assert unificada.sugerir_esquinas(enderezada, esquinas) is None
+    informe = unificada.comparar(foto, tapada, esquinas, esquinas)
+    assert informe["por_esquina"] is None and "piezas" in informe["mensaje"]
+
+
+def test_detecta_la_secundaria_espejada_y_girada_90() -> None:
+    tablero = _tablero_sintetico()
+    foto_1, esq_1 = _camara(tablero, 0, 0)
+    foto_2, esq_2 = _camara(tablero, 0, 40)
+    espejada = unificada.comparar(foto_1, foto_2, esq_1, esq_2[[1, 0, 3, 2]])  # a8 <-> h8 y h1 <-> a1
+    girada = unificada.comparar(foto_1, foto_2, esq_1, np.roll(esq_2, 1, axis=0))
+    assert espejada["nivel"] == "orientacion" and espejada["orientacion"]["mejor"] == "espejada"
+    assert girada["nivel"] == "orientacion" and girada["orientacion"]["mejor"] in ("girada 90°", "girada 270°")
+
+
+def test_luz_y_contraste_distintos_no_parecen_un_giro() -> None:
+    """Dos cámaras bien calibradas con exposición, color y ruido muy distintos: antes, con solo los bordes, salía "espejada"."""
+    tablero = _tablero_sintetico()
+    foto_1, esq_1 = _camara(tablero, 0, 0)
+    foto_2, esq_2 = _camara(tablero, 0, 40)
+    ruido = np.random.default_rng(5).normal(0, 18, foto_2.shape)
+    foto_2 = np.clip(foto_2.astype(np.float32) * np.float32([0.6, 0.9, 1.3]) + 25 + ruido, 0, 255).astype(np.uint8)
+    informe = unificada.comparar(foto_1, foto_2, esq_1, esq_2)
+    assert informe["nivel"] != "orientacion" and informe["orientacion"]["mejor"] == "sin giro"

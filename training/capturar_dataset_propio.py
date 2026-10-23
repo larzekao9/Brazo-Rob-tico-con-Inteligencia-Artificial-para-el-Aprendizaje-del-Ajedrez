@@ -182,6 +182,7 @@ def capturar_muestras_con_id(
     solo_piezas: bool = False,
     camara: str = "principal",
     grupo: str | None = None,
+    validar_orientacion: bool = True,
 ) -> tuple[str, int]:
     """Guarda las 64 casillas ya etiquetadas de una foto del tablero real.
 
@@ -196,6 +197,8 @@ def capturar_muestras_con_id(
         camara: de qué cámara es la foto (sus esquinas calibradas y su giro); `grupo`, id común de las fotos de un mismo instante.
         solo_piezas: si es True guarda únicamente las casillas ocupadas según el FEN (ninguna "vacia"); sirve para
             enseñar una clase de pieza sin inundar el dataset de casillas vacías.
+        validar_orientacion: con esquinas calibradas, comprueba con el color de las piezas que la calibración no esté girada
+            180° respecto del FEN (`validacion_orientacion`) y rechaza la captura si lo está.
 
     Returns:
         `(captura_id, guardadas)`: el id (solo dígitos, prefijo de los nombres
@@ -205,7 +208,7 @@ def capturar_muestras_con_id(
     Raises:
         ValueError: si `fen_piezas` es inválido, si `solo_piezas` y el FEN no tiene ninguna pieza, si `ruta_imagen` no se pudo
             leer, o si no se detectó el tablero en la foto (mismo error que
-            `detectar_esquinas_tablero`).
+            `detectar_esquinas_tablero`), o si las piezas muestran que la calibración está girada 180° respecto del FEN.
         RuntimeError: si no se pudo capturar la foto (cámara en vivo).
     """
     ocupacion_esperada = fen_piezas_a_ocupacion(fen_piezas)
@@ -224,6 +227,13 @@ def capturar_muestras_con_id(
         imagen = capturar_foto_tablero(camara=camara)
 
     esquinas, margen = esquinas_y_margen(imagen, camara)  # las esquinas calibradas de la cámara fija, si existen
+    if not margen and validar_orientacion:
+        from backend.servicios.vision import validacion_orientacion
+
+        etiquetas_fen = ocupacion_esperada if solo_piezas else {c: ocupacion_esperada.get(c, CLASE_VACIA) for c in _CASILLAS}
+        orientacion = validacion_orientacion.comprobar(imagen, esquinas, etiquetas_fen)
+        if orientacion["estado"] == "invertida":  # se rechaza antes de escribir nada: guardarla envenenaría el dataset
+            raise ValueError(orientacion["mensaje"])
     plano = enderezar_tablero(imagen, esquinas)
 
     CARPETA_DATASET.mkdir(parents=True, exist_ok=True)
@@ -238,27 +248,78 @@ def capturar_muestras_con_id(
     marca_tiempo = time.time_ns() // 1_000_000
     if not margen:  # solo con esquinas calibradas el recorte ampliado tiene sentido
         _guardar_cuadro(marca_tiempo, imagen, esquinas, ocupacion_esperada, solo_piezas, camara, grupo)
-    ampliados = recortes_ampliados(imagen, esquinas) if not margen else {}
-    volumen = _recortes_volumen(imagen, esquinas, camara) if not margen else {}
+    etiquetas = {c: ocupacion_esperada.get(c, CLASE_VACIA) for c in casillas if not solo_piezas or c in ocupacion_esperada}
+    guardadas = _guardar_recortes(marca_tiempo, imagen, esquinas, etiquetas, camara, casillas, ampliar=not margen)
+    return str(marca_tiempo), guardadas
+
+
+_CASILLAS = [f"{f}{r}" for f in "abcdefgh" for r in "12345678"]
+
+
+def _guardar_recortes(
+    marca: int | str, imagen: np.ndarray, esquinas: np.ndarray, etiquetas: dict[str, str], camara: str,
+    casillas: dict[str, np.ndarray], ampliar: bool = True,
+) -> int:
+    """Escribe el recorte justo de cada casilla de `etiquetas` en `<dataset>/<clase>/<marca>_<casilla>.png` y, con `ampliar`, también el
+    ampliado y el de volumen 3D. Devuelve cuántos recortes justos se guardaron."""
+    ampliados = recortes_ampliados(imagen, esquinas) if ampliar else {}
+    volumen = _recortes_volumen(imagen, esquinas, camara) if ampliar else {}
     guardadas = 0
-    for nombre_casilla, recorte in casillas.items():
-        if solo_piezas and nombre_casilla not in ocupacion_esperada:
-            continue
-        clase = ocupacion_esperada.get(nombre_casilla, CLASE_VACIA)
+    for nombre_casilla, clase in etiquetas.items():
         carpeta_clase = CARPETA_DATASET / clase
         carpeta_clase.mkdir(parents=True, exist_ok=True)
-        ruta = carpeta_clase / f"{marca_tiempo}_{nombre_casilla}.png"
-        if cv2.imwrite(str(ruta), recorte):
-            guardadas += 1
-            if nombre_casilla in ampliados:
-                destino_ampliado = carpeta_ampliados() / clase
-                destino_ampliado.mkdir(parents=True, exist_ok=True)
-                cv2.imwrite(str(destino_ampliado / f"{marca_tiempo}_{nombre_casilla}.png"), ampliados[nombre_casilla])
-            if nombre_casilla in volumen:
-                destino_volumen = carpeta_volumen() / clase
-                destino_volumen.mkdir(parents=True, exist_ok=True)
-                cv2.imwrite(str(destino_volumen / f"{marca_tiempo}_{nombre_casilla}.png"), volumen[nombre_casilla])
-    return str(marca_tiempo), guardadas
+        if not cv2.imwrite(str(carpeta_clase / f"{marca}_{nombre_casilla}.png"), casillas[nombre_casilla]):
+            continue
+        guardadas += 1
+        for recortes, raiz in ((ampliados, carpeta_ampliados()), (volumen, carpeta_volumen())):
+            if nombre_casilla in recortes:
+                (raiz / clase).mkdir(parents=True, exist_ok=True)
+                cv2.imwrite(str(raiz / clase / f"{marca}_{nombre_casilla}.png"), recortes[nombre_casilla])
+    return guardadas
+
+
+def corregir_capturas_invertidas(aplicar: bool = False) -> list[dict]:
+    """Busca capturas guardadas con la calibración girada 180° respecto del FEN y, con `aplicar`, las corrige.
+
+    Se revisa cada cuadro completo (`carpeta_cuadros()`) con `validacion_orientacion.comprobar`. En una captura invertida el FEN era el
+    correcto y lo girado eran las esquinas, así que se giran las esquinas del manifiesto, se borran sus recortes (justo, ampliado y de
+    volumen) y se vuelven a recortar: quedan iguales a los que habría dado una calibración correcta.
+
+    Returns:
+        Una entrada `{captura, camara, brillo_blancas, brillo_negras, corregida}` por captura invertida (solo las invertidas).
+    """
+    import json
+
+    from backend.servicios.vision import validacion_orientacion
+
+    resultado: list[dict] = []
+    cuadros = carpeta_cuadros()
+    for manifiesto in sorted(cuadros.glob("*.json")) if cuadros.is_dir() else []:
+        imagen = cv2.imread(str(manifiesto.with_suffix(".jpg")))
+        if imagen is None:
+            continue
+        datos = json.loads(manifiesto.read_text(encoding="utf-8"))
+        esquinas = np.array(datos["esquinas"], dtype=np.float32)
+        informe = validacion_orientacion.comprobar(imagen, esquinas, datos["etiquetas"])
+        if informe["estado"] != "invertida":
+            continue
+        camara = datos.get("camara") or "principal"
+        entrada = {
+            "captura": manifiesto.stem, "camara": camara, "brillo_blancas": informe["brillo_blancas"],
+            "brillo_negras": informe["brillo_negras"], "corregida": False,
+        }
+        if aplicar:
+            corregidas = validacion_orientacion.girar_esquinas(esquinas)
+            for raiz in (CARPETA_DATASET, carpeta_ampliados(), carpeta_volumen()):
+                for viejo in raiz.glob(f"*/{manifiesto.stem}_*.png") if raiz.is_dir() else []:
+                    viejo.unlink()
+            casillas = dividir_en_casillas(enderezar_tablero(imagen, corregidas), 0)
+            _guardar_recortes(manifiesto.stem, imagen, corregidas, datos["etiquetas"], camara, casillas)
+            datos["esquinas"] = [[float(x), float(y)] for x, y in corregidas]
+            manifiesto.write_text(json.dumps(datos), encoding="utf-8")
+            entrada["corregida"] = True
+        resultado.append(entrada)
+    return resultado
 
 
 if __name__ == "__main__":

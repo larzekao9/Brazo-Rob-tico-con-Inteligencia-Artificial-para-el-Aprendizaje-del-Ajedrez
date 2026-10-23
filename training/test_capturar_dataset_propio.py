@@ -125,3 +125,53 @@ def test_puntuar_cuenta_ocupacion_y_tipo_de_pieza_solo_en_casillas_con_pieza() -
 
     assert puntuar(verdad, probs_o, probs_p, list(CLASES)) == {"ocupacion_ok": 64, "ocupacion_total": 64, "pieza_ok": 1, "pieza_total": 2, "exacta": 1}
     assert puntuar(verdad, probs_o, None, None)["pieza_total"] == 0
+
+
+def _preparar_captura_calibrada(tmp_path, monkeypatch):
+    """Dataset en `tmp_path` con las esquinas calibradas del tablero sintético de `test_validacion_orientacion`."""
+    import training.capturar_dataset_propio as capturar
+    from backend.servicios.vision.test_validacion_orientacion import ESQUINAS
+
+    dataset = tmp_path / "dataset_propio"
+    monkeypatch.setattr(capturar, "CARPETA_DATASET", dataset)
+    monkeypatch.setattr(capturar, "esquinas_y_margen", lambda imagen, *a, **k: (ESQUINAS, 0.0))
+    return capturar, dataset
+
+
+def test_captura_con_la_calibracion_girada_se_rechaza_sin_guardar_nada(tmp_path, monkeypatch) -> None:
+    from backend.servicios.vision.test_validacion_orientacion import INICIAL, foto_con_piezas
+    from backend.servicios.vision.validacion_orientacion import girar_casilla
+
+    capturar, dataset = _preparar_captura_calibrada(tmp_path, monkeypatch)
+    foto_girada = foto_con_piezas({girar_casilla(c): e for c, e in INICIAL.items()})  # las blancas se ven arriba (filas 7-8)
+
+    with pytest.raises(ValueError, match="180"):
+        capturar.capturar_muestras_con_id("rrrrrrrr/pppppppp/8/8/8/8/PPPPPPPP/RRRRRRRR", imagen=foto_girada)
+    assert not list(dataset.glob("*/*.png")) and not (tmp_path / "dataset_propio_cuadros").exists()
+
+    _, guardadas = capturar.capturar_muestras_con_id("rrrrrrrr/pppppppp/8/8/8/8/PPPPPPPP/RRRRRRRR", imagen=foto_con_piezas(INICIAL))
+    assert guardadas == 64
+
+
+def test_corregir_capturas_invertidas_gira_las_esquinas_y_vuelve_a_recortar(tmp_path, monkeypatch) -> None:
+    import json
+
+    from backend.servicios.vision import validacion_orientacion
+    from backend.servicios.vision.test_validacion_orientacion import ESQUINAS, INICIAL, foto_con_piezas
+
+    capturar, dataset = _preparar_captura_calibrada(tmp_path, monkeypatch)
+    foto_girada = foto_con_piezas({validacion_orientacion.girar_casilla(c): e for c, e in INICIAL.items()})
+    captura_id, _ = capturar.capturar_muestras_con_id(
+        "rrrrrrrr/pppppppp/8/8/8/8/PPPPPPPP/RRRRRRRR", imagen=foto_girada, validar_orientacion=False
+    )
+    antes = {p.relative_to(dataset) for p in dataset.glob("*/*.png")}
+
+    assert [e["captura"] for e in capturar.corregir_capturas_invertidas()] == [captura_id]  # sin aplicar solo lista
+    assert capturar.corregir_capturas_invertidas(aplicar=True)[0]["corregida"]
+
+    manifiesto = json.loads((tmp_path / "dataset_propio_cuadros" / f"{captura_id}.json").read_text())
+    assert np.array_equal(np.array(manifiesto["esquinas"], dtype=np.float32), validacion_orientacion.girar_esquinas(ESQUINAS))
+    assert {p.relative_to(dataset) for p in dataset.glob("*/*.png")} == antes  # mismas clases y casillas, recortes nuevos
+    recorte_a1 = cv2.imread(str(dataset / "white-rook" / f"{captura_id}_a1.png"))
+    assert recorte_a1.mean() > 120  # ahora la "torre blanca" de a1 es el disco claro
+    assert capturar.corregir_capturas_invertidas() == []

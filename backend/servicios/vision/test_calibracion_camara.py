@@ -136,3 +136,39 @@ def test_comprobar_imagen_lisa_no_se_puede_comparar() -> None:
 def test_previsualizar_devuelve_el_tablero_enderezado_con_grilla() -> None:
     vista = cal.previsualizar(_escena(), BUENAS)
     assert vista.shape[0] == vista.shape[1] == tablero.TAMANO_TABLERO_PLANO
+
+
+def _damero() -> tuple[np.ndarray, dict[str, tuple[float, float]]]:
+    """Damero sintético de 8 × 8 con a1 (abajo a la izquierda) oscura, y sus esquinas bien marcadas."""
+    imagen = np.full((ALTO, ANCHO, 3), 127, np.uint8)
+    x0, y0, lado = 340, 60, 75
+    for columna in range(8):
+        for fila in range(8):  # fila 0 = fila 1 del tablero (abajo)
+            color = (40, 40, 40) if (columna + fila) % 2 == 0 else (200, 200, 200)
+            x, y = x0 + columna * lado, y0 + (7 - fila) * lado
+            cv2.rectangle(imagen, (x, y), (x + lado - 1, y + lado - 1), color, -1)
+    fin_x, fin_y = float(x0 + 8 * lado), float(y0 + 8 * lado)
+    return imagen, {"a1": (float(x0), fin_y), "h1": (fin_x, fin_y), "h8": (fin_x, float(y0)), "a8": (float(x0), float(y0))}
+
+
+def test_a1_bien_marcada_queda_en_casilla_oscura() -> None:
+    imagen, puntos = _damero()
+    assert cal.a1_en_casilla_clara(imagen, puntos) is False
+    assert not any("a1 quedó" in a for a in cal.evaluar_calidad(puntos, (ANCHO, ALTO), imagen))
+
+
+def test_esquinas_giradas_90_o_espejadas_dejan_a1_en_casilla_clara() -> None:
+    imagen, puntos = _damero()
+    nombres = ("a1", "h1", "h8", "a8")
+    girada = {nombres[(i + 1) % 4]: puntos[n] for i, n in enumerate(nombres)}  # a1 marcada donde está a8, y así
+    espejada = {"a1": puntos["h1"], "h1": puntos["a1"], "h8": puntos["a8"], "a8": puntos["h8"]}
+    for marcadas in (girada, espejada):
+        assert cal.a1_en_casilla_clara(imagen, marcadas) is True
+        assert any("a1 quedó en una casilla clara" in a for a in cal.evaluar_calidad(marcadas, (ANCHO, ALTO), imagen))
+
+
+def test_sin_contraste_no_avisa() -> None:
+    _, puntos = _damero()
+    gris = np.full((ALTO, ANCHO, 3), 127, np.uint8)
+    assert cal.a1_en_casilla_clara(gris, puntos) is None
+    assert cal.evaluar_calidad(puntos, (ANCHO, ALTO), gris) == cal.evaluar_calidad(puntos, (ANCHO, ALTO))

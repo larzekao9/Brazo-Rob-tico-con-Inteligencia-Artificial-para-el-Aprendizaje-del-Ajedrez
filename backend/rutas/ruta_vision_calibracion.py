@@ -88,6 +88,42 @@ def verificar_calibracion_unificada(_facilitador_id: int = Depends(get_current_f
         raise HTTPException(status_code=409, detail=str(error)) from error
 
 
+@router.post("/ajustar")
+def ajustar_esquinas(camara: str = "principal", _facilitador_id: int = Depends(get_current_facilitador)) -> dict:
+    """Recalcula al subpíxel las 4 esquinas de `camara` con las 49 esquinas internas del damero (ver `unificada.sugerir_esquinas`) y, si
+    mejoran, las guarda como su calibración (con la foto nueva como referencia).
+
+    Hay que hacerlo con el tablero VACÍO: con piezas encima se ven pocas esquinas internas (409). Devuelve `{aplicada, error_antes_casillas,
+    error_despues_casillas, esquinas, mensaje}`; si las sugeridas no mejoran, no se guarda nada (`aplicada` en falso).
+    """
+    _camara_valida(camara)
+    esquinas = tablero.cargar_esquinas_calibradas(tablero.archivo_esquinas(camara))
+    if esquinas is None:
+        raise HTTPException(status_code=409, detail=f"La cámara {camara} todavía no está calibrada: marcá sus esquinas primero")
+    try:
+        imagen = capturar_foto_tablero(camara=camara)
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    sugerencia = unificada.sugerir_esquinas(imagen, esquinas)
+    if sugerencia is None:
+        raise HTTPException(
+            status_code=409, detail="Se ven muy pocas esquinas del damero: sacá las piezas del tablero y probá de nuevo"
+        )
+    antes, despues = sugerencia["error_actual_casillas"], sugerencia["error_sugeridas_casillas"]
+    resultado = {"error_antes_casillas": antes, "error_despues_casillas": despues, "esquinas": sugerencia["esquinas"]}
+    if despues is None or despues >= antes:
+        return {**resultado, "aplicada": False, "mensaje": f"Las esquinas actuales ya están bien ({antes:.2f} casillas): no se cambió nada."}
+    alto, ancho = imagen.shape[:2]
+    puntos = {nombre: (x, y) for nombre, (x, y) in sugerencia["esquinas"].items()}
+    if _fuera_de_la_foto(puntos, ancho, alto) or any(x < 0 or y < 0 for x, y in puntos.values()):
+        raise HTTPException(status_code=422, detail="Las esquinas ajustadas caen fuera de la foto: recalibrá a mano")
+    rotacion = servicio_camara.rotacion_actual(camara)
+    advertencias = calibracion_camara.evaluar_calidad(puntos, (ancho, alto), imagen)
+    calibracion_camara.guardar_calibracion(puntos, imagen, str(_fuente_por_defecto(camara)), advertencias, camara, rotacion)
+    mensaje = f"Esquinas ajustadas: el error bajó de {antes:.2f} a {despues:.2f} casillas."
+    return {**resultado, "aplicada": True, "mensaje": mensaje}
+
+
 @router.post("/previsualizar")
 async def previsualizar_calibracion(
     esquinas: str = Form(...),
@@ -117,7 +153,7 @@ async def guardar_calibracion(
     """Guarda las esquinas con la metadata de la sesión (resolución de la foto, cámara, fecha) y la foto de referencia.
 
     Los errores graves (esquinas no convexas, fuera de la foto) son 422; lo dudoso (tablero muy chico, muy inclinado, esquina
-    pegada al borde) se guarda igual y vuelve en `advertencias`.
+    pegada al borde, a1 en una casilla clara) se guarda igual y vuelve en `advertencias`.
     """
     puntos = _esquinas_de_formulario(esquinas)
     imagen = await _leer_foto_subida(foto)
@@ -126,7 +162,7 @@ async def guardar_calibracion(
     if fuera:
         raise HTTPException(status_code=422, detail=f"Las esquinas {', '.join(fuera)} caen fuera de la foto ({ancho}×{alto})")
     _camara_valida(camara)
-    advertencias = calibracion_camara.evaluar_calidad(puntos, (ancho, alto))
+    advertencias = calibracion_camara.evaluar_calidad(puntos, (ancho, alto), imagen)
     fuente = str(_fuente_por_defecto(camara))
     rotacion = servicio_camara.rotacion_actual(camara)
     calibracion_camara.guardar_calibracion(puntos, imagen, fuente, advertencias, camara, rotacion)

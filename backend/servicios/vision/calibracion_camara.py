@@ -56,12 +56,43 @@ def _angulo_interno(anterior: tuple[float, float], vertice: tuple[float, float],
     return math.degrees(math.acos(coseno))
 
 
-def evaluar_calidad(puntos: dict[str, tuple[float, float]], resolucion: tuple[int, int] | None = None) -> list[str]:
+DIFERENCIA_COLOR_CASILLAS = 15.0
+"""Diferencia de gris (0-255) entre las casillas claras y las oscuras para poder decir de qué color quedó a1."""
+
+
+def a1_en_casilla_clara(imagen: np.ndarray, puntos: dict[str, tuple[float, float]]) -> bool | None:
+    """Si con estas esquinas a1 cae en una casilla CLARA (en un tablero de verdad a1 siempre es oscura).
+
+    Pasa cuando las esquinas se marcaron giradas 90° o espejadas respecto de las letras impresas. Se compara la mediana de gris del centro de
+    las 32 casillas que deberían ser oscuras (las del color de a1) con la de las 32 claras: la mediana tolera unas cuantas piezas encima.
+    Un giro de 180° deja a1 en una casilla oscura y esto no lo detecta (para eso está `validacion_orientacion`, con las piezas).
+
+    Returns:
+        `True` si a1 quedó en una clara, `False` si en una oscura, `None` si no se distinguen los colores (poca luz o tablero tapado).
+    """
+    esquinas = np.array([puntos[nombre] for nombre in tablero.ORDEN_DE_ENDEREZADO], dtype=np.float32)
+    casillas = tablero.dividir_en_casillas(tablero.enderezar_tablero(imagen, esquinas), 0)
+    color_de_a1, otro_color = [], []
+    for nombre, recorte in casillas.items():
+        lado = recorte.shape[0]
+        centro = cv2.cvtColor(recorte[lado // 4 : 3 * lado // 4, lado // 4 : 3 * lado // 4], cv2.COLOR_BGR2GRAY).mean()
+        mismo_color = ("abcdefgh".index(nombre[0]) + int(nombre[1]) - 1) % 2 == 0
+        (color_de_a1 if mismo_color else otro_color).append(centro)
+    diferencia = float(np.median(otro_color) - np.median(color_de_a1))
+    if abs(diferencia) < DIFERENCIA_COLOR_CASILLAS:
+        return None
+    return diferencia < 0
+
+
+def evaluar_calidad(
+    puntos: dict[str, tuple[float, float]], resolucion: tuple[int, int] | None = None, imagen: np.ndarray | None = None
+) -> list[str]:
     """Advertencias (no errores) sobre cuatro esquinas ya válidas (convexas, en orden a1, h1, h8, a8).
 
     Args:
         puntos: `{"a1": (x, y), "h1": ..., "h8": ..., "a8": ...}` en píxeles de la foto.
         resolucion: `(ancho, alto)` de la foto; habilita las advertencias de tamaño y de esquinas pegadas al borde.
+        imagen: la foto sobre la que se marcaron; habilita la advertencia de a1 en una casilla clara (`a1_en_casilla_clara`).
 
     Returns:
         Mensajes en español; vacío si la calibración se ve bien.
@@ -99,6 +130,11 @@ def evaluar_calidad(puntos: dict[str, tuple[float, float]], resolucion: tuple[in
         margen_x, margen_y = ancho * MARGEN_BORDE_RELATIVO, alto * MARGEN_BORDE_RELATIVO
         if any(x < margen_x or y < margen_y or x > ancho - margen_x or y > alto - margen_y for x, y in ciclo):
             advertencias.append("Una esquina está pegada al borde de la foto: el tablero puede estar cortado.")
+    if imagen is not None and a1_en_casilla_clara(imagen, puntos):
+        advertencias.append(
+            "a1 quedó en una casilla clara y en un tablero de verdad es oscura: las esquinas están giradas 90° o espejadas. "
+            "Marcá a1 en la esquina de la A y el 1 impresos, y seguí por h1, h8 y a8."
+        )
     return advertencias
 
 
