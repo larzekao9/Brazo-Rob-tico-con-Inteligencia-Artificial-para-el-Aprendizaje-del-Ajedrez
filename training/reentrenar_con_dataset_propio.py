@@ -203,7 +203,7 @@ def reentrenar() -> None:
 
         if accuracy_propio >= mejor_accuracy_propio:
             mejor_accuracy_propio = accuracy_propio
-            torch.save({"pesos": modelo.state_dict(), "clases": checkpoint["clases"]}, RUTA_CHECKPOINT)
+            torch.save({"pesos": {k: v.cpu() for k, v in modelo.state_dict().items()}, "clases": checkpoint["clases"]}, RUTA_CHECKPOINT)
 
     print(f"Checkpoint actualizado en {RUTA_CHECKPOINT} — accuracy en tu tablero: {mejor_accuracy_propio:.3f}")
 

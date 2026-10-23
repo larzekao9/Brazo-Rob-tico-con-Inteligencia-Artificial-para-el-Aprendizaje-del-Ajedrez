@@ -50,6 +50,18 @@ def test_foto_resumen_y_deshacer(cliente) -> None:
     assert cliente.get("/vision/dataset/resumen").json()["total"] == 0
 
 
+def test_corregir_casilla_guarda_una_sola_muestra_en_la_clase_correcta(cliente, tmp_path) -> None:
+    r = cliente.post("/vision/dataset/casilla", json={"casilla": "h7", "clase": "black-pawn"})
+    assert r.status_code == 200 and r.json()["guardadas"] == 1 and r.json()["camaras"] == ["principal"]
+    assert cliente.get("/vision/dataset/resumen").json()["por_clase"] == {"black-pawn": 1}
+    assert [p.name.split("_")[-1] for p in (tmp_path / "black-pawn").glob("*.png")] == ["h7.png"]
+
+
+def test_corregir_casilla_invalida_es_422(cliente) -> None:
+    assert cliente.post("/vision/dataset/casilla", json={"casilla": "z9", "clase": "black-pawn"}).status_code == 422
+    assert cliente.post("/vision/dataset/casilla", json={"casilla": "h7", "clase": "dragon"}).status_code == 422
+
+
 def test_control_sin_imagen_es_404(cliente) -> None:
     assert cliente.get("/vision/dataset/control").status_code == 404
 
@@ -232,6 +244,41 @@ def test_reentrenar_proceso_con_error(cliente, estado_limpio, monkeypatch) -> No
     assert cliente.post("/vision/dataset/reentrenar").status_code == 200
     _esperar(cliente, "error")
     assert "boom" in cliente.get("/vision/dataset/reentrenar/estado").json()["log"]
+
+
+def _esperar_candidato(cliente, estado):
+    for _ in range(100):
+        if cliente.get("/vision/dataset/candidato/estado").json()["estado"] == estado:
+            return
+        time.sleep(0.02)
+    pytest.fail(f"no llegó al estado {estado}")
+
+
+def test_candidato_reporta_progreso_y_resultado(cliente, monkeypatch) -> None:
+    monkeypatch.setattr(dataset_propio, "_candidato", dataset_propio._Reentrenamiento())
+    monkeypatch.setattr(dataset_propio, "MINIMO_PARA_REENTRENAR", 0)
+    invalidado = []
+    monkeypatch.setattr(piezas, "invalidar_modelo", lambda: invalidado.append(True))
+    llamadas = []
+
+    def popen(comando, **kwargs):
+        llamadas.append((comando, kwargs))
+        return _ProcesoFalso(["Dispositivo de entrenamiento: mps\n", "Época 3/50 — pérdida 0.5\n", "RESULTADO: reemplazado — mejor\n"], 0)
+
+    monkeypatch.setattr(dataset_propio.subprocess, "Popen", popen)
+    assert cliente.post("/vision/dataset/candidato").json() == {"estado": "en_curso"}
+    assert llamadas[0][0][1:] == ["-m", "training.entrenar_candidato"]
+    assert llamadas[0][1]["env"]["PYTORCH_ENABLE_MPS_FALLBACK"] == "1"
+    _esperar_candidato(cliente, "terminado")
+    estado = cliente.get("/vision/dataset/candidato/estado").json()
+    assert estado["progreso"].startswith("Época 3/50") and estado["resultado"] == "reemplazado — mejor"
+    assert invalidado == [True]
+
+
+def test_candidato_con_pocas_muestras_es_400_y_no_pisa_al_reentrenamiento(cliente, monkeypatch) -> None:
+    monkeypatch.setattr(dataset_propio, "_candidato", dataset_propio._Reentrenamiento())
+    assert cliente.post("/vision/dataset/candidato").status_code == 400
+    assert cliente.get("/vision/dataset/reentrenar/estado").json()["estado"] != "en_curso"
 
 
 def test_export_zip_por_clase(cliente) -> None:

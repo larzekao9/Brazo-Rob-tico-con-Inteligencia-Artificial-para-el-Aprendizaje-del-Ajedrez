@@ -24,6 +24,8 @@ from backend.servicios.vision import piezas
 
 MINIMO_RECOMENDADO = 1500
 MINIMO_PARA_REENTRENAR = 300
+PREFIJO_CORRECCION = "corr"
+"""Prefijo del id de las muestras que salen de corregir una casilla en el probador: el entrenamiento del candidato las busca por él."""
 LINEAS_DE_LOG = 40
 RAIZ_REPOSITORIO = Path(__file__).resolve().parents[3]
 _PATRON_CAPTURA_ID = re.compile(r"^\d+$")
@@ -116,6 +118,47 @@ def guardar_foto_tablero_subida(fen_piezas: str, imagen, solo_piezas: bool = Fal
 
     captura_id, guardadas = capturar_muestras_con_id(fen_piezas, imagen=imagen, solo_piezas=solo_piezas)
     return {"captura_id": captura_id, "guardadas": guardadas, "total": resumen()["total"]}
+
+
+def guardar_casilla_corregida(casilla: str, clase: str, camaras: list[str] | None = None) -> dict:
+    """Guarda como muestra de `clase` el recorte de UNA casilla, tomado ahora de cada cámara (corrección de un error del reconocimiento).
+
+    Es lo mismo que una captura etiquetada pero con una sola casilla: el recorte justo, el ampliado y el de volumen 3D, para que el
+    próximo reentrenamiento aprenda de lo que el modelo leyó mal. Las fotos de las cámaras comparten `grupo` como en `capturar_foto_etiquetada`.
+
+    Returns:
+        `{guardadas, camaras, avisos, total_clase}`; si una cámara secundaria falla se sigue con las demás y se informa en `avisos`.
+
+    Raises:
+        ValueError: `casilla` o `clase` inválidas, o el tablero no se detectó en ninguna cámara.
+        RuntimeError: la cámara principal no está disponible.
+    """
+    from backend.servicios.vision.camara import capturar_foto_tablero
+    from backend.servicios.vision.modelo_piezas import CLASES
+    from training.capturar_dataset_propio import _CASILLAS, _guardar_recortes
+    from backend.servicios.vision.reconocimiento import esquinas_y_margen
+    from backend.servicios.vision.tablero import dividir_en_casillas, enderezar_tablero
+
+    if casilla not in _CASILLAS:
+        raise ValueError(f"Casilla inválida: {casilla!r}")
+    if clase not in CLASES:
+        raise ValueError(f"Clase inválida: {clase!r}")
+    marca = f"{PREFIJO_CORRECCION}{time.time_ns() // 1_000_000}"
+    guardadas, usadas, avisos = 0, [], []
+    for camara in camaras or camaras_para_capturar():
+        try:
+            imagen = capturar_foto_tablero(camara=camara)
+            esquinas, margen = esquinas_y_margen(imagen, camara)
+            recortes = dividir_en_casillas(enderezar_tablero(imagen, esquinas), margen)
+        except (RuntimeError, ValueError) as error:
+            if camara == "principal":
+                raise
+            avisos.append(f"Cámara {camara}: {error}")
+            continue
+        guardadas += _guardar_recortes(f"{marca}_{camara}", imagen, esquinas, {casilla: clase}, camara, recortes, ampliar=not margen)
+        usadas.append(camara)
+    total_clase = len(list((_carpeta() / clase).glob("*.png")))
+    return {"guardadas": guardadas, "camaras": usadas, "avisos": avisos, "total_clase": total_clase}
 
 
 def guardar_fotos_pieza(clase: str, imagenes: list) -> dict[str, int]:
@@ -436,17 +479,21 @@ class _Reentrenamiento:
 _reentrenamiento = _Reentrenamiento()
 
 
-def _vigilar(proceso: subprocess.Popen) -> None:
+_candidato = _Reentrenamiento()
+
+
+def _vigilar(proceso: subprocess.Popen, entrenamiento: _Reentrenamiento | None = None) -> None:
+    entrenamiento = entrenamiento or _reentrenamiento
     for linea in proceso.stdout:
-        _reentrenamiento.lineas.append(linea.rstrip())
+        entrenamiento.lineas.append(linea.rstrip())
     codigo = proceso.wait()
-    with _reentrenamiento.cerrojo:
+    with entrenamiento.cerrojo:
         if codigo == 0:
             piezas.invalidar_modelo()
-            _reentrenamiento.estado = "terminado"
+            entrenamiento.estado = "terminado"
         else:
-            _reentrenamiento.lineas.append(f"El proceso terminó con código {codigo}")
-            _reentrenamiento.estado = "error"
+            entrenamiento.lineas.append(f"El proceso terminó con código {codigo}")
+            entrenamiento.estado = "error"
 
 
 def iniciar_reentrenamiento() -> None:
@@ -462,7 +509,7 @@ def iniciar_reentrenamiento() -> None:
         total = resumen()["total"]
         if total < MINIMO_PARA_REENTRENAR:
             raise ValueError(f"Hacen falta al menos {MINIMO_PARA_REENTRENAR} muestras, hay {total}")
-        entorno = {**os.environ, "KMP_DUPLICATE_LIB_OK": "TRUE", "PYTHONUNBUFFERED": "1"}
+        entorno = {**os.environ, "KMP_DUPLICATE_LIB_OK": "TRUE", "PYTHONUNBUFFERED": "1", "PYTORCH_ENABLE_MPS_FALLBACK": "1"}
         proceso = subprocess.Popen(
             [sys.executable, "-m", "training.reentrenar_con_dataset_propio"],
             cwd=RAIZ_REPOSITORIO,
@@ -479,3 +526,43 @@ def iniciar_reentrenamiento() -> None:
 def estado_reentrenamiento() -> dict[str, str]:
     """Estado del reentrenamiento y las últimas líneas de su salida."""
     return {"estado": _reentrenamiento.estado, "log": "\n".join(_reentrenamiento.lineas)}
+
+
+def iniciar_entrenamiento_candidato() -> None:
+    """Lanza `training.entrenar_candidato` en segundo plano (GPU del Mac si hay): entrena un candidato y solo reemplaza al modelo actual si lo supera.
+
+    Raises:
+        RuntimeError: si ya hay uno corriendo.
+        ValueError: si hay menos de `MINIMO_PARA_REENTRENAR` muestras.
+    """
+    with _candidato.cerrojo:
+        if _candidato.estado == "en_curso":
+            raise RuntimeError("Ya hay un entrenamiento en curso")
+        total = resumen()["total"]
+        if total < MINIMO_PARA_REENTRENAR:
+            raise ValueError(f"Hacen falta al menos {MINIMO_PARA_REENTRENAR} muestras, hay {total}")
+        entorno = {**os.environ, "KMP_DUPLICATE_LIB_OK": "TRUE", "PYTHONUNBUFFERED": "1", "PYTORCH_ENABLE_MPS_FALLBACK": "1"}
+        proceso = subprocess.Popen(
+            [sys.executable, "-m", "training.entrenar_candidato"],
+            cwd=RAIZ_REPOSITORIO,
+            env=entorno,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        _candidato.lineas.clear()
+        _candidato.estado = "en_curso"
+    threading.Thread(target=_vigilar, args=(proceso, _candidato), daemon=True).start()
+
+
+def estado_entrenamiento_candidato() -> dict:
+    """`{estado, progreso, resultado, log}`: `progreso` es la última línea de época («Época 12/50 …»), `resultado` la línea `RESULTADO: …`."""
+    lineas = list(_candidato.lineas)
+    ultima = lambda prefijo: next((linea for linea in reversed(lineas) if linea.startswith(prefijo)), None)  # noqa: E731
+    resultado = ultima("RESULTADO:")
+    return {
+        "estado": _candidato.estado,
+        "progreso": ultima("Época"),
+        "resultado": resultado.removeprefix("RESULTADO:").strip() if resultado else None,
+        "log": "\n".join(lineas),
+    }

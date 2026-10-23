@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
 import time
 from pathlib import Path
 
@@ -29,15 +30,19 @@ UMBRAL_POSICION_CLARA = 0.25
 
 
 def elegir_dispositivo() -> str:
-    """`"cuda"` solo si la GPU de verdad puede correr la red; si no (por ejemplo una placa nueva sin kernels en esta versión de
-    torch: `no kernel image`), `"cpu"`."""
-    if not torch.cuda.is_available():
+    """`"cuda"` o `"mps"` (GPU del Mac) solo si la GPU de verdad puede correr la red; si no (por ejemplo una placa nueva sin kernels en esta
+    versión de torch: `no kernel image`), `"cpu"`. Con `ENTRENAR_EN_CPU=1` siempre `"cpu"`."""
+    if os.environ.get("ENTRENAR_EN_CPU") == "1":
         return "cpu"
-    try:
-        torch.nn.functional.conv2d(torch.zeros(1, 1, 3, 3, device="cuda"), torch.zeros(1, 1, 3, 3, device="cuda"))
-        return "cuda"
-    except RuntimeError:
-        return "cpu"
+    for dispositivo, disponible in (("cuda", torch.cuda.is_available()), ("mps", torch.backends.mps.is_available())):
+        if not disponible:
+            continue
+        try:
+            torch.nn.functional.conv2d(torch.zeros(1, 1, 3, 3, device=dispositivo), torch.zeros(1, 1, 3, 3, device=dispositivo))
+            return dispositivo
+        except RuntimeError:
+            continue
+    return "cpu"
 
 
 def a_entrada(posiciones: np.ndarray) -> torch.Tensor:
@@ -109,7 +114,7 @@ def entrenar(
         if resultado["error_cuadratico"] < mejor["error_cuadratico"]:
             mejor = resultado
             Path(salida).parent.mkdir(parents=True, exist_ok=True)
-            torch.save({"state_dict": modelo.state_dict(), "canales": canales, "bloques": bloques, "metricas": resultado}, salida)
+            torch.save({"state_dict": {k: v.cpu() for k, v in modelo.state_dict().items()}, "canales": canales, "bloques": bloques, "metricas": resultado}, salida)
 
     manual = metricas(valor_de_evaluacion_manual(posiciones[val]), y_val)
     print("\nMismas posiciones de validación:")

@@ -276,6 +276,24 @@ async def subir_fotos_pieza(
     return FotosPiezaResponse(**dataset_propio.guardar_fotos_pieza(clase, imagenes))
 
 
+class CorregirCasillaRequest(BaseModel):
+    """`casilla` (ej. `h7`) y la `clase` correcta (ej. `black-pawn`, o `vacia`) de lo que el reconocimiento leyó mal."""
+
+    casilla: str
+    clase: str
+
+
+@router.post("/dataset/casilla")
+def corregir_casilla_dataset(cuerpo: CorregirCasillaRequest, _facilitador_id: int = Depends(get_current_facilitador)) -> dict:
+    """Guarda como muestra de `clase` la casilla `casilla` tal como la ven ahora las cámaras: para que el reentrenamiento aprenda del error."""
+    try:
+        return dataset_propio.guardar_casilla_corregida(cuerpo.casilla, cuerpo.clase)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
 @router.post("/dataset/foto-tablero", response_model=CapturaDatasetResponse)
 async def subir_foto_tablero_dataset(
     fen_piezas: str = Form(...),
@@ -660,6 +678,24 @@ def borrar_captura_dataset(
         return BorrarCapturaResponse(borradas=dataset_propio.borrar_captura(captura_id))
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@router.post("/dataset/candidato", response_model=ReentrenarResponse)
+def entrenar_candidato(_facilitador_id: int = Depends(get_current_facilitador)) -> ReentrenarResponse:
+    """Entrena en segundo plano (GPU del Mac si hay) un modelo candidato con el dataset propio y las casillas corregidas; solo reemplaza al actual si lo supera."""
+    try:
+        dataset_propio.iniciar_entrenamiento_candidato()
+    except RuntimeError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return ReentrenarResponse(estado="en_curso")
+
+
+@router.get("/dataset/candidato/estado")
+def estado_candidato(_facilitador_id: int = Depends(get_current_facilitador)) -> dict:
+    """`{estado, progreso, resultado, log}` del entrenamiento del candidato (`inactivo`, `en_curso`, `terminado` o `error`)."""
+    return dataset_propio.estado_entrenamiento_candidato()
 
 
 @router.post("/dataset/reentrenar", response_model=ReentrenarResponse)
