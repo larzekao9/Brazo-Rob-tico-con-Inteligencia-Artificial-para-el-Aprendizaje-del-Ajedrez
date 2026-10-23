@@ -95,3 +95,27 @@ def test_capturar_casilla_vacia_renueva_la_referencia(tmp_path, monkeypatch) -> 
     rv.ruta_referencia("principal").unlink()
     dataset_propio.capturar_foto_etiquetada("8/8/8/8/4P3/8/8/8", solo_piezas=True, camaras=["principal"])
     assert rv.cargar_referencia("principal") is None  # con una pieza no se toca la referencia
+
+
+def test_ocupadas_con_muchas_piezas_como_en_la_posicion_inicial() -> None:
+    _guardar_calibracion_y_referencia()
+    llenas = [f"{c}{f}" for f in "1278" for c in "abcdefgh"]
+    mascara, camara = rv.ocupadas({"principal": _con_piezas(*llenas, ruido=6)})
+    vistas = {nombre for nombre, ocupada in zip(rv.NOMBRES, mascara) if ocupada}
+    assert camara == "principal" and vistas == set(llenas)
+
+
+def test_el_probador_toma_la_ocupacion_de_la_camara_de_arriba(monkeypatch) -> None:
+    from backend.servicios.vision import verificacion
+    from backend.servicios.vision.modelo_piezas import CLASES
+
+    _guardar_calibracion_y_referencia()
+    probs = np.full((64, len(CLASES)), 0.01)
+    probs[:, CLASES.index("vacia")] = 0.9
+    probs[rv.NOMBRES.index("e5"), :] = 0.01  # el modelo ve la cabeza del peón en e5 (la vecina) …
+    probs[rv.NOMBRES.index("e5"), CLASES.index("white-pawn")] = 0.9
+    probs[rv.NOMBRES.index("e4"), CLASES.index("white-pawn")] = 0.45  # … y en e4, donde está, duda
+    probs /= probs.sum(axis=1, keepdims=True)
+    casillas = verificacion._casillas_de_probabilidades(probs, rv.NOMBRES, list(CLASES), {"principal": _con_piezas("e4")})
+    vistas = {c["casilla"]: c["clase"] for c in casillas if c["clase"] != "vacia"}
+    assert vistas == {"e4": "white-pawn"}

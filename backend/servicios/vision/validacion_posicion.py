@@ -86,10 +86,27 @@ def problemas_de_posicion(posicion: str | chess.Board) -> list[str]:
     estado = tablero.status()
     problemas = [texto for bandera, texto in _PROBLEMAS_DE_ESTADO if estado & bandera]
     for color, nombre in ((chess.WHITE, "blancas"), (chess.BLACK, "negras")):
-        coronadas = sum(max(0, len(tablero.pieces(tipo, color)) - inicial) for tipo, inicial in _INICIALES.items())
+        coronadas = sum(max(0, len(tablero.pieces(tipo, color)) - inicial) for tipo, inicial in _INICIALES.items() if tipo != chess.BISHOP)
+        alfiles = tablero.pieces(chess.BISHOP, color)
+        oscuros = len(alfiles & chess.BB_DARK_SQUARES)
+        coronadas += max(0, oscuros - 1) + max(0, len(alfiles) - oscuros - 1)  # un alfil por color de casilla; los demás son coronados
         if coronadas > 8 - len(tablero.pieces(chess.PAWN, color)):
             problemas.append(f"Hay más piezas {nombre} de las que pueden salir de las coronaciones")
     return problemas
+
+
+def problemas_de_piezas(fen_piezas: str, exigir_reyes: bool = False) -> list[str]:
+    """Como `problemas_de_posicion`, pero para una posición vista por la cámara, de la que no se sabe a quién le toca.
+
+    Solo informa lo que es imposible con los dos turnos (un jaque al bando que no mueve depende del turno). Con `exigir_reyes` en falso no
+    avisa que falta un rey: al probar piezas sueltas lo normal es que no estén.
+
+    Raises:
+        ValueError: `fen_piezas` no es un FEN de piezas válido.
+    """
+    por_turno = [problemas_de_posicion(chess.Board(f"{fen_piezas.strip()} {turno} - - 0 1")) for turno in "wb"]
+    comunes = [problema for problema in por_turno[0] if problema in por_turno[1]]
+    return comunes if exigir_reyes else [problema for problema in comunes if not problema.startswith("Falta el rey")]
 
 
 def material_imposible(fen_antes: str, fen_despues: str) -> list[str]:
@@ -108,16 +125,26 @@ def material_imposible(fen_antes: str, fen_despues: str) -> list[str]:
 
 
 
-_INICIAL_POR_TIPO = {"queen": 1, "rook": 2, "bishop": 2, "knight": 2}
-"""Cuántas hay al empezar de cada pieza que no es rey ni peón; solo se pueden tener más si algún peón coronó."""
+_INICIAL_POR_TIPO = {"queen": 1, "rook": 2, "knight": 2}
+"""Cuántas hay al empezar de cada pieza que no es rey, peón ni alfil; solo se pueden tener más si algún peón coronó. Los alfiles se cuentan
+aparte, por color de casilla (ver `_filas_infractoras`)."""
 
 
-def _filas_infractoras(asignadas: np.ndarray, clases: list[str]) -> list[int]:
-    """Las casillas (filas) cuya clase rompe los límites de material de un bando; vacío si todo es posible.
+def casilla_oscura(nombre: str) -> bool:
+    """Si la casilla es oscura (a1 lo es; b1, no)."""
+    return ("abcdefgh".index(nombre[0]) + int(nombre[1])) % 2 == 1
 
-    Los límites: un rey, hasta 8 peones, y las piezas de más respecto de las iniciales (2 torres, 2 alfiles, 2 caballos, 1 dama) no pueden
-    superar los peones que faltan.
+
+def _filas_infractoras(asignadas: np.ndarray, clases: list[str], nombres: list[str] = NOMBRES) -> list[int]:
+    """Las casillas (filas) cuya clase rompe los límites de material o de posición de un bando; vacío si todo es posible.
+
+    Los límites: un rey; hasta 8 peones y nunca en la fila 1 ni en la 8 (ahí un peón ya coronó); y las piezas de más respecto de las iniciales
+    no pueden superar los peones que faltan. Los alfiles cuentan por color de casilla: al empezar hay uno en casilla clara y otro en oscura,
+    y un alfil no cambia nunca de color, así que un segundo alfil en el mismo color de casilla ya es una pieza coronada.
     """
+    for fila, indice in enumerate(asignadas):
+        if clases[indice].endswith("-pawn") and nombres[fila][1] in "18":
+            return [fila]
     for color in ("white", "black"):
         por_tipo: dict[str, list[int]] = {}
         for fila, indice in enumerate(asignadas):
@@ -129,25 +156,32 @@ def _filas_infractoras(asignadas: np.ndarray, clases: list[str]) -> list[int]:
         peones = por_tipo.get("pawn", [])
         if len(peones) > 8:
             return peones
-        de_mas = {t: len(por_tipo.get(t, [])) - n for t, n in _INICIAL_POR_TIPO.items() if len(por_tipo.get(t, [])) > n}
-        if sum(de_mas.values()) > 8 - len(peones):
-            return [fila for t in de_mas for fila in por_tipo[t]]
+        sobrantes = {t: por_tipo[t] for t, n in _INICIAL_POR_TIPO.items() if len(por_tipo.get(t, [])) > n}
+        de_mas = sum(len(por_tipo[t]) - _INICIAL_POR_TIPO[t] for t in sobrantes)
+        for oscuras in (True, False):
+            alfiles = [fila for fila in por_tipo.get("bishop", []) if casilla_oscura(nombres[fila]) == oscuras]
+            if len(alfiles) > 1:
+                sobrantes[f"bishop-{oscuras}"] = alfiles
+                de_mas += len(alfiles) - 1
+        if de_mas > 8 - len(peones):
+            return [fila for filas in sobrantes.values() for fila in filas]
     return []
 
 
-def limitar_por_material(probs: np.ndarray, clases: list[str]) -> np.ndarray:
+def limitar_por_material(probs: np.ndarray, clases: list[str], nombres: list[str] = NOMBRES) -> np.ndarray:
     """Probabilidades `(64, clases)` corregidas para que ninguna posición tenga más material del que puede haber en una partida.
 
-    Un clasificador casilla por casilla puede ver tres reyes blancos o cinco alfiles negros. Mientras un bando rompa los límites (ver
-    `_filas_infractoras`), la casilla infractora de menor confianza pierde esa clase y se queda con la siguiente más probable (la casilla vacía
-    nunca se descarta). Devuelve una copia; las filas cambiadas se renormalizan. Sin las 13 clases del modelo de piezas, devuelve `probs` igual.
+    Un clasificador casilla por casilla puede ver tres reyes blancos, cinco alfiles negros o un peón en la última fila. Mientras un bando rompa
+    los límites (ver `_filas_infractoras`), la casilla infractora de menor confianza pierde esa clase y se queda con la siguiente más probable
+    (la casilla vacía nunca se descarta). `nombres` es la casilla de cada fila (a8 … h1). Devuelve una copia; las filas cambiadas se
+    renormalizan. Sin las 13 clases del modelo de piezas, devuelve `probs` igual.
     """
     if CLASE_VACIA not in clases or "white-king" not in clases:
         return probs
     corregidas = np.array(probs, dtype=np.float64, copy=True)
     asignadas = corregidas.argmax(axis=1)
     for _ in range(corregidas.size):
-        infractoras = _filas_infractoras(asignadas, clases)
+        infractoras = _filas_infractoras(asignadas, clases, nombres)
         if not infractoras:
             break
         fila = min(infractoras, key=lambda f: corregidas[f, asignadas[f]])

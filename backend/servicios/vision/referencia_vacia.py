@@ -2,7 +2,7 @@
 
 Cada cámara guarda una foto de referencia del tablero vacío ya enderezado (visto de frente, 800 × 800). Para una foto nueva se endereza igual
 y se mide, en el centro de cada casilla, cuánto cambió el color (en LAB, que separa luz de color): la casilla con la pieza es la que más
-cambia. Restando la mediana de las 64 casillas, un cambio de luz parejo en todo el tablero no cuenta.
+cambia. Restando el "fondo" (el percentil 25 de las 64 casillas), un cambio de luz parejo en todo el tablero no cuenta.
 
 La casilla la decide la cámara MENOS inclinada (la que mira más desde arriba): ahí la pieza tapa solo su casilla. En una cámara en diagonal
 la cabeza de una pieza alta cae sobre la casilla de al lado y "también cambia", así que esa cámara solo se usa si no hay otra. Con las fotos
@@ -24,7 +24,7 @@ CASILLA = LADO // 8
 CENTRO = (20, 80)
 """Parte de la casilla (en píxeles de los 100 de cada una) que se compara: el centro, sin los bordes, que cambian con un error chico de calibración."""
 MINIMO_PIEZA = 15.0
-"""Cambio mínimo (sobre la mediana del tablero) para decir que hay una pieza. Con fotos reales: el tablero vacío cambia como mucho 3,5 en la
+"""Cambio mínimo (sobre el fondo del tablero) para decir que hay una pieza. Con fotos reales: el tablero vacío cambia como mucho 3,5 en la
 cámara de arriba y 12 en la diagonal; una pieza, 24 o más."""
 RELACION_MINIMA = 2.0
 """Cuántas veces más tiene que cambiar la casilla ganadora que la segunda para no ser "ambigua" (hay otra pieza o una mano)."""
@@ -61,14 +61,19 @@ def cargar_referencia(camara: str = "principal") -> np.ndarray | None:
     return cv2.imread(str(ruta)) if ruta.exists() else None
 
 
+PERCENTIL_FONDO = 25
+"""Qué percentil de los cambios de las 64 casillas se toma como "fondo" (luz) y se resta. Con la posición inicial hay 32 casillas vacías: el
+percentil 25 siempre cae en una vacía (la mediana, con más de 32 piezas, caería en una ocupada)."""
+
+
 def puntajes(imagen: np.ndarray, esquinas: np.ndarray, referencia: np.ndarray) -> np.ndarray:
-    """Cuánto cambió cada casilla (`(64,)`, orden `NOMBRES`) respecto de la referencia, ya restada la mediana de las 64."""
+    """Cuánto cambió cada casilla (`(64,)`, orden `NOMBRES`) respecto de la referencia, ya restado el fondo (`PERCENTIL_FONDO`)."""
     diferencia = np.abs(_lab(_enderezada(imagen, esquinas)) - _lab(referencia)).sum(axis=2)
     desde, hasta = CENTRO
     cambios = np.array(
         [diferencia[f * CASILLA + desde : f * CASILLA + hasta, c * CASILLA + desde : c * CASILLA + hasta].mean() for f in range(8) for c in range(8)]
     )
-    return cambios - np.median(cambios)
+    return cambios - np.percentile(cambios, PERCENTIL_FONDO)
 
 
 def decidir(cambios: np.ndarray) -> tuple[str | None, str, float]:
@@ -94,21 +99,41 @@ def _inclinacion(camara: str, imagen: np.ndarray, esquinas: np.ndarray) -> float
         return 90.0
 
 
-def detectar_casilla(fotos: dict[str, np.ndarray]) -> tuple[str | None, str, float, dict[str, str]] | None:
-    """La casilla de la pieza sola en `fotos` (`{camara: imagen}`) por diferencia con el tablero vacío.
-
-    Usa las cámaras que tienen esquinas calibradas y referencia; decide la menos inclinada. Devuelve `(casilla, estado, confianza, por_camara)`
-    (`por_camara`: la casilla que ve cada una, `""` si ninguna clara), o `None` si ninguna cámara tiene referencia (se usa otro método).
-    """
+def _cambios_por_camara(fotos: dict[str, np.ndarray]) -> dict[str, tuple[np.ndarray, float]]:
+    """`{camara: (puntajes, inclinación)}` de las cámaras de `fotos` que tienen esquinas calibradas y referencia."""
     lecturas = {}
     for camara, imagen in fotos.items():
         referencia = cargar_referencia(camara)
         esquinas = tablero.cargar_esquinas_calibradas(tablero.archivo_esquinas(camara))
         if referencia is None or esquinas is None:
             continue
-        lecturas[camara] = (decidir(puntajes(imagen, esquinas, referencia)), _inclinacion(camara, imagen, esquinas))
+        lecturas[camara] = (puntajes(imagen, esquinas, referencia), _inclinacion(camara, imagen, esquinas))
+    return lecturas
+
+
+def detectar_casilla(fotos: dict[str, np.ndarray]) -> tuple[str | None, str, float, dict[str, str]] | None:
+    """La casilla de la pieza sola en `fotos` (`{camara: imagen}`) por diferencia con el tablero vacío.
+
+    Usa las cámaras que tienen esquinas calibradas y referencia; decide la menos inclinada. Devuelve `(casilla, estado, confianza, por_camara)`
+    (`por_camara`: la casilla que ve cada una, `""` si ninguna clara), o `None` si ninguna cámara tiene referencia (se usa otro método).
+    """
+    lecturas = _cambios_por_camara(fotos)
     if not lecturas:
         return None
     decisora = min(lecturas, key=lambda camara: lecturas[camara][1])
-    casilla, estado, confianza = lecturas[decisora][0]
-    return casilla, estado, confianza, {camara: lectura[0][0] or "" for camara, lectura in lecturas.items()}
+    decisiones = {camara: decidir(cambios) for camara, (cambios, _) in lecturas.items()}
+    casilla, estado, confianza = decisiones[decisora]
+    return casilla, estado, confianza, {camara: decision[0] or "" for camara, decision in decisiones.items()}
+
+
+def ocupadas(fotos: dict[str, np.ndarray]) -> tuple[np.ndarray, str] | None:
+    """Qué casillas tienen pieza (`(64,)` bool, orden `NOMBRES`) según la cámara menos inclinada de `fotos`, con cualquier cantidad de piezas.
+
+    Una casilla está ocupada si cambió `MINIMO_PIEZA` o más respecto del tablero vacío. Devuelve `(ocupadas, camara que decidió)`, o `None` si
+    ninguna cámara tiene referencia.
+    """
+    lecturas = _cambios_por_camara(fotos)
+    if not lecturas:
+        return None
+    decisora = min(lecturas, key=lambda camara: lecturas[camara][1])
+    return lecturas[decisora][0] >= MINIMO_PIEZA, decisora

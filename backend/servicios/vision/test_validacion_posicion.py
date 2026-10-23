@@ -109,12 +109,14 @@ def test_un_tercer_alfil_solo_se_acepta_si_falta_un_peon_que_lo_explique() -> No
     from backend.servicios.vision.validacion_posicion import limitar_por_material
 
     peones = {fila: ("white-pawn", 0.95, "vacia") for fila in range(8, 16)}
-    tres_alfiles = {56: ("white-bishop", 0.9, "white-knight"), 58: ("white-bishop", 0.9, "white-knight"), 61: ("white-bishop", 0.6, "white-knight")}
+    # c1 y d2 son casillas oscuras y f1 clara: el tercero sobra en las oscuras (un alfil nunca cambia de color de casilla).
+    tres_alfiles = {58: ("white-bishop", 0.9, "white-knight"), 61: ("white-bishop", 0.6, "white-knight"), 51: ("white-bishop", 0.7, "white-knight")}
 
     con_8_peones = _clases_vistas(limitar_por_material(_probs({**peones, **tres_alfiles}), list(CLASES)))
     con_7_peones = _clases_vistas(limitar_por_material(_probs({**{f: v for f, v in peones.items() if f != 8}, **tres_alfiles}), list(CLASES)))
 
-    assert con_8_peones.count("white-bishop") == 2 and con_8_peones[61] == "white-knight"  # el menos seguro cede
+    assert con_8_peones.count("white-bishop") == 2 and con_8_peones[51] == "white-knight"  # cede el menos seguro de los del mismo color
+    assert con_8_peones[61] == "white-bishop"  # el de casilla clara es legal aunque sea el menos seguro de los tres
     assert con_7_peones.count("white-bishop") == 3  # un peón coronó: es posible
 
 
@@ -128,3 +130,38 @@ def test_limitar_no_toca_lecturas_de_ocupacion_ni_posiciones_posibles() -> None:
     assert limitar_por_material(ocupacion, ["vacia", "blanca", "negra"]) is ocupacion
     posible = _probs({4: ("black-king", 0.9, "black-queen"), 60: ("white-king", 0.9, "white-queen")})
     assert np.allclose(limitar_por_material(posible, list(CLASES)), posible)
+
+
+def test_dos_alfiles_en_casillas_del_mismo_color_sin_peones_que_falten() -> None:
+    from backend.servicios.vision.modelo_piezas import CLASES
+    from backend.servicios.vision.validacion_posicion import casilla_oscura, limitar_por_material
+
+    assert casilla_oscura("a1") and not casilla_oscura("b1") and casilla_oscura("h8")
+    peones = {fila: ("black-pawn", 0.95, "vacia") for fila in range(8, 16)}
+    dos_claros = {2: ("black-bishop", 0.9, "black-knight"), 5: ("black-bishop", 0.65, "black-knight")}  # c8 y f8: c8 es clara, f8 oscura
+    vistas = _clases_vistas(limitar_por_material(_probs({**peones, **dos_claros}), list(CLASES)))
+    assert vistas.count("black-bishop") == 2  # c8 y f8 son de distinto color: la posición inicial es legal
+    mismo_color = {2: ("black-bishop", 0.9, "black-knight"), 4: ("black-bishop", 0.65, "black-knight")}  # c8 y e8, las dos claras
+    vistas = _clases_vistas(limitar_por_material(_probs({**peones, **mismo_color}), list(CLASES)))
+    assert vistas[2] == "black-bishop" and vistas[4] == "black-knight"
+
+
+def test_un_peon_en_la_primera_o_la_ultima_fila_pasa_a_su_segunda_opcion() -> None:
+    from backend.servicios.vision.modelo_piezas import CLASES
+    from backend.servicios.vision.validacion_posicion import limitar_por_material
+
+    probs = _probs({7: ("white-pawn", 0.7, "white-queen"), 56: ("black-pawn", 0.8, "vacia"), 20: ("white-pawn", 0.9, "vacia")})  # h8, a1, e6
+    vistas = _clases_vistas(limitar_por_material(probs, list(CLASES)))
+    assert vistas[7] == "white-queen" and vistas[56] == "vacia" and vistas[20] == "white-pawn"
+
+
+def test_problemas_de_piezas_sin_turno_y_sin_exigir_reyes() -> None:
+    from backend.servicios.vision.validacion_posicion import problemas_de_piezas
+
+    assert problemas_de_piezas("8/8/8/8/4P3/8/8/8") == []  # un peón suelto: al probar piezas no hace falta que estén los reyes
+    assert any("rey" in p for p in problemas_de_piezas("8/8/8/8/4P3/8/8/8", exigir_reyes=True))
+    assert problemas_de_piezas("4k2P/8/8/8/8/8/8/4K3") == ["Hay peones en la primera o en la última fila"]
+    assert any("coronaciones" in p for p in problemas_de_piezas("4k3/pppppppp/8/8/8/8/8/2b1Kb1b"))  # tres alfiles negros con 8 peones
+    assert problemas_de_piezas("4k3/8/8/8/8/8/8/4KQ2") == []  # jaque al rey negro: posible si le toca a las negras
+    with pytest.raises(ValueError):
+        problemas_de_piezas("esto no es un fen")

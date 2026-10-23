@@ -38,11 +38,43 @@ def probabilidades_de_camara(imagen: np.ndarray, camara: str = "principal") -> t
     return piezas.probabilidades([recortes[n] for n in nombres]), nombres, esquinas, margen
 
 
-def _casillas_de_probabilidades(probs: np.ndarray, nombres: list[str], clases: list[str] | None = None) -> list[dict]:
-    """Las predicciones por casilla, ya sin material imposible (ver `validacion_posicion.limitar_por_material`)."""
+def _con_ocupacion_de_arriba(probs: np.ndarray, nombres: list[str], clases: list[str], fotos: dict[str, np.ndarray] | None) -> np.ndarray:
+    """`probs` con QUÉ casillas están ocupadas decidido por la cámara que mira más desde arriba (`referencia_vacia.ocupadas`).
+
+    El modelo de piezas sabe bien qué pieza es, pero desde una cámara en diagonal ve la cabeza de una pieza alta sobre la casilla vecina. La
+    diferencia con el tablero vacío en la cámara de arriba no tiene ese problema: donde no cambió nada la casilla queda vacía, y donde cambió se
+    descarta "vacía" y queda la pieza más probable. Sin referencia del tablero vacío devuelve `probs` igual.
+    """
+    if not fotos or CLASE_VACIA not in clases:
+        return probs
+    from backend.servicios.vision import referencia_vacia
+
+    resultado = referencia_vacia.ocupadas(fotos)
+    if resultado is None:
+        return probs
+    ocupada = dict(zip(referencia_vacia.NOMBRES, resultado[0]))
+    vacia = clases.index(CLASE_VACIA)
+    corregidas = np.array(probs, dtype=np.float64, copy=True)
+    for fila, nombre in enumerate(nombres):
+        if not ocupada[nombre]:
+            corregidas[fila] = 0.0
+            corregidas[fila, vacia] = 1.0
+            continue
+        corregidas[fila, vacia] = 0.0
+        total = corregidas[fila].sum()
+        corregidas[fila] = corregidas[fila] / total if total > 0 else np.where(np.arange(len(clases)) == vacia, 0.0, 1.0 / (len(clases) - 1))
+    return corregidas
+
+
+def _casillas_de_probabilidades(
+    probs: np.ndarray, nombres: list[str], clases: list[str] | None = None, fotos: dict[str, np.ndarray] | None = None
+) -> list[dict]:
+    """Las predicciones por casilla: la ocupación decidida por la cámara de arriba (`_con_ocupacion_de_arriba`, con las `fotos` de cada
+    cámara) y sin material ni posiciones imposibles (ver `validacion_posicion.limitar_por_material`)."""
     from backend.servicios.vision.validacion_posicion import limitar_por_material
 
-    probs = limitar_por_material(probs, clases or piezas.clases_del_modelo())
+    clases = clases or piezas.clases_del_modelo()
+    probs = limitar_por_material(_con_ocupacion_de_arriba(probs, nombres, clases, fotos), clases, nombres)
     casillas = []
     for nombre, top in zip(nombres, piezas.mejores_clases(probs, clases=clases)):
         clase, confianza = top[0]
@@ -153,7 +185,7 @@ def _analizar_dos_vistas(fotos: dict[str, np.ndarray]) -> tuple[np.ndarray, list
     Con una sola cámara la otra vista se anula. Devuelve lo mismo que `analizar_camaras`, sin el detalle por cámara (el modelo no decide por separado).
     """
     probs, nombres, lecturas = _probabilidades_dos_vistas(fotos)
-    casillas = _casillas_de_probabilidades(probs, nombres, piezas.clases_dos_vistas())
+    casillas = _casillas_de_probabilidades(probs, nombres, piezas.clases_dos_vistas(), fotos)
     vistas = [_vista_anotada(imagen, esquinas, margen, casillas) for imagen, _, _, esquinas, margen in lecturas]
     return (vistas[0] if len(vistas) == 1 else np.hstack(vistas)), casillas
 
@@ -187,7 +219,7 @@ def analizar_tablero(imagen: np.ndarray, camara: str = "principal") -> tuple[np.
     if piezas.hay_dos_vistas():
         return _analizar_dos_vistas({camara: imagen})
     probs, nombres, esquinas, margen = probabilidades_de_camara(imagen, camara)
-    casillas = _casillas_de_probabilidades(probs, nombres)
+    casillas = _casillas_de_probabilidades(probs, nombres, fotos={camara: imagen})
     return _vista_anotada(imagen, esquinas, margen, casillas), casillas
 
 
@@ -211,7 +243,7 @@ def analizar_camaras(fotos: dict[str, np.ndarray]) -> tuple[np.ndarray, list[dic
         raise ValueError("No se detectó el tablero en ninguna cámara")
     matrices = [probs for _, probs, *_ in lecturas]
     nombres = lecturas[0][2]
-    casillas = _casillas_de_probabilidades(fusionar_probabilidades(matrices), nombres)
+    casillas = _casillas_de_probabilidades(fusionar_probabilidades(matrices), nombres, fotos=fotos)
     if len(lecturas) > 1:
         clases_por_camara = [[top[0][0] for top in piezas.mejores_clases(m)] for m in matrices]
         for i, (c, desacuerdo) in enumerate(zip(casillas, casillas_en_desacuerdo(matrices))):

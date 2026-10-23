@@ -337,6 +337,25 @@ def comparar_posicion(cuerpo: CompararPosicionRequest, _usuario_id: int = Depend
     return comparar_con_esperada(fen, lecturas)
 
 
+class ProblemasPosicionRequest(BaseModel):
+    """`fen`: las piezas que se reconocieron (solo el primer campo de un FEN); `exigir_reyes`: avisar si falta algún rey."""
+
+    fen: str
+    exigir_reyes: bool = False
+
+
+@router.post("/posicion/problemas")
+def problemas_posicion(cuerpo: ProblemasPosicionRequest, _usuario_id: int = Depends(get_current_user)) -> dict:
+    """Por qué la posición reconocida no puede darse en una partida (peones en la fila 1 u 8, material de más, más de un rey, jaques
+    imposibles…). `{"problemas": [...]}`, vacío si es posible. 422 si el FEN no es válido. Ver `validacion_posicion.problemas_de_piezas`."""
+    from backend.servicios.vision.validacion_posicion import problemas_de_piezas
+
+    try:
+        return {"problemas": problemas_de_piezas(cuerpo.fen.split(" ")[0], cuerpo.exigir_reyes)}
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=f"FEN inválido: {error}") from error
+
+
 @router.get("/dataset/resumen", response_model=ResumenDatasetResponse)
 def resumen_dataset(_facilitador_id: int = Depends(get_current_facilitador)) -> ResumenDatasetResponse:
     """Muestras por clase del dataset propio."""

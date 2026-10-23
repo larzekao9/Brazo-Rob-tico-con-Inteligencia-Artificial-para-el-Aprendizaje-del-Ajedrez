@@ -392,3 +392,16 @@ def test_flujo_de_piezas_valida_la_vista(cliente) -> None:
         assert cliente.get("/vision/flujo", params={"modo": "piezas", "vista": "otra"}).status_code == 422
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_problemas_de_posicion(cliente) -> None:
+    from backend.rutas.ruta_auth import get_current_user
+
+    app.dependency_overrides[get_current_user] = lambda: 1
+    try:
+        respuesta = cliente.post("/vision/posicion/problemas", json={"fen": "4k2P/8/8/8/8/8/8/4K3 w - - 0 1"})
+        assert respuesta.status_code == 200 and respuesta.json()["problemas"] == ["Hay peones en la primera o en la última fila"]
+        assert cliente.post("/vision/posicion/problemas", json={"fen": "8/8/8/8/8/8/8/8"}).json() == {"problemas": []}
+        assert cliente.post("/vision/posicion/problemas", json={"fen": "nada"}).status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
