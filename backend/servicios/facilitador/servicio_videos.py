@@ -68,12 +68,32 @@ def guardar_video_pieza(
     return f"{URL_BASE_VIDEOS_PIEZAS}/{nombre_archivo}"
 
 
-def listar_videos_piezas(usuario_id: int) -> dict[str, str]:
+def borrar_video_pieza(usuario_id: int, tipo_pieza: str) -> bool:
+    """Borra el video de `tipo_pieza` del facilitador `usuario_id`, para que sus jugadores vuelvan a ver el general.
+
+    Devuelve `False` si no tenía ninguno.
+
+    Raises:
+        ValueError: si `tipo_pieza` no es una pieza válida.
+    """
+    _validar_tipo_pieza(tipo_pieza)
+    if not MEDIA_VIDEOS_DIR.is_dir():
+        return False
+    archivos = list(MEDIA_VIDEOS_DIR.glob(f"{usuario_id}_{tipo_pieza}.*"))
+    for archivo in archivos:
+        archivo.unlink()
+    return bool(archivos)
+
+
+def listar_videos_piezas(usuario_id: int, con_version: bool = False) -> dict[str, str]:
     """Videos que `usuario_id` (facilitador) tiene subidos actualmente, por pieza.
 
-    Las piezas sin video subido no aparecen en el dict devuelto — el
-    frontend interpreta la ausencia como "usar el video por defecto del
-    sistema", no como un error.
+    Las piezas sin video subido no aparecen en el dict devuelto: el frontend interpreta la
+    ausencia como "este facilitador todavía no subió ese video", no como un error.
+
+    Con `con_version=True` cada URL lleva `?v=<fecha de modificación>`: al reemplazar un video
+    el archivo conserva su nombre, y sin la versión el navegador de quien ya lo vio seguiría
+    mostrando el anterior.
     """
     videos: dict[str, str] = {}
     if not MEDIA_VIDEOS_DIR.is_dir():
@@ -81,5 +101,8 @@ def listar_videos_piezas(usuario_id: int) -> dict[str, str]:
     for tipo_pieza in TIPOS_PIEZA_VALIDOS:
         coincidencias = sorted(MEDIA_VIDEOS_DIR.glob(f"{usuario_id}_{tipo_pieza}.*"))
         if coincidencias:
-            videos[tipo_pieza] = f"{URL_BASE_VIDEOS_PIEZAS}/{coincidencias[0].name}"
+            url = f"{URL_BASE_VIDEOS_PIEZAS}/{coincidencias[0].name}"
+            if con_version:
+                url += f"?v={int(coincidencias[0].stat().st_mtime)}"
+            videos[tipo_pieza] = url
     return videos

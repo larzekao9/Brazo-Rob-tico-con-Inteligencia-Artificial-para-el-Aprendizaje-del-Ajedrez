@@ -68,6 +68,15 @@ TABLAS: dict[str, tuple[str, str]] = {
         "como facilitador. Solo se guarda su hash.",
         "En uso",
     ),
+    "curso": (
+        "Grupo de estudiantes de un facilitador. Los jugadores entran con un código del curso, que sirve para "
+        "muchos y el facilitador puede volver a ver y regenerar.",
+        "En uso",
+    ),
+    "inscripcion": (
+        "Un jugador dentro de un curso. Un jugador está en un solo curso a la vez.",
+        "En uso",
+    ),
     "participante": (
         "Estudiantes de un curso, para sesiones del facilitador.",
         "Reservada: el modelo existe pero ningún flujo la usa todavía",
@@ -181,6 +190,21 @@ COLUMNAS: dict[tuple[str, str], str] = {
     ("codigo_invitacion", "expira_en"): "Fecha y hora a partir de la cual el código ya no sirve.",
     ("codigo_invitacion", "usado_en"): "Fecha y hora en que se usó. Nulo mientras no se haya usado: sirve una sola vez.",
     ("codigo_invitacion", "usado_por"): "Usuario que se registró con este código.",
+    # curso
+    ("curso", "id"): "Identificador del curso.",
+    ("curso", "nombre"): "Nombre del curso, que elige el facilitador (por ejemplo, `Ajedrez 1ro A`).",
+    ("curso", "facilitador_id"): "Facilitador dueño del curso. FK → usuario.id.",
+    ("curso", "codigo"): (
+        "Código de 6 caracteres (alfabeto sin ambiguos) que el facilitador le da a la clase. Es único, sirve para "
+        "muchos jugadores y se guarda en claro porque solo permite entrar al curso como jugador."
+    ),
+    ("curso", "acepta_ingresos"): "Si es falso, el código no deja entrar a nadie más; los ya inscritos siguen.",
+    ("curso", "creado_en"): "Fecha y hora de creación.",
+    # inscripcion
+    ("inscripcion", "id"): "Identificador de la inscripción.",
+    ("inscripcion", "curso_id"): "Curso en el que está el jugador. FK → curso.id.",
+    ("inscripcion", "usuario_id"): "Jugador inscrito. Único: está en un solo curso a la vez. FK → usuario.id.",
+    ("inscripcion", "unido_en"): "Fecha y hora en que entró al curso.",
     # exportacion_dataset
     ("exportacion_dataset", "id"): "Identificador de la descarga.",
     ("exportacion_dataset", "usuario_id"): "Facilitador que descargó el dataset.",
@@ -201,6 +225,9 @@ RELACIONES = [
     ("usuario", "calibracion", "1 a N", "Un jugador acumula una calibración por cada partida que sirvió para medirlo."),
     ("usuario", "exportacion_dataset", "1 a N", "Un facilitador acumula una fila por cada vez que descargó el dataset de partidas."),
     ("usuario", "codigo_invitacion", "1 a N", "Un facilitador genera muchos códigos de invitación; cada uno lo usa, a lo sumo, una persona."),
+    ("usuario", "curso", "1 a N", "Un facilitador crea varios cursos; cada curso tiene un solo facilitador."),
+    ("curso", "inscripcion", "1 a N", "Un curso tiene muchos jugadores inscritos."),
+    ("usuario", "inscripcion", "1 a 1", "Un jugador tiene, a lo sumo, una inscripción: está en un solo curso a la vez."),
     ("participante", "partida", "1 a N", "Opcional y reservada: una partida puede asignarse a un participante."),
     ("sesion", "partida", "1 a N", "Opcional y reservada: una partida puede pertenecer a una sesión de clase."),
     # Sala (humano vs humano)

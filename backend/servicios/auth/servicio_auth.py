@@ -206,6 +206,15 @@ def _correo_autorizado(email: str) -> bool:
     return any(fnmatch.fnmatchcase(email, patron) for patron in correos_facilitadores_autorizados())
 
 
+def es_correo_de_principal(email: str) -> bool:
+    """`True` si `email` coincide con algún correo o patrón de `CORREOS_FACILITADORES`: es un facilitador principal.
+
+    Es la misma configuración que autoriza al primer facilitador de una instalación; el principal es quien administra
+    a los demás facilitadores (por ejemplo, asigna cursos).
+    """
+    return _correo_autorizado((email or "").strip().lower())
+
+
 def _exigir_acceso_de_facilitador(db: Session, email: str, rol: str, codigo: str | None):
     """Valida que `email` pueda registrarse con `rol`. Devuelve la fila del código consumido, o `None`.
 

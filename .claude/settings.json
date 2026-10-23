@@ -22,7 +22,8 @@
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
       "Bash(git push *)",
-      "WebSearch"
+      "WebSearch",
+      "mcp__plugin_ecc_chrome-devtools__select_page"
     ],
     "deny": [
       "Bash(rm -rf:*)",

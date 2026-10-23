@@ -490,7 +490,7 @@ def _armar_mensajes_iniciales(prompt_sistema: str, historial: list[dict[str, Any
     return mensajes
 
 
-def procesar_mensaje(db: Any, usuario: Any, mensaje: str) -> str:
+def procesar_mensaje(db: Any, usuario: Any, mensaje: str, preset_ensenanza: str | None = None) -> str:
     """Loop ReAct completo: persiste el turno del jugador, arma el contexto,
     despacha tools hasta `MAX_RONDAS_HERRAMIENTAS` veces, y devuelve el texto
     final de Turing (ya persistido también).
@@ -499,6 +499,10 @@ def procesar_mensaje(db: Any, usuario: Any, mensaje: str) -> str:
     `usuario.id`, `usuario.rango_estimado` y `usuario.preset_ensenanza` para
     resolver, server-side, todo lo que las tools necesitan; el LLM nunca
     manda `usuario_id` como argumento de una tool.
+
+    `preset_ensenanza` es el tono ya resuelto por quien llama (para un jugador inscrito en un
+    curso, el de su facilitador, ver `servicio_cursos.preset_efectivo`); si es `None` se usa
+    el del propio usuario.
 
     El turno del usuario se persiste ANTES de llamar a la API (paso 1 del
     plan) para no perderlo si la llamada de red falla — por eso, si esta
@@ -516,7 +520,8 @@ def procesar_mensaje(db: Any, usuario: Any, mensaje: str) -> str:
 
     rango_estimado = getattr(usuario, "rango_estimado", None)
     rango = rango_estimado if rango_estimado in RANGOS_VALIDOS else RANGO_POR_DEFECTO
-    prompt_sistema = construir_prompt_sistema(rango_estimado, getattr(usuario, "preset_ensenanza", None))
+    tono = preset_ensenanza if preset_ensenanza is not None else getattr(usuario, "preset_ensenanza", None)
+    prompt_sistema = construir_prompt_sistema(rango_estimado, tono)
     historial = _repositorio.obtener_historial(usuario_id, LIMITE_HISTORIAL_CONVERSACION)
     mensajes = _armar_mensajes_iniciales(prompt_sistema, historial)
 

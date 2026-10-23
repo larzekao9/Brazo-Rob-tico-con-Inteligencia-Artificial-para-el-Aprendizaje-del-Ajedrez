@@ -61,6 +61,7 @@ from backend.servicios.auth.servicio_invitaciones import (
     revocar_codigo,
     verificar_codigo,
 )
+from backend.servicios.curso.servicio_cursos import es_principal
 from backend.servicios.partida.servicio_partida import eliminar_partidas_de_usuario
 from backend.servicios.usuario.servicio_avatar import guardar_avatar
 from backend.servicios.usuario.servicio_gestion_usuarios import (
@@ -110,6 +111,7 @@ def _a_respuesta(user, partidas_calibradas: int) -> UsuarioResponse:
         partidas_calibradas=partidas_calibradas,
         partidas_diagnostico=PARTIDAS_DIAGNOSTICO,
         activo=user.activo,
+        es_principal=es_principal(user),
     )
 
 

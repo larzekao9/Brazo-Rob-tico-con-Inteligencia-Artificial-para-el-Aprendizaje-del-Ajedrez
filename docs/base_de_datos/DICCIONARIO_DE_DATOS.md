@@ -3,7 +3,7 @@
 Generado automáticamente desde `backend/modelos/tablas_orm.py` con `docs/base_de_datos/generar_esquema.py`. No editar a mano.
 
 - Motor: PostgreSQL 16. La aplicación crea las tablas sola al arrancar; el script equivalente está en [base_completa.sql](base_completa.sql); para producción en Supabase, [base_supabase_produccion.sql](base_supabase_produccion.sql).
-- Tablas: 9 (7 en uso, 2 reservadas para sesiones de clase).
+- Tablas: 11 (9 en uso, 2 reservadas para sesiones de clase).
 - Sin `DATABASE_URL` configurada, la aplicación guarda las partidas en memoria y no usa estas tablas para ellas.
 
 ## Relaciones
@@ -16,6 +16,9 @@ Generado automáticamente desde `backend/modelos/tablas_orm.py` con `docs/base_d
 | `usuario` | `calibracion` | 1 a N | Un jugador acumula una calibración por cada partida que sirvió para medirlo. |
 | `usuario` | `exportacion_dataset` | 1 a N | Un facilitador acumula una fila por cada vez que descargó el dataset de partidas. |
 | `usuario` | `codigo_invitacion` | 1 a N | Un facilitador genera muchos códigos de invitación; cada uno lo usa, a lo sumo, una persona. |
+| `usuario` | `curso` | 1 a N | Un facilitador crea varios cursos; cada curso tiene un solo facilitador. |
+| `curso` | `inscripcion` | 1 a N | Un curso tiene muchos jugadores inscritos. |
+| `usuario` | `inscripcion` | 1 a 1 | Un jugador tiene, a lo sumo, una inscripción: está en un solo curso a la vez. |
 | `participante` | `partida` | 1 a N | Opcional y reservada: una partida puede asignarse a un participante. |
 | `sesion` | `partida` | 1 a N | Opcional y reservada: una partida puede pertenecer a una sesión de clase. |
 | `usuario` | `partida` | 1 a N | Un usuario juega muchas salas como blancas; una sala tiene un blanco (opcional). |
@@ -105,6 +108,21 @@ Códigos de un solo uso, con vencimiento, que un facilitador genera para que otr
 | `usado_en` | TIMESTAMP WITHOUT TIME ZONE | sí |  |  | Fecha y hora en que se usó. Nulo mientras no se haya usado: sirve una sola vez. |
 | `usado_por` | INTEGER | sí | FK → usuario.id |  | Usuario que se registró con este código. |
 
+## `curso`
+
+Grupo de estudiantes de un facilitador. Los jugadores entran con un código del curso, que sirve para muchos y el facilitador puede volver a ver y regenerar.
+
+**Estado:** En uso
+
+| Columna | Tipo | Nulo | Clave | Por defecto | Descripción |
+| :-- | :-- | :-: | :-- | :-- | :-- |
+| `id` | INTEGER | no | PK |  | Identificador del curso. |
+| `nombre` | VARCHAR | no |  |  | Nombre del curso, que elige el facilitador (por ejemplo, `Ajedrez 1ro A`). |
+| `facilitador_id` | INTEGER | no | FK → usuario.id |  | Facilitador dueño del curso. FK → usuario.id. |
+| `codigo` | VARCHAR | no | único |  | Código de 6 caracteres (alfabeto sin ambiguos) que el facilitador le da a la clase. Es único, sirve para muchos jugadores y se guarda en claro porque solo permite entrar al curso como jugador. |
+| `acepta_ingresos` | BOOLEAN | no |  | true | Si es falso, el código no deja entrar a nadie más; los ya inscritos siguen. |
+| `creado_en` | TIMESTAMP WITHOUT TIME ZONE | no |  | now() | Fecha y hora de creación. |
+
 ## `exportacion_dataset`
 
 Una fila por cada vez que un facilitador descargó el dataset de partidas para reentrenar el modelo propio (HU4, todavía pendiente de construir).
@@ -170,6 +188,19 @@ Cada partida jugada: quién la jugó, contra qué oponente, a qué nivel, la pos
 | `usuario_blancas_id` | INTEGER | sí | FK → usuario.id |  | Usuario que juega con blancas en la sala. Nulo si el asiento está libre. FK → usuario.id. |
 | `usuario_negras_id` | INTEGER | sí | FK → usuario.id |  | Usuario que juega con negras en la sala. Nulo si el asiento está libre. FK → usuario.id. |
 
+## `inscripcion`
+
+Un jugador dentro de un curso. Un jugador está en un solo curso a la vez.
+
+**Estado:** En uso
+
+| Columna | Tipo | Nulo | Clave | Por defecto | Descripción |
+| :-- | :-- | :-: | :-- | :-- | :-- |
+| `id` | INTEGER | no | PK |  | Identificador de la inscripción. |
+| `curso_id` | INTEGER | no | FK → curso.id |  | Curso en el que está el jugador. FK → curso.id. |
+| `usuario_id` | INTEGER | no | FK → usuario.id, único |  | Jugador inscrito. Único: está en un solo curso a la vez. FK → usuario.id. |
+| `unido_en` | TIMESTAMP WITHOUT TIME ZONE | no |  | now() | Fecha y hora en que entró al curso. |
+
 ## `jugada`
 
 Detalle de cada jugada de una partida: quién la decidió y cómo la evaluó Stockfish.
@@ -201,6 +232,9 @@ erDiagram
     usuario ||--o{ calibracion : tiene
     usuario ||--o{ exportacion_dataset : tiene
     usuario ||--o{ codigo_invitacion : tiene
+    usuario ||--o{ curso : tiene
+    curso ||--o{ inscripcion : tiene
+    usuario ||--o{ inscripcion : tiene
     participante |o--o{ partida : tiene
     sesion |o--o{ partida : tiene
     usuario |o--o{ partida : tiene
@@ -252,6 +286,14 @@ erDiagram
         TIMESTAMP usado_en
         INTEGER usado_por FK
     }
+    curso {
+        INTEGER id PK
+        VARCHAR nombre
+        INTEGER facilitador_id FK
+        VARCHAR codigo
+        BOOLEAN acepta_ingresos
+        TIMESTAMP creado_en
+    }
     exportacion_dataset {
         INTEGER id PK
         INTEGER usuario_id FK
@@ -295,6 +337,12 @@ erDiagram
         VARCHAR codigo_sala
         INTEGER usuario_blancas_id FK
         INTEGER usuario_negras_id FK
+    }
+    inscripcion {
+        INTEGER id PK
+        INTEGER curso_id FK
+        INTEGER usuario_id FK
+        TIMESTAMP unido_en
     }
     jugada {
         INTEGER id PK
@@ -365,6 +413,14 @@ classDiagram
         -TIMESTAMP usado_en
         -INTEGER usado_por
     }
+    class Curso {
+        -INTEGER id
+        -VARCHAR nombre
+        -INTEGER facilitador_id
+        -VARCHAR codigo
+        -BOOLEAN acepta_ingresos
+        -TIMESTAMP creado_en
+    }
     class ExportacionDataset {
         -INTEGER id
         -INTEGER usuario_id
@@ -409,6 +465,12 @@ classDiagram
         -INTEGER usuario_blancas_id
         -INTEGER usuario_negras_id
     }
+    class Inscripcion {
+        -INTEGER id
+        -INTEGER curso_id
+        -INTEGER usuario_id
+        -TIMESTAMP unido_en
+    }
     class Jugada {
         -INTEGER id
         -VARCHAR partida_id
@@ -429,6 +491,9 @@ classDiagram
     Usuario "1" --> "0..*" Calibracion
     Usuario "1" --> "0..*" ExportacionDataset
     Usuario "1" --> "0..*" CodigoInvitacion
+    Usuario "1" --> "0..*" Curso
+    Curso "1" --> "0..*" Inscripcion
+    Usuario "1" --> "0..*" Inscripcion
     Participante "1" --> "0..*" Partida
     Sesion "1" --> "0..*" Partida
     Usuario "1" --> "0..*" Partida

@@ -15,6 +15,7 @@ from backend.esquemas.tutor_esquema import (
 )
 from backend.rutas.ruta_auth import get_current_user, get_db
 from backend.servicios.auth import get_user_by_id
+from backend.servicios.curso.servicio_cursos import preset_efectivo
 from backend.servicios.tutor import (
     TutorNoDisponibleError,
     borrar_historial_tutor,
@@ -45,7 +46,7 @@ def enviar_mensaje(
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     try:
-        respuesta = procesar_mensaje(db, usuario, data.mensaje)
+        respuesta = procesar_mensaje(db, usuario, data.mensaje, preset_efectivo(db, usuario))
     except TutorNoDisponibleError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
     return TutorMensajeResponse(

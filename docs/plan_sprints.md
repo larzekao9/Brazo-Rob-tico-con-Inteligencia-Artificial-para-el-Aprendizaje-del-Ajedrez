@@ -631,10 +631,8 @@ distinción):**
       hay más de 4, badge del nivel diagnosticado de cada estudiante.
 - [x] **Configuración de Enseñanza**: panel del facilitador para subir un video corto por pieza
       (`POST /facilitador/videos/{tipo_pieza}`, sirve por `/media/videos_piezas/...`) y elegir un
-      preset de tono (Infantil/Estándar/Adultos, `preset_ensenanza` en el perfil) — documentado
-      explícitamente en la interfaz que este preset **todavía no se aplica a estudiantes reales**
-      porque no existe una tabla de curso/grupo que vincule facilitador↔estudiantes (queda anotado
-      como hueco real, no resuelto ni escondido).
+      preset de tono (Infantil/Estándar/Adultos, `preset_ensenanza` en el perfil). Desde los cursos
+      (2026-10-21) el tono y los videos **sí llegan** a los jugadores inscritos en los cursos del facilitador.
 - [x] **Interfaces "en vivo" de verdad, no fotos fijas**: cualquier pantalla donde el facilitador
       mira algo que otra persona puede estar cambiando en ese momento sondea el backend — Sala de
       Control al ver la partida de un estudiante (2.5s, además el tablero queda de solo lectura,
@@ -656,15 +654,64 @@ distinción):**
       Stockfish usa 0-20 completo). El modelo propio no interviene en el cálculo del nivel; la primera
       partida contra Stockfish como diagnóstico la impone el frontend, no el servidor.
 
-**Todavía sin empezar / explícitamente fuera de alcance de este sprint:** vínculo real
-facilitador↔curso↔estudiantes (bloquea que el preset de enseñanza y el selector de "grupo" de
-Monitoreo/Configuración de Enseñanza hagan algo más que mostrar un placeholder "Próximamente");
-multijugador, matchmaking por nivel y ranking (Módulo 7 del documento oficial, "visión de tesis"
+**Cursos (2026-10-21) — cierra el vínculo facilitador↔curso↔estudiantes** (antes era el hueco que bloqueaba el
+preset de enseñanza, el selector de grupo y los videos). Un facilitador crea **cursos** (`curso`, hasta 20) y cada
+uno tiene un código de 6 caracteres que se le da a la clase. El jugador lo escribe y queda inscrito (`inscripcion`,
+un solo curso a la vez: entrar a otro lo mueve). Desde ahí ve los videos por pieza de su facilitador
+(`GET /cursos/mio/videos`) y Turing le habla con el tono (`preset_ensenanza`) de su facilitador
+(`servicio_cursos.preset_efectivo`, usado por `POST /tutor/mensaje`).
+
+- Decisión: el código del curso **sirve para muchos y se puede volver a ver** (se guarda en claro), a diferencia de
+  los códigos de facilitador, que son de un solo uso y hasheados: un curso de 30 alumnos no puede gastar un código
+  por persona, y lo único que da el código es entrar como jugador. Se frena a quien pruebe códigos con el mismo
+  límite de intentos por IP (8 en 10 min, luego 429). El facilitador puede cerrar los ingresos, regenerar el código
+  (los ya inscritos siguen) o eliminar el curso (los estudiantes no se borran).
+- Endpoints: `POST/GET /cursos`, `PATCH/DELETE /cursos/{id}`, `POST /cursos/{id}/codigo`,
+  `GET /cursos/{id}/estudiantes`, `DELETE /cursos/{id}/estudiantes/{usuario_id}`, y del lado del jugador
+  `POST /cursos/unirse`, `GET /cursos/mio`, `GET /cursos/mio/videos`, `POST /cursos/salir`. Un facilitador solo ve
+  y toca sus propios cursos (para otro responde 404). Eliminar una cuenta limpia sus inscripciones o sus cursos.
+- Base de datos: tablas nuevas `curso` e `inscripcion` (sin columnas nuevas en `usuario`, para no crear una
+  referencia circular entre tablas); diccionario y SQL regenerados. Tests: `backend/rutas/test_ruta_cursos.py` (14).
+- **Facilitador principal (2026-10-22):** el principal es el facilitador activo cuyo correo está en `CORREOS_FACILITADORES`
+  (la misma configuración que autoriza al primero; no hay columna nueva). Ve los cursos de todos los facilitadores
+  (`GET /cursos?todos=true`, con el nombre del dueño), crea cursos a nombre de otro facilitador, **asigna o reasigna un
+  curso a otro facilitador activo** (`PATCH /cursos/{id}` con `facilitador_id`) y puede administrar cualquier curso. Los
+  estudiantes inscritos siguen en el curso y pasan a ver los videos y el tono del nuevo facilitador. Un facilitador común
+  solo ve y toca los suyos (403 si intenta ver todos o reasignar). Si el correo del principal sale de un patrón amplio
+  (por ejemplo `*@dominio.com`), todos los facilitadores de ese patrón serían principales. `UsuarioResponse` trae
+  `es_principal`. Tests: `backend/rutas/test_ruta_cursos.py` (21).
+- **Videos generales (2026-10-22):** los videos por pieza son **generales**: los del facilitador principal los ve todo
+  jugador, esté o no en un curso (quien juega por su cuenta también los tiene). Si el facilitador del curso del
+  jugador sube el suyo para una pieza, ese **reemplaza** al general solo en esa pieza; con `DELETE /facilitador/videos/{pieza}`
+  lo quita y los jugadores vuelven a ver el general. `GET /cursos/mio/videos` resuelve esto (si hay varios
+  principales, vale el más antiguo que haya subido esa pieza). Las URL llevan `?v=<fecha>` para que un video
+  reemplazado no se quede en la caché del navegador. Tests en `test_ruta_cursos.py`.
+- **Web (React), hecha y probada en 360, 768 y 1920 px:**
+  - Facilitador: panel "Mis cursos" en Gestión de Usuarios (`PanelCursos.jsx`): crear (el principal, también para otro
+    facilitador), copiar el código, abrir/cerrar ingresos, regenerar, eliminar, asignar a otro facilitador (solo
+    principal), ver y sacar estudiantes. El número de estudiantes y la lista desplegada se actualizan solos con un
+    sondeo silencioso cada 8 s (solo con la pestaña visible; no pisa lo que el usuario esté haciendo).
+  - Monitoreo: filtro **Curso** (el principal ve los de todos los facilitadores, con el nombre del dueño) y, dentro del
+    curso, filtro **Jugador**, con "Quitar filtros". Sin cursos no aparece ningún filtro.
+  - Jugador: tarjeta "Mi curso" en Mi Perfil (`MiCurso.jsx`) y tarjeta discreta "¿Tenés un código de curso?" en el
+    Panel de Aprendizaje (`TarjetaUnirseCurso.jsx`) con "No, juego por mi cuenta" (se recuerda por usuario). **Unirse a
+    un curso es siempre opcional y nunca se pide al registrarse ni al iniciar sesión**: jugar por cuenta propia contra
+    Turing o Stockfish sigue siendo una experiencia completa.
+  - Videos: "Aprendé cada pieza" muestra el video general o el del facilitador del curso; Configuración de Enseñanza
+    muestra el estado de cada pieza ("Video propio", "Se usa el video general", "Sin video") y permite quitar el propio.
+- Límites conocidos: el jugador entra desde Mi Perfil (el código no se pide todavía al registrarse); un jugador está
+  en un solo curso y para cambiar de curso primero sale; los videos dependen de que el facilitador los haya subido. No se probó el reproductor con
+  otros códecs ni navegadores, ni en un celular real (solo ancho emulado).
+
+**Todavía sin empezar / explícitamente fuera de alcance de este sprint:** multijugador, matchmaking por nivel y ranking (Módulo 7 del documento oficial, "visión de tesis"
 explícita, no de este sprint); tutor conversacional real (LLM con tools/system-prompt/multi-turn)
 — evaluado y descartado para este sprint por tiempo/alcance, el nivel-adaptativo actual (RF20) se
 resuelve con plantillas escritas a mano, no con un modelo de lenguaje.
 
-**Pendiente para Sprint 2 (mismo hueco de arriba, encontrado al revisar por qué el jugador nunca
+**Resuelto con los cursos (2026-10-21, ver arriba):** lo que sigue describe el hueco tal como estaba antes; ahora el
+jugador pide `GET /cursos/mio/videos` y ve los videos de su facilitador.
+
+**Antes, pendiente para Sprint 2 (mismo hueco, encontrado al revisar por qué el jugador nunca
 ve el video de su facilitador):** el jugador sube su video por pieza en Configuración de
 Enseñanza, pero en "Aprendé cada pieza" (Panel de Aprendizaje) el jugador siempre ve un
 placeholder fijo que dice "Próximamente" — ni siquiera intenta pedir el video, no es un bug de

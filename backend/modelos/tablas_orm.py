@@ -66,8 +66,8 @@ class UsuarioORM(Base):
     descripcion: Mapped[str | None] = mapped_column(nullable=True)
     # Tono con el que Turing le habla a los estudiantes de este facilitador
     # ('infantil' | 'estandar' | 'adultos') — ver docstring de
-    # `ActualizarPerfilRequest.preset_ensenanza`: todavía es solo una
-    # preferencia guardada, no hay vínculo formal facilitador-estudiante.
+    # `ActualizarPerfilRequest.preset_ensenanza`: les llega a los jugadores
+    # inscritos en sus cursos (`CursoORM` / `InscripcionORM`).
     preset_ensenanza: Mapped[str | None] = mapped_column(nullable=True)
 
     partidas: Mapped[list["PartidaORM"]] = relationship(
@@ -274,3 +274,30 @@ class CodigoInvitacionORM(Base):
     expira_en: Mapped[datetime] = mapped_column(nullable=False)
     usado_en: Mapped[datetime | None] = mapped_column(nullable=True)
     usado_por: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"), nullable=True, index=True)
+
+
+class CursoORM(Base):
+    """Curso (o grupo) de un facilitador: reúne a sus estudiantes. Los jugadores entran con `codigo`, que sirve
+    para muchos (a diferencia de los códigos de facilitador, que son de un solo uso) y que el facilitador puede
+    volver a ver y regenerar. Tabla nueva: `Base.metadata.create_all` la crea sola."""
+
+    __tablename__ = "curso"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nombre: Mapped[str] = mapped_column(nullable=False)
+    facilitador_id: Mapped[int] = mapped_column(ForeignKey("usuario.id"), nullable=False, index=True)
+    codigo: Mapped[str] = mapped_column(unique=True, nullable=False, index=True)
+    acepta_ingresos: Mapped[bool] = mapped_column(default=True, server_default="true", nullable=False)
+    creado_en: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class InscripcionORM(Base):
+    """Un jugador dentro de un curso. `usuario_id` es único: un jugador está en un solo curso a la vez (entrar a
+    otro lo mueve). Tabla nueva: `Base.metadata.create_all` la crea sola."""
+
+    __tablename__ = "inscripcion"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    curso_id: Mapped[int] = mapped_column(ForeignKey("curso.id"), nullable=False, index=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuario.id"), nullable=False, unique=True)
+    unido_en: Mapped[datetime] = mapped_column(server_default=func.now())

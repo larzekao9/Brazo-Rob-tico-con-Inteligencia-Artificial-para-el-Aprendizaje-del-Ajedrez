@@ -78,6 +78,7 @@ class UsuarioResponse(BaseModel):
     partidas_calibradas: int = 0
     partidas_diagnostico: int = 3
     activo: bool = True
+    es_principal: bool = False
 
     class Config:
         from_attributes = True
@@ -167,11 +168,8 @@ class ActualizarPerfilRequest(BaseModel):
 
     `preset_ensenanza` es una preferencia del facilitador sobre el tono con
     el que Turing le habla a sus estudiantes ("infantil", "estandar" o
-    "adultos"). Por ahora es solo un dato guardado: todavía no existe en el
-    sistema un vínculo formal entre facilitador y sus estudiantes (no hay
-    tabla de "curso"/"grupo"), así que este valor NO cambia automáticamente
-    lo que ve un jugador en su Panel de Aprendizaje — eso queda para cuando
-    exista esa relación.
+    "adultos"). Les llega a los jugadores inscritos en alguno de sus cursos
+    (ver `servicio_cursos.preset_efectivo`).
     """
 
     nombre: str | None = Field(default=None, min_length=2, max_length=100)

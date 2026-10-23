@@ -17,6 +17,7 @@ from backend.modelos.tablas_orm import (
     UsuarioORM,
 )
 from backend.servicios.auth import actualizar_perfil, get_user_by_email
+from backend.servicios.curso.servicio_cursos import retirar_usuario_de_cursos
 from backend.servicios.usuario.servicio_avatar import eliminar_avatar
 
 RANGOS_VALIDOS = ("Principiante", "Intermedio", "Avanzado")
@@ -108,6 +109,8 @@ def eliminar_usuario(db: Session, objetivo: UsuarioORM, solicitante_id: int) -> 
     # Los códigos de invitación que generó se borran; los que usó quedan (sin nombre) como registro.
     db.execute(delete(CodigoInvitacionORM).where(CodigoInvitacionORM.creado_por == objetivo.id))
     db.execute(update(CodigoInvitacionORM).where(CodigoInvitacionORM.usado_por == objetivo.id).values(usado_por=None))
+    # Si es jugador sale de su curso; si es facilitador se borran sus cursos (sus estudiantes quedan sin curso).
+    retirar_usuario_de_cursos(db, objetivo.id)
     eliminar_avatar(objetivo.id)
     db.delete(objetivo)
     db.commit()

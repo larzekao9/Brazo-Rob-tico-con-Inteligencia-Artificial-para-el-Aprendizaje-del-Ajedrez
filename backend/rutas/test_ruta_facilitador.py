@@ -60,7 +60,8 @@ def test_subir_video_pieza_y_luego_listarlo(cliente) -> None:
 
     listado = cliente.get("/facilitador/videos", headers=headers)
     assert listado.status_code == 200
-    assert listado.json() == {"rey": cuerpo["url"]}
+    assert list(listado.json().keys()) == ["rey"]
+    assert listado.json()["rey"].startswith(cuerpo["url"] + "?v=")  # con versión: un video reemplazado no queda en caché
 
 
 def test_subir_video_con_tipo_pieza_invalido_da_400(cliente) -> None:

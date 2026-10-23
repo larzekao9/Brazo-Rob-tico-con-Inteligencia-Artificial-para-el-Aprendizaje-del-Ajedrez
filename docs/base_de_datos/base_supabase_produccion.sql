@@ -93,6 +93,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS ix_codigo_invitacion_codigo_hash ON codigo_inv
 CREATE INDEX IF NOT EXISTS ix_codigo_invitacion_creado_por ON codigo_invitacion (creado_por);
 CREATE INDEX IF NOT EXISTS ix_codigo_invitacion_usado_por ON codigo_invitacion (usado_por);
 
+-- curso: Grupo de estudiantes de un facilitador. Los jugadores entran con un código del curso, que sirve para muchos y el facilitador puede volver a ver y regenerar.
+CREATE TABLE IF NOT EXISTS curso (
+	id SERIAL NOT NULL, 
+	nombre VARCHAR NOT NULL, 
+	facilitador_id INTEGER NOT NULL, 
+	codigo VARCHAR NOT NULL, 
+	acepta_ingresos BOOLEAN DEFAULT 'true' NOT NULL, 
+	creado_en TIMESTAMP WITHOUT TIME ZONE DEFAULT now() NOT NULL, 
+	PRIMARY KEY (id), 
+	FOREIGN KEY(facilitador_id) REFERENCES usuario (id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_curso_codigo ON curso (codigo);
+CREATE INDEX IF NOT EXISTS ix_curso_facilitador_id ON curso (facilitador_id);
+
 -- exportacion_dataset: Una fila por cada vez que un facilitador descargó el dataset de partidas para reentrenar el modelo propio (HU4, todavía pendiente de construir).
 CREATE TABLE IF NOT EXISTS exportacion_dataset (
 	id SERIAL NOT NULL, 
@@ -154,6 +168,19 @@ CREATE TABLE IF NOT EXISTS partida (
 	FOREIGN KEY(usuario_blancas_id) REFERENCES usuario (id), 
 	FOREIGN KEY(usuario_negras_id) REFERENCES usuario (id)
 );
+
+-- inscripcion: Un jugador dentro de un curso. Un jugador está en un solo curso a la vez.
+CREATE TABLE IF NOT EXISTS inscripcion (
+	id SERIAL NOT NULL, 
+	curso_id INTEGER NOT NULL, 
+	usuario_id INTEGER NOT NULL, 
+	unido_en TIMESTAMP WITHOUT TIME ZONE DEFAULT now() NOT NULL, 
+	PRIMARY KEY (id), 
+	FOREIGN KEY(curso_id) REFERENCES curso (id), 
+	UNIQUE (usuario_id), 
+	FOREIGN KEY(usuario_id) REFERENCES usuario (id)
+);
+CREATE INDEX IF NOT EXISTS ix_inscripcion_curso_id ON inscripcion (curso_id);
 
 -- jugada: Detalle de cada jugada de una partida: quién la decidió y cómo la evaluó Stockfish.
 CREATE TABLE IF NOT EXISTS jugada (
@@ -220,6 +247,13 @@ COMMENT ON COLUMN codigo_invitacion.creado_en IS 'Fecha y hora en que se generó
 COMMENT ON COLUMN codigo_invitacion.expira_en IS 'Fecha y hora a partir de la cual el código ya no sirve.';
 COMMENT ON COLUMN codigo_invitacion.usado_en IS 'Fecha y hora en que se usó. Nulo mientras no se haya usado: sirve una sola vez.';
 COMMENT ON COLUMN codigo_invitacion.usado_por IS 'Usuario que se registró con este código.';
+COMMENT ON TABLE curso IS 'Grupo de estudiantes de un facilitador. Los jugadores entran con un código del curso, que sirve para muchos y el facilitador puede volver a ver y regenerar.';
+COMMENT ON COLUMN curso.id IS 'Identificador del curso.';
+COMMENT ON COLUMN curso.nombre IS 'Nombre del curso, que elige el facilitador (por ejemplo, Ajedrez 1ro A).';
+COMMENT ON COLUMN curso.facilitador_id IS 'Facilitador dueño del curso. FK → usuario.id.';
+COMMENT ON COLUMN curso.codigo IS 'Código de 6 caracteres (alfabeto sin ambiguos) que el facilitador le da a la clase. Es único, sirve para muchos jugadores y se guarda en claro porque solo permite entrar al curso como jugador.';
+COMMENT ON COLUMN curso.acepta_ingresos IS 'Si es falso, el código no deja entrar a nadie más; los ya inscritos siguen.';
+COMMENT ON COLUMN curso.creado_en IS 'Fecha y hora de creación.';
 COMMENT ON TABLE exportacion_dataset IS 'Una fila por cada vez que un facilitador descargó el dataset de partidas para reentrenar el modelo propio (HU4, todavía pendiente de construir).';
 COMMENT ON COLUMN exportacion_dataset.id IS 'Identificador de la descarga.';
 COMMENT ON COLUMN exportacion_dataset.usuario_id IS 'Facilitador que descargó el dataset.';
@@ -261,6 +295,11 @@ COMMENT ON COLUMN partida.tiempos_jugadas_ms IS 'Milisegundos que tardó cada ju
 COMMENT ON COLUMN partida.codigo_sala IS 'Código corto de 6 caracteres para compartir la sala (alfabeto sin ambiguos). Único donde no es nulo (índice único parcial). Solo partidas tipo_oponente = ''humano''.';
 COMMENT ON COLUMN partida.usuario_blancas_id IS 'Usuario que juega con blancas en la sala. Nulo si el asiento está libre. FK → usuario.id.';
 COMMENT ON COLUMN partida.usuario_negras_id IS 'Usuario que juega con negras en la sala. Nulo si el asiento está libre. FK → usuario.id.';
+COMMENT ON TABLE inscripcion IS 'Un jugador dentro de un curso. Un jugador está en un solo curso a la vez.';
+COMMENT ON COLUMN inscripcion.id IS 'Identificador de la inscripción.';
+COMMENT ON COLUMN inscripcion.curso_id IS 'Curso en el que está el jugador. FK → curso.id.';
+COMMENT ON COLUMN inscripcion.usuario_id IS 'Jugador inscrito. Único: está en un solo curso a la vez. FK → usuario.id.';
+COMMENT ON COLUMN inscripcion.unido_en IS 'Fecha y hora en que entró al curso.';
 COMMENT ON TABLE jugada IS 'Detalle de cada jugada de una partida: quién la decidió y cómo la evaluó Stockfish.';
 COMMENT ON COLUMN jugada.id IS 'Identificador de la jugada.';
 COMMENT ON COLUMN jugada.partida_id IS 'Partida a la que pertenece.';
@@ -281,7 +320,7 @@ DECLARE
     tabla text;
     rol text;
 BEGIN
-    FOREACH tabla IN ARRAY ARRAY['participante', 'sesion', 'usuario', 'calibracion', 'codigo_invitacion', 'exportacion_dataset', 'mensaje_tutor', 'partida', 'jugada'] LOOP
+    FOREACH tabla IN ARRAY ARRAY['participante', 'sesion', 'usuario', 'calibracion', 'codigo_invitacion', 'curso', 'exportacion_dataset', 'mensaje_tutor', 'partida', 'inscripcion', 'jugada'] LOOP
         EXECUTE format('ALTER TABLE %I.%I ENABLE ROW LEVEL SECURITY', current_schema(), tabla);
     END LOOP;
     FOREACH rol IN ARRAY ARRAY['anon', 'authenticated'] LOOP
@@ -296,5 +335,5 @@ COMMIT;
 
 -- Verificación: las 7 tablas deben aparecer con rowsecurity = true.
 SELECT tablename, rowsecurity FROM pg_tables
-WHERE schemaname = current_schema() AND tablename IN ('participante', 'sesion', 'usuario', 'calibracion', 'codigo_invitacion', 'exportacion_dataset', 'mensaje_tutor', 'partida', 'jugada')
+WHERE schemaname = current_schema() AND tablename IN ('participante', 'sesion', 'usuario', 'calibracion', 'codigo_invitacion', 'curso', 'exportacion_dataset', 'mensaje_tutor', 'partida', 'inscripcion', 'jugada')
 ORDER BY tablename;
