@@ -45,14 +45,40 @@ def _lab(enderezada: np.ndarray) -> np.ndarray:
     return cv2.GaussianBlur(cv2.cvtColor(enderezada, cv2.COLOR_BGR2LAB), (5, 5), 0).astype(np.float32)
 
 
+VARIACION_MINIMA = 8.0
+"""Desviación mínima del gris de una referencia válida. Un tablero real, aun vacío, tiene el damero (desviación de decenas); una imagen casi lisa es
+la señal de que las esquinas de la calibración no coinciden con lo que ve la cámara (se la recalibró o movió) y el tablero enderezado salió de afuera de la foto."""
+
+
+def _es_uniforme(imagen: np.ndarray) -> bool:
+    return float(cv2.cvtColor(imagen, cv2.COLOR_BGR2GRAY).std()) < VARIACION_MINIMA
+
+
 def guardar_referencia(camara: str, fotos: list[tuple[np.ndarray, np.ndarray]]) -> None:
-    """Guarda la referencia del tablero vacío de `camara`: la mediana de `fotos` (`(imagen, esquinas en el orden de enderezar_tablero)`)."""
+    """Guarda la referencia del tablero vacío de `camara`: la mediana de `fotos` (`(imagen, esquinas en el orden de enderezar_tablero)`).
+
+    Raises:
+        ValueError: sin fotos, o si el tablero enderezado sale casi liso (las esquinas calibradas no coinciden con la foto): no se guarda una referencia inútil.
+    """
     if not fotos:
         raise ValueError("Hace falta al menos una foto del tablero vacío")
     enderezadas = np.stack([_enderezada(imagen, esquinas) for imagen, esquinas in fotos])
+    mediana = np.median(enderezadas, axis=0).astype(np.uint8)
+    if _es_uniforme(mediana):
+        raise ValueError(
+            f"La foto del tablero vacío de la cámara {camara} salió lisa: las esquinas calibradas no coinciden con lo que ve la cámara "
+            "(¿se movió o se recalibró después?). Recalibrá la cámara y volvé a sacar «Casilla vacía»."
+        )
     destino = ruta_referencia(camara)
     destino.parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(destino), np.median(enderezadas, axis=0).astype(np.uint8))
+    cv2.imwrite(str(destino), mediana)
+
+
+def borrar_referencia(camara: str = "principal") -> None:
+    """Quita la referencia del tablero vacío de `camara` (y la que tenga en memoria): hay que sacarla de nuevo."""
+    ruta = ruta_referencia(camara)
+    ruta.unlink(missing_ok=True)
+    _referencias.pop(ruta, None)
 
 
 _referencias: dict[Path, tuple[tuple[int, int], np.ndarray]] = {}
@@ -75,7 +101,7 @@ def cargar_referencia(camara: str = "principal") -> np.ndarray | None:
     guardada = _referencias.get(ruta)
     if guardada is None or guardada[0] != marca:
         imagen = cv2.imread(str(ruta))
-        if imagen is None:
+        if imagen is None or _es_uniforme(imagen):  # una referencia lisa (guardada con esquinas que no calzaban) no sirve: es como no tener
             return None
         _referencias[ruta] = guardada = (marca, imagen)
     return guardada[1]

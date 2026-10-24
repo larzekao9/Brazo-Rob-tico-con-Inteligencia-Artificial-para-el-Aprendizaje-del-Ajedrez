@@ -172,3 +172,28 @@ def test_sin_contraste_no_avisa() -> None:
     gris = np.full((ALTO, ANCHO, 3), 127, np.uint8)
     assert cal.a1_en_casilla_clara(gris, puntos) is None
     assert cal.evaluar_calidad(puntos, (ANCHO, ALTO), gris) == cal.evaluar_calidad(puntos, (ANCHO, ALTO))
+
+
+def test_recalibrar_borra_la_referencia_del_tablero_vacio_porque_ya_no_calza() -> None:
+    from backend.servicios.vision import referencia_vacia
+
+    ruta = referencia_vacia.ruta_referencia("principal")
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    ruta.write_bytes(b"x")
+    cal.guardar_calibracion(BUENAS, _escena(), "0", [])
+    assert not ruta.exists()
+
+
+def test_recalibrar_la_misma_posicion_conserva_la_referencia_y_moverla_la_borra() -> None:
+    from backend.servicios.vision import referencia_vacia
+
+    ruta = referencia_vacia.ruta_referencia("principal")
+    cal.guardar_calibracion(BUENAS, _escena(), "0", [])
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    ruta.write_bytes(b"x")
+    casi_igual = {k: (x + 3.0, y - 2.0) for k, (x, y) in BUENAS.items()}  # volver a marcar las esquinas de la misma posición
+    cal.guardar_calibracion(casi_igual, _escena(), "0", [])
+    assert ruta.exists()
+    movida = {k: (x + 40.0, y) for k, (x, y) in BUENAS.items()}  # la cámara se movió
+    cal.guardar_calibracion(movida, _escena(), "0", [])
+    assert not ruta.exists()

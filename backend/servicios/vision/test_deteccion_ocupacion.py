@@ -91,6 +91,9 @@ def test_analizar_camaras_fusiona_las_probabilidades(monkeypatch) -> None:
     esquinas = np.array([[150, 80], [750, 40], [780, 620], [120, 660]], dtype=np.float32)
     monkeypatch.setattr(verificacion, "probabilidades_de_camara", lambda img, cam, ocupadas=None: (por_camara[cam], nombres, esquinas, 0.0))
     monkeypatch.setattr(verificacion.piezas, "clases_del_modelo", lambda: clases)
+    from backend.servicios.vision import referencia_vacia
+
+    monkeypatch.setattr(referencia_vacia, "ocupadas", lambda fotos: None)  # sin depender de la foto real del tablero vacío guardada en calibracion_local
     nombres_clases = clases
     monkeypatch.setattr(verificacion.piezas, "mejores_clases", lambda probs, n=3, clases=None: [
         [(nombres_clases[i], float(f[i])) for i in np.argsort(f)[::-1][:n]] for f in probs])

@@ -184,3 +184,29 @@ def test_conversion_entre_ancho_en_mm_y_posicion() -> None:
         posicion_para_ancho_mm(30.0)
     with pytest.raises(ValueError):
         posicion_para_ancho_mm(-1.0)
+
+
+def test_si_el_canal_modbus_se_perdio_lo_renueva_y_reintenta() -> None:
+    """Un `ErrorID -1` suelto (canal Modbus viejo) no tira la operación: se vuelve a crear el canal y se reintenta una vez."""
+    cliente = ClienteConPinzaFalsa()
+    pinza = PinzaDH(cliente)
+    pinza.conectar()
+    original = cliente.enviar
+    fallos = [1]
+
+    def enviar(comando: str):
+        if comando.startswith("GetHoldRegs") and fallos[0]:
+            fallos[0] -= 1
+            cliente.comandos.append(comando)
+            raise ErrorDobot(f"{comando} -> ErrorID -1")
+        return original(comando)
+
+    cliente.enviar = enviar
+    assert pinza.estado().inicializada is False
+    assert sum(c.startswith("ModbusCreate") for c in cliente.comandos) == 2  # el de la conexión y el de la renovación
+
+
+def test_sin_respuesta_tras_el_reintento_explica_las_causas() -> None:
+    pinza, _ = _pinza(responde=False)
+    with pytest.raises(PinzaNoResponde, match="24 V"):
+        pinza.estado()

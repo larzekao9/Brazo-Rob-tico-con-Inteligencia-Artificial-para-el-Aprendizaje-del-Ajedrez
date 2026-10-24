@@ -57,11 +57,32 @@ def recortes_de_cuadro(cuadro: np.ndarray, datos: dict, recorte: str) -> dict[st
     return recortes_ampliados(cuadro, esquinas)
 
 
-def _cargar_desde_cuadros(recorte: str = "ampliado") -> list[tuple[np.ndarray, str, str]]:
+def cenital(esquinas) -> float:
+    """Cuánto se ve de frente el tablero con estas 4 esquinas: 1 = cenital (lados opuestos iguales), menos = más inclinada la cámara."""
+    e = np.asarray(esquinas, dtype=float)
+    lados = [float(np.linalg.norm(e[i] - e[(i + 1) % 4])) for i in range(4)]
+    return min(min(lados[0], lados[2]) / max(lados[0], lados[2]), min(lados[1], lados[3]) / max(lados[1], lados[3]))
+
+
+def misma_posicion(esquinas_captura, esquinas_actuales, tolerancia_px: float = 40.0) -> bool:
+    """Si una captura se tomó con la cámara en la misma posición que la calibración actual: ninguna esquina se corrió más de `tolerancia_px` píxeles.
+
+    Ambas en el orden de `enderezar_tablero`. Sirve más que la fecha de la calibración: volver a marcar las esquinas de la MISMA posición cambia la fecha pero
+    no la posición, y las fotos de antes siguen valiendo; moverla o girarla sí las invalida.
+    """
+    return float(np.abs(np.asarray(esquinas_captura, dtype=float) - np.asarray(esquinas_actuales, dtype=float)).max()) <= tolerancia_px
+
+
+def _cargar_desde_cuadros(
+    recorte: str = "ampliado", camaras: set[str] | None = None, desde_ms: int | None = None, min_cenital: float | None = None,
+    cerca_de=None,
+) -> list[tuple[np.ndarray, str, str]]:
     """`(recorte, clase, captura)` de cada casilla guardada que tiene su cuadro completo y su PNG vigente.
 
     `recorte` es `"ampliado"` (casilla + margen fijo) o `"volumen"` (la caja 3D de la pieza con el lente de la cámara de cada captura).
-    Un PNG borrado (por «Deshacer», «Borrar clase» o a mano) deja afuera esa casilla aunque el manifiesto la siga listando.
+    Un PNG borrado (por «Deshacer», «Borrar clase» o a mano) deja afuera esa casilla aunque el manifiesto la siga listando. `camaras` deja solo las
+    capturas de esas cámaras, `desde_ms` solo las tomadas desde esa marca de tiempo (milisegundos) y `min_cenital` solo las cuyo tablero se ve de frente (ver
+    `cenital`) y `cerca_de` (esquinas actuales) solo las tomadas con la cámara en esa posición (ver `misma_posicion`): sirven para entrenar con fotos de una sola cámara, desde su posición actual o solo de las tomadas desde arriba.
     """
     import json
 
@@ -69,10 +90,19 @@ def _cargar_desde_cuadros(recorte: str = "ampliado") -> list[tuple[np.ndarray, s
 
     muestras = []
     for manifiesto in sorted(carpeta_cuadros().glob("*.json")):
+        marca = manifiesto.stem.split("_")[0]
+        if desde_ms is not None and marca.isdigit() and int(marca) < desde_ms:
+            continue
+        datos = json.loads(manifiesto.read_text(encoding="utf-8"))
+        if camaras is not None and datos.get("camara", "principal") not in camaras:
+            continue
+        if min_cenital is not None and cenital(datos["esquinas"]) < min_cenital:
+            continue
+        if cerca_de is not None and not misma_posicion(datos["esquinas"], cerca_de):
+            continue
         cuadro = cv2.imread(str(manifiesto.with_suffix(".jpg")))
         if cuadro is None:
             continue
-        datos = json.loads(manifiesto.read_text(encoding="utf-8"))
         try:
             recortes = recortes_de_cuadro(cuadro, datos, recorte)
         except ValueError:

@@ -38,11 +38,11 @@ def _carpeta() -> Path:
 
 
 def camaras_para_capturar() -> list[str]:
-    """Las cámaras de las que se captura a la vez: la principal y, si está configurada y calibrada, la secundaria."""
+    """Las cámaras de las que se captura a la vez: la principal y, si está en uso y calibrada, la secundaria."""
     from backend.servicios.vision import tablero
-    from backend.servicios.vision.camara import camaras_configuradas
+    from backend.servicios.vision.camara import camaras_en_uso
 
-    return [c for c in camaras_configuradas() if c == "principal" or tablero.archivo_esquinas(c).exists()]
+    return [c for c in camaras_en_uso() if c == "principal" or tablero.archivo_esquinas(c).exists()]
 
 
 def capturar_foto_etiquetada(fen_piezas: str, solo_piezas: bool = False, camaras: list[str] | None = None) -> dict:
@@ -89,7 +89,9 @@ def capturar_foto_etiquetada(fen_piezas: str, solo_piezas: bool = False, camaras
         usadas.append(camara)
         guardadas += cantidad
         if not solo_piezas and fen_sin_piezas(fen_piezas):
-            _actualizar_referencia_vacia(camara, imagen)
+            aviso = _actualizar_referencia_vacia(camara, imagen)
+            if aviso:
+                avisos.append(aviso)
     return {"captura_id": capturas[0], "capturas": capturas, "guardadas": guardadas, "total": resumen()["total"], "camaras": usadas, "avisos": avisos}
 
 
@@ -98,14 +100,19 @@ def fen_sin_piezas(fen_piezas: str) -> bool:
     return all(caracter in "8/" for caracter in fen_piezas.strip())
 
 
-def _actualizar_referencia_vacia(camara: str, imagen) -> None:
+def _actualizar_referencia_vacia(camara: str, imagen) -> str | None:
     """Con una foto del tablero vacío, renueva la referencia de `camara` con la que se detecta en qué casilla está una pieza
-    (`referencia_vacia`). Sin esquinas calibradas no hace nada."""
+    (`referencia_vacia`). Sin esquinas calibradas no hace nada. Devuelve un aviso si la referencia no sirvió (foto lisa), sin tirar abajo la captura."""
     from backend.servicios.vision import referencia_vacia, tablero
 
     esquinas = tablero.cargar_esquinas_calibradas(tablero.archivo_esquinas(camara))
-    if esquinas is not None:
+    if esquinas is None:
+        return None
+    try:
         referencia_vacia.guardar_referencia(camara, [(imagen, esquinas)])
+    except ValueError as error:
+        return str(error)
+    return None
 
 
 def guardar_foto_tablero_subida(fen_piezas: str, imagen, solo_piezas: bool = False) -> dict[str, int | str]:
@@ -373,8 +380,10 @@ def regenerar_ampliados() -> dict[str, int]:
     return {"escritos": escritos, "volumen": len(esperados_volumen), "borrados": borrados, "sin_cuadro": sin_cuadro}
 
 
-def _recortes_del_dataset():
+def _recortes_del_dataset(filtro=None):
     """`(clase/archivo.png, recorte ampliado, recorte de volumen o None, manifiesto)` de cada casilla guardada que tiene su cuadro completo.
+
+    `filtro(manifiesto, id_de_captura) -> bool` deja afuera capturas enteras ANTES de recortarlas (barato): sirve para exportar solo una parte.
 
     Los recortes se vuelven a calcular desde la foto completa con la geometría de HOY (esquinas de la captura, lente actual de la cámara): son
     los mismos que va a ver el backend al reconocer, que es lo que importa para entrenar.
@@ -391,10 +400,12 @@ def _recortes_del_dataset():
     if not carpeta_cuadros.is_dir():
         return
     for manifiesto in sorted(carpeta_cuadros.glob("*.json")):
+        datos = json.loads(manifiesto.read_text(encoding="utf-8"))
+        if filtro is not None and not filtro(datos, manifiesto.stem):
+            continue
         cuadro = cv2.imread(str(manifiesto.with_suffix(".jpg")))
         if cuadro is None:
             continue
-        datos = json.loads(manifiesto.read_text(encoding="utf-8"))
         esquinas = np.array(datos["esquinas"], dtype=np.float32)
         ampliados = recortes_ampliados(cuadro, esquinas)
         try:
@@ -455,6 +466,69 @@ def exportar_zip() -> Path:
         zip_salida.writestr("metadatos.csv", texto.getvalue())
         zip_salida.writestr("clases.json", json.dumps({"clases": sorted(por_clase), "muestras_por_clase": por_clase}, indent=2))
     return Path(ruta_temporal)
+
+
+def exportar_zip_para_colab(destino: Path, cerca_de=None, incluir_secundaria: bool = True, min_cenital: float = 0.9) -> dict:
+    """ZIP para entrenar en Colab (`training/colab_vision_piezas_2d_3d.ipynb`) con las fotos de la cámara principal de hoy y, opcionalmente, las de la secundaria.
+
+    Lleva solo los recortes `ampliado` (2D) y `volumen` (3D), más `metadatos.csv` (con `camara` y `grupo`) y `clases.json`: sin los recortes justos, que Colab
+    no usa y pesan. De la principal entran las capturas tomadas con la cámara en la posición de `cerca_de` (las esquinas de su calibración vigente; ver
+    `training.entrenar_piezas_propio.misma_posicion`) y las casillas
+    corregidas en el probador; de la secundaria, con `incluir_secundaria`, solo las que se ven desde arriba (`min_cenital`, ver `training.entrenar_piezas_propio.cenital`).
+
+    Returns:
+        `{ruta, total, por_camara, por_clase}` con lo que quedó en el ZIP (cantidad de recortes `ampliado` por cámara y por clase).
+    """
+    import csv
+    import io
+    import json
+
+    from training.entrenar_piezas_propio import cenital, misma_posicion
+
+    def elegir(datos: dict, id_captura: str) -> bool:
+        camara = datos.get("camara", "principal")
+        if camara == "principal":
+            return cerca_de is None or misma_posicion(datos["esquinas"], cerca_de)
+        return incluir_secundaria and cenital(datos["esquinas"]) >= min_cenital
+
+    filas: list[dict] = []
+    por_camara: dict[str, int] = {}
+    por_clase: dict[str, int] = {}
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(destino, "w", zipfile.ZIP_STORED) as zip_salida:
+        def agregar(nombre: str, ampliado, volumen, datos: dict) -> None:
+            for recorte, imagen in (("ampliado", ampliado), ("volumen", volumen)):
+                exito, buffer = cv2.imencode(".png", imagen) if imagen is not None else (False, None)
+                if exito:
+                    zip_salida.writestr(f"{recorte}/{nombre}", buffer.tobytes())
+                    filas.append(_fila_metadatos(f"{recorte}/{nombre}", recorte, nombre, datos))
+            if ampliado is not None:
+                camara = datos.get("camara", "principal")
+                por_camara[camara] = por_camara.get(camara, 0) + 1
+                clase = nombre.split("/")[0]
+                por_clase[clase] = por_clase.get(clase, 0) + 1
+
+        for nombre, ampliado, volumen, datos in _recortes_del_dataset(elegir):
+            agregar(nombre, ampliado, volumen, datos)
+        # Casillas corregidas en el probador: no tienen cuadro completo, pero sus recortes ya están guardados (`corr<ms>_<camara>_<casilla>.png`).
+        from training.capturar_dataset_propio import carpeta_ampliados, carpeta_volumen
+
+        for archivo in sorted(carpeta_ampliados().glob(f"*/{PREFIJO_CORRECCION}*.png")):
+            partes = archivo.stem.split("_")  # corr<ms>, <camara>, <casilla>
+            camara = partes[1] if len(partes) == 3 else "principal"
+            if camara == "secundaria" and not incluir_secundaria:
+                continue
+            ampliado = cv2.imread(str(archivo))
+            volumen_ruta = carpeta_volumen() / archivo.parent.name / archivo.name
+            volumen = cv2.imread(str(volumen_ruta)) if volumen_ruta.exists() else None
+            agregar(f"{archivo.parent.name}/{archivo.name}", ampliado, volumen, {"camara": camara, "id": archivo.stem, "grupo": partes[0]})
+        texto = io.StringIO()
+        escritor = csv.DictWriter(texto, fieldnames=COLUMNAS_METADATOS)
+        escritor.writeheader()
+        escritor.writerows(filas)
+        zip_salida.writestr("metadatos.csv", texto.getvalue())
+        zip_salida.writestr("clases.json", json.dumps({"clases": sorted(por_clase), "muestras_por_clase": por_clase, "por_camara": por_camara}, indent=2))
+    return {"ruta": str(destino), "total": sum(por_camara.values()), "por_camara": por_camara, "por_clase": dict(sorted(por_clase.items()))}
 
 
 def _fila_metadatos(archivo: str, recorte: str, nombre: str, datos: dict | None) -> dict:
@@ -528,13 +602,19 @@ def estado_reentrenamiento() -> dict[str, str]:
     return {"estado": _reentrenamiento.estado, "log": "\n".join(_reentrenamiento.lineas)}
 
 
-def iniciar_entrenamiento_candidato() -> None:
+def iniciar_entrenamiento_candidato(recorte: str = "ampliado", solo_posicion_actual: bool = True, incluir_secundaria: bool = False) -> None:
     """Lanza `training.entrenar_candidato` en segundo plano (GPU del Mac si hay): entrena un candidato y solo reemplaza al modelo actual si lo supera.
+
+    `recorte`: `ampliado` (2D, la casilla con margen) o `volumen` (3D, la caja de la pieza). Solo se usan fotos de la cámara principal; con `solo_posicion_actual`,
+    únicamente las tomadas desde su última calibración (su posición actual). Con `incluir_secundaria` suma, solo para entrenar, las fotos de la secundaria tomadas
+    desde arriba, degradadas a la nitidez de la webcam.
 
     Raises:
         RuntimeError: si ya hay uno corriendo.
-        ValueError: si hay menos de `MINIMO_PARA_REENTRENAR` muestras.
+        ValueError: si `recorte` no es válido o hay menos de `MINIMO_PARA_REENTRENAR` muestras.
     """
+    if recorte not in ("ampliado", "volumen"):
+        raise ValueError("recorte debe ser ampliado (2D) o volumen (3D)")
     with _candidato.cerrojo:
         if _candidato.estado == "en_curso":
             raise RuntimeError("Ya hay un entrenamiento en curso")
@@ -543,7 +623,7 @@ def iniciar_entrenamiento_candidato() -> None:
             raise ValueError(f"Hacen falta al menos {MINIMO_PARA_REENTRENAR} muestras, hay {total}")
         entorno = {**os.environ, "KMP_DUPLICATE_LIB_OK": "TRUE", "PYTHONUNBUFFERED": "1", "PYTORCH_ENABLE_MPS_FALLBACK": "1"}
         proceso = subprocess.Popen(
-            [sys.executable, "-m", "training.entrenar_candidato"],
+            [sys.executable, "-m", "training.entrenar_candidato", "--recorte", recorte, *([] if solo_posicion_actual else ["--todas-las-fotos"]), *(["--incluir-secundaria"] if incluir_secundaria else [])],
             cwd=RAIZ_REPOSITORIO,
             env=entorno,
             stdout=subprocess.PIPE,

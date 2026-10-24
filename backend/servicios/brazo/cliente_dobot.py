@@ -55,6 +55,12 @@ def _lista(valores: str) -> tuple[float, ...]:
     return tuple(float(v) for v in valores.split(",") if v.strip())
 
 
+RESPUESTA_SIN_MODO_TCP = b"Control Mode Is Not Tcp"
+MENSAJE_SIN_MODO_TCP = (
+    "El robot responde pero no está en modo de control TCP/IP: activalo en DobotStudio Pro (control remoto TCP/IP) y volvé a conectar"
+)
+
+
 class ClienteDobot:
     """Conexión por socket al dashboard del Dobot (puerto 29999) con los comandos que usa el proyecto."""
 
@@ -125,6 +131,8 @@ class ClienteDobot:
                 if not trozo:
                     raise ErrorDobot("El controlador cerró la conexión")
                 recibido += trozo
+                if RESPUESTA_SIN_MODO_TCP in recibido:  # esa respuesta no termina en `;`: sin esto se esperaría hasta el timeout
+                    raise ErrorDobot(MENSAJE_SIN_MODO_TCP)
             respuesta = interpretar_respuesta(recibido.decode("ascii", errors="replace"))
             if respuesta.error_id != 0:
                 raise ErrorDobot(f"{comando} -> ErrorID {respuesta.error_id}")

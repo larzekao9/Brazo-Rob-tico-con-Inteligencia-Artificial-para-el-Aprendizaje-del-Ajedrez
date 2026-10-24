@@ -28,6 +28,8 @@ MARGEN_BORDE_RELATIVO = 0.01
 
 MINIMO_COINCIDENCIAS = 12
 """Coincidencias de ORB que sobreviven a RANSAC para poder fiarse de la comparación."""
+UMBRAL_REFERENCIA_VACIA_PX = 8.0
+"""Cuánto pueden correrse las esquinas al volver a calibrar para que la foto del tablero vacío siga valiendo (por encima, hay que sacarla de nuevo)."""
 UMBRAL_DESPLAZAMIENTO_PX = 6.0
 """Desplazamiento máximo (en píxeles) de una esquina del tablero a partir del cual se considera que la cámara se movió."""
 
@@ -142,6 +144,7 @@ def guardar_calibracion(
     puntos: dict[str, tuple[float, float]], imagen: np.ndarray, fuente: str, advertencias: list[str], camara: str = "principal", rotacion: int = 0
 ) -> None:
     """Guarda las esquinas de `camara` (las que usa el reconocimiento), la metadata de la sesión y la foto de referencia."""
+    anteriores = tablero.cargar_esquinas_calibradas(tablero.archivo_esquinas(camara))
     tablero.guardar_esquinas_calibradas(puntos, tablero.archivo_esquinas(camara))
     alto, ancho = imagen.shape[:2]
     metadata = {
@@ -157,6 +160,13 @@ def guardar_calibracion(
     if not exito:
         raise ValueError("No se pudo codificar la foto de referencia")
     ruta_referencia(camara).write_bytes(buffer.tobytes())
+    # La foto del tablero vacío se guardó ya enderezada con las esquinas de ANTES: si se corrieron de verdad (cámara movida o esquinas muy distintas) no
+    # sirve y hay que sacarla de nuevo; si solo se afinaron unos píxeles (volver a marcar la misma posición), sigue valiendo.
+    from backend.servicios.vision import referencia_vacia
+
+    nuevas = np.array([puntos[nombre] for nombre in tablero.ORDEN_DE_ENDEREZADO], dtype=float)
+    if anteriores is None or float(np.abs(np.asarray(anteriores, dtype=float) - nuevas).max()) > UMBRAL_REFERENCIA_VACIA_PX:
+        referencia_vacia.borrar_referencia(camara)
 
 
 def _leer_metadata(esquinas: dict[str, list[float]], camara: str = "principal") -> dict | None:

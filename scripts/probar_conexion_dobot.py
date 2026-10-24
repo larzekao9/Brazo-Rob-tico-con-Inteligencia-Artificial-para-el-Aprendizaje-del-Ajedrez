@@ -11,8 +11,8 @@ Antes de correrlo:
   2. En DobotStudio Pro, el robot en modo de control TCP/IP (si no, responde "Control Mode Is Not Tcp").
 
 Uso:
-    python scripts/probar_conexion_dobot.py --host 192.168.77.180
-    python scripts/probar_conexion_dobot.py --host 192.168.77.180 --puerto 29999 --timeout 3
+    python scripts/probar_conexion_dobot.py --host 192.168.5.1
+    python scripts/probar_conexion_dobot.py --host 192.168.5.1 --puerto 29999 --timeout 3
 """
 from __future__ import annotations
 
@@ -69,7 +69,7 @@ def consultar(host: str, puerto: int = 29999, timeout: float = 3.0, comandos: tu
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--host", default="192.168.77.180", help="IP del controlador (por defecto 192.168.77.180)")
+    parser.add_argument("--host", default="192.168.5.1", help="IP del controlador (por defecto 192.168.5.1, la de fábrica)")
     parser.add_argument("--puerto", type=int, default=29999)
     parser.add_argument("--timeout", type=float, default=3.0)
     args = parser.parse_args()

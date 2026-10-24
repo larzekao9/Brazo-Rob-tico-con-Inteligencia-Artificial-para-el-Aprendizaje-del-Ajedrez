@@ -92,6 +92,15 @@ def test_parar_cancela_la_secuencia(cliente) -> None:
     assert tarea["estado"] in ("cancelada", "terminada")
 
 
+def test_inicializar_la_pinza_despues_de_parar_levanta_el_bloqueo(cliente) -> None:
+    """Tras «Parar» el cliente rechaza escribir a la pinza («Cancelado por el usuario»); inicializarla es una acción explícita y lo levanta."""
+    _conectar(cliente)
+    cliente.post("/brazo/control/habilitar")
+    assert cliente.post("/brazo/control/parar").status_code == 200
+    r = cliente.post("/brazo/control/pinza/inicializar")
+    assert r.status_code == 200, r.text
+
+
 def _esperar_tarea(c, limite=20):
     inicio = time.monotonic()
     while time.monotonic() - inicio < limite:

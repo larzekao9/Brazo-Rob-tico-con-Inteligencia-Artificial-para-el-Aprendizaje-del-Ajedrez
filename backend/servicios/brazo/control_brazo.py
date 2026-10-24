@@ -88,7 +88,7 @@ def conectar(host: str = "192.168.5.1", puerto: int = 29999, emulador: bool = Fa
     with _estado.cerrojo:
         if _estado.ejecutor is not None:
             raise ErrorControl(409, "Ya hay una conexión abierta: desconectá primero")
-        simulado = None
+        simulado = ejecutor = None
         try:
             if emulador:
                 simulado, calibracion, agarre, puerto = _crear_emulador()
@@ -107,6 +107,8 @@ def conectar(host: str = "192.168.5.1", puerto: int = 29999, emulador: bool = Fa
             ejecutor.cliente.timeout_segundos = 5.0
             ejecutor.conectar(inicializar_pinza=False)  # inicializar la pinza mueve los dedos: se hace a pedido
         except (OSError, ErrorDobot, RuntimeError, ValueError) as error:
+            if ejecutor is not None:  # el socket ya abierto no se deja colgado: el controlador admite pocas conexiones a la vez
+                ejecutor.cliente.cerrar()
             if simulado:
                 simulado[1].detener()
                 simulado[0].cerrar()
@@ -278,6 +280,7 @@ def inicializar_pinza() -> dict:
     """Conecta la pinza por Modbus y la inicializa (los dedos se abren y cierran unos segundos: libres)."""
     ejecutor = _ejecutor()
     try:
+        ejecutor.cliente.reanudar()  # es una acción explícita del usuario: levanta el bloqueo que dejó «Parar» (como `mover_pinza`)
         if ejecutor.pinza._maestro is None:
             ejecutor.pinza.conectar()
         ejecutor.pinza.inicializar()
@@ -384,7 +387,7 @@ def ejecutar_rutina(nombre: str, factor: float = 1.0, confirmar: bool = False) -
     emulador = _estado.emulador is not None
     if not emulador:
         if not _de_rutinas(rutinas.obtener, nombre)["validada"]:
-            raise ErrorControl(409, "Esta rutina todavía no corrió completa en el emulador con estos pasos: probala ahí primero")
+            raise ErrorControl(409, "Esta rutina todavía no corrió completa en el emulador con estos pasos. Desconectá el brazo real, tocá «Probar con el emulador», habilitalo y ejecutala ahí hasta que termine (queda ✓ validada); después volvé a conectar el brazo real. Si cambiás un paso, hay que repetirlo.")
         if not confirmar:
             raise ErrorControl(409, "Confirmá que querés ejecutarla en el brazo real")
     tope = 100 if emulador else VELOCIDAD_MAXIMA_REAL

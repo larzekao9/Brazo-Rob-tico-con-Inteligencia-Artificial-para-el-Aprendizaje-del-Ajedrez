@@ -59,6 +59,10 @@ def validar_camara(camara: str) -> str:
     return camara
 
 
+CLAVE_AJUSTES = "ajustes"
+"""Entrada de `ARCHIVO_PREFERENCIA` con los ajustes que no son de una cámara en particular (hoy, si se usa la secundaria)."""
+
+
 def _leer_preferencia() -> dict:
     """Preferencias guardadas `{camara: {fuente, rotacion}}`; entiende también el formato viejo (una sola cámara, claves sueltas)."""
     global _preferencia
@@ -111,6 +115,29 @@ def _fuente_por_defecto(camara: str = "principal") -> int | str | None:
 def camaras_configuradas() -> list[str]:
     """Las cámaras con fuente elegida: siempre la principal, y la secundaria si se configuró."""
     return [c for c in CAMARAS if _fuente_por_defecto(c) is not None]
+
+
+def usar_secundaria() -> bool:
+    """Si la cámara secundaria participa (captura de fotos, reconocimiento y vistas en vivo). Apagado por defecto: se trabaja solo con la principal.
+
+    La elección se recuerda entre reinicios; `CAMARA_USAR_SECUNDARIA=1` en el entorno la enciende cuando no hay una elegida desde la app. La
+    configuración y la calibración de la secundaria no se tocan: apagarla solo la deja fuera hasta que se vuelva a encender.
+    """
+    guardada = _leer_preferencia().get(CLAVE_AJUSTES, {}).get("usar_secundaria")
+    if guardada is not None:
+        return bool(guardada)
+    return os.environ.get("CAMARA_USAR_SECUNDARIA", "").strip().lower() in ("1", "true", "si", "sí")
+
+
+def fijar_uso_secundaria(activa: bool) -> bool:
+    """Enciende o apaga la cámara secundaria (se recuerda entre reinicios) y devuelve el valor guardado."""
+    _guardar_preferencia(CLAVE_AJUSTES, usar_secundaria=bool(activa))
+    return bool(activa)
+
+
+def camaras_en_uso() -> list[str]:
+    """Las cámaras que participan ahora: la principal y, solo si está configurada y encendida con `fijar_uso_secundaria`, la secundaria."""
+    return [c for c in camaras_configuradas() if c == "principal" or usar_secundaria()]
 
 
 def rotacion_actual(camara: str = "principal") -> int:

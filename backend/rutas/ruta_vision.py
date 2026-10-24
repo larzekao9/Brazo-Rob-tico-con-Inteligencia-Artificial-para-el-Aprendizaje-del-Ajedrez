@@ -30,7 +30,7 @@ from backend.rutas.ruta_auth import get_current_facilitador, get_current_user
 from backend.servicios.vision import camara as servicio_camara
 from backend.servicios.vision.fusion import fusionar_probabilidades
 from backend.servicios.vision.camara import _fuente_por_defecto, capturar_foto_tablero, flujo_de_frames
-from backend.servicios.vision import dataset_propio, tablero, verificacion
+from backend.servicios.vision import dataset_propio, seguimiento_vivo, tablero, verificacion
 from backend.servicios.vision.modelo_piezas import CLASES
 from backend.servicios.vision.reconocimiento import generar_imagen_grilla_debug, reconocer_tablero
 
@@ -281,13 +281,14 @@ class CorregirCasillaRequest(BaseModel):
 
     casilla: str
     clase: str
+    camaras: list[str] | None = None
 
 
 @router.post("/dataset/casilla")
 def corregir_casilla_dataset(cuerpo: CorregirCasillaRequest, _facilitador_id: int = Depends(get_current_facilitador)) -> dict:
     """Guarda como muestra de `clase` la casilla `casilla` tal como la ven ahora las cámaras: para que el reentrenamiento aprenda del error."""
     try:
-        return dataset_propio.guardar_casilla_corregida(cuerpo.casilla, cuerpo.clase)
+        return dataset_propio.guardar_casilla_corregida(cuerpo.casilla, cuerpo.clase, cuerpo.camaras)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     except RuntimeError as error:
@@ -362,6 +363,91 @@ class ProblemasPosicionRequest(BaseModel):
     exigir_reyes: bool = False
 
 
+class IniciarSeguimientoRequest(BaseModel):
+    """`fen`: la posición de la que se parte (sin él, la inicial); `camara`: con cuál vigilar (la principal, por defecto)."""
+
+    fen: str | None = None
+    camara: str = "principal"
+
+
+class PosicionSeguimientoRequest(BaseModel):
+    fen: str
+
+
+@router.post("/seguimiento/iniciar")
+def iniciar_seguimiento(cuerpo: IniciarSeguimientoRequest, _usuario_id: int = Depends(get_current_user)) -> dict:
+    """Empieza a seguir la partida por diferencias entre imágenes, desde `fen`, con la cámara calibrada (ver `seguimiento_jugadas`). 422 si el FEN es inválido, 409 si no está calibrada."""
+    _validar_camara(cuerpo.camara)
+    try:
+        return seguimiento_vivo.iniciar(cuerpo.fen, cuerpo.camara)
+    except ValueError as error:
+        raise HTTPException(status_code=409 if "calibrad" in str(error) else 422, detail=str(error)) from error
+
+
+@router.post("/seguimiento/tick")
+def avanzar_seguimiento(vista: bool = False, _usuario_id: int = Depends(get_current_user)) -> dict:
+    """Procesa el último cuadro de la cámara (la pantalla lo pide cada segundo) y dice qué pasó: `esperando`, `moviendo`, `jugada`, `incompleta`, `invalida` o `dudosa`.
+    Con `vista=true` suma `vista`: fotos base y actual, mapa de cambios y jugadas candidatas. 409 si no hay seguimiento."""
+    try:
+        return seguimiento_vivo.avanzar(con_vista=vista)
+    except seguimiento_vivo.SinSeguimiento as error:
+        raise HTTPException(status_code=409, detail="No hay un seguimiento iniciado") from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@router.post("/seguimiento/posicion")
+def fijar_posicion_seguimiento(cuerpo: PosicionSeguimientoRequest, _usuario_id: int = Depends(get_current_user)) -> dict:
+    """Cambia la posición conocida (p. ej. tras jugar el robot): vuelve a tomar la foto base cuando el tablero esté quieto."""
+    try:
+        return seguimiento_vivo.fijar_posicion(cuerpo.fen)
+    except seguimiento_vivo.SinSeguimiento as error:
+        raise HTTPException(status_code=409, detail="No hay un seguimiento iniciado") from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=f"FEN inválido: {error}") from error
+
+
+@router.post("/seguimiento/foto-base")
+def retomar_foto_base_seguimiento(_usuario_id: int = Depends(get_current_user)) -> dict:
+    """Vuelve a tomar la foto base con la posición que ya se sabe (cuando las piezas están bien y la imagen no coincide con la foto). 409 si no hay seguimiento."""
+    try:
+        return seguimiento_vivo.rebasar()
+    except seguimiento_vivo.SinSeguimiento as error:
+        raise HTTPException(status_code=409, detail="No hay un seguimiento iniciado") from error
+
+
+@router.post("/seguimiento/deshacer")
+def deshacer_seguimiento(_usuario_id: int = Depends(get_current_user)) -> dict:
+    """Quita la última jugada detectada (si se detectó mal) y vuelve a tomar la foto base. 409 si no hay seguimiento, 422 si no hay jugada para deshacer."""
+    try:
+        return seguimiento_vivo.deshacer()
+    except seguimiento_vivo.SinSeguimiento as error:
+        raise HTTPException(status_code=409, detail="No hay un seguimiento iniciado") from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@router.get("/seguimiento/vista")
+def vista_seguimiento(_usuario_id: int = Depends(get_current_user)) -> dict:
+    """Cómo decidió el último cuadro: fotos base y actual, mapa de cambios por casilla y jugadas candidatas. 409 si no hay seguimiento."""
+    try:
+        return seguimiento_vivo.vista()
+    except seguimiento_vivo.SinSeguimiento as error:
+        raise HTTPException(status_code=409, detail="No hay un seguimiento iniciado") from error
+
+
+@router.get("/seguimiento")
+def estado_seguimiento(_usuario_id: int = Depends(get_current_user)) -> dict:
+    """El seguimiento en curso (`activo: false` si no hay)."""
+    return seguimiento_vivo.estado()
+
+
+@router.delete("/seguimiento")
+def detener_seguimiento(_usuario_id: int = Depends(get_current_user)) -> dict:
+    """Deja de seguir la partida."""
+    return seguimiento_vivo.detener()
+
+
 @router.post("/posicion/problemas")
 def problemas_posicion(cuerpo: ProblemasPosicionRequest, _usuario_id: int = Depends(get_current_user)) -> dict:
     """Por qué la posición reconocida no puede darse en una partida (peones en la fila 1 u 8, material de más, más de un rey, jaques
@@ -392,18 +478,25 @@ def _juntar_lado_a_lado(imagenes: list[np.ndarray]) -> np.ndarray:
     return np.hstack([cv2.resize(i, (round(i.shape[1] * alto / i.shape[0]), alto)) for i in imagenes])
 
 
-def _partes_del_flujo(modo: str, casillas: list[str], auto: str = "", camara: str = "principal", vista_piezas: str = "plana"):
+def _partes_del_flujo(modo: str, casillas: list[str], auto: str = "", camara: str = "principal", vista_piezas: str = "plana", max_fps: float = 0.0):
     """Genera las partes multipart del flujo en vivo: cada una lleva un JPEG y, en modo `piezas`/`vista` con detección, datos en `X-Casillas`.
 
-    `camara` es `principal`, `secundaria` o `todas` (la principal y, si está configurada y calibrada, la secundaria, una junto a otra).
+    `camara` es `principal`, `secundaria` o `todas` (la principal y, si está configurada y calibrada, la secundaria, una junto a otra). `max_fps` > 0 limita
+    cuántos cuadros por segundo se procesan y se envían (el resto se saltan sin analizarse): analizar cada cuadro de una webcam recarga mucho la máquina.
     """
     import json
+    import time
 
     from backend.servicios.vision import referencia_vacia
     from backend.servicios.vision.captura_estable import camaras_calibradas, detectar_casilla_de_pieza, ocupacion_de_imagen
 
     base = "principal" if camara == "todas" else camara
+    intervalo = 1.0 / max_fps if max_fps > 0 else 0.0
+    ultimo = float("-inf")
     for frame in flujo_de_frames(camara=base):
+        if intervalo and time.monotonic() - ultimo < intervalo:
+            continue
+        ultimo = time.monotonic()
         fotos = {base: frame}
         if camara == "todas":
             for otra in camaras_calibradas():
@@ -468,6 +561,7 @@ def flujo_en_vivo(
     auto: str = "",
     camara: str = "principal",
     vista: str = "plana",
+    max_fps: float = 0.0,
     _usuario_id: int = Depends(get_current_user),
 ) -> StreamingResponse:
     """Video en vivo de la cámara fija (multipart/x-mixed-replace de JPEG, a la velocidad de la cámara).
@@ -475,7 +569,7 @@ def flujo_en_vivo(
     `modo=camara`: imagen tal cual. `modo=piezas`: tablero enderezado con las piezas reconocidas (predicciones en el header
     `X-Casillas` de cada parte). `modo=vista`: lo que se guardaría en el dataset para `casillas` (ej. `e4,f4`); con `auto=blanca|negra`
     detecta sola la casilla de la pieza y la informa en `X-Casillas` como `[[casilla, estado, confianza]]` (`estado`: ok, ninguna o
-    ambigua). En `modo=piezas`, `vista`: `plana` (tablero enderezado), `cajas` (la imagen de la cámara con la caja 3D de cada pieza reconocida) o `ambas`. `camara`: `principal`, `secundaria` o `todas` (las dos lado a lado, con el reconocimiento FUSIONADO entre ambas).
+    ambigua). En `modo=piezas`, `vista`: `plana` (tablero enderezado), `cajas` (la imagen de la cámara con la caja 3D de cada pieza reconocida) o `ambas`. `camara`: `principal`, `secundaria` o `todas` (las dos lado a lado, con el reconocimiento FUSIONADO entre ambas). `max_fps` (> 0) limita los cuadros por segundo que se analizan y envían (p. ej. 1).
     """
     if modo not in {"camara", "piezas", "vista"}:
         raise HTTPException(status_code=422, detail="modo inválido")
@@ -485,8 +579,10 @@ def flujo_en_vivo(
         raise HTTPException(status_code=422, detail="auto debe ser blanca o negra")
     if vista not in {"plana", "cajas", "ambas"}:
         raise HTTPException(status_code=422, detail="vista debe ser plana, cajas o ambas")
+    if not 0 <= max_fps <= 60:
+        raise HTTPException(status_code=422, detail="max_fps debe estar entre 0 (sin límite) y 60")
     try:
-        generador = _partes_del_flujo(modo, elegidas, auto, camara, vista)
+        generador = _partes_del_flujo(modo, elegidas, auto, camara, vista, max_fps)
         primera = next(generador)  # abre la cámara aquí para devolver 503 como error normal si no se puede
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
@@ -525,11 +621,16 @@ def listar_camaras(_facilitador_id: int = Depends(get_current_facilitador)) -> d
 
 @router.get("/camaras/estado")
 def estado_de_las_camaras(_facilitador_id: int = Depends(get_current_facilitador)) -> dict:
-    """Qué cámaras hay configuradas y cuáles tienen el tablero calibrado, sin abrir ni probar ninguna (barato: se consulta seguido)."""
+    """Qué cámaras están EN USO (la secundaria solo si se la encendió) y cuáles tienen el tablero calibrado, sin abrir ni probar ninguna (barato: se consulta seguido).
+
+    `secundaria_configurada` y `usar_secundaria` dicen si hay una secundaria elegida y si está encendida, para el interruptor de la pantalla de cámaras.
+    """
     from backend.servicios.vision import tablero
 
-    configuradas = servicio_camara.camaras_configuradas()
+    configuradas = servicio_camara.camaras_en_uso()
     return {
+        "secundaria_configurada": "secundaria" in servicio_camara.camaras_configuradas(),
+        "usar_secundaria": servicio_camara.usar_secundaria(),
         "configuradas": configuradas,
         "calibradas": [c for c in configuradas if tablero.archivo_esquinas(c).exists()],
         "fuentes": {c: str(servicio_camara.fuente_actual(c)) for c in configuradas},
@@ -575,6 +676,17 @@ def quitar_camara_secundaria(_facilitador_id: int = Depends(get_current_facilita
     """Deja de usar la cámara secundaria (se sigue solo con la principal)."""
     servicio_camara.quitar_camara_secundaria()
     return {"camaras": servicio_camara.camaras_configuradas()}
+
+
+class UsoSecundariaRequest(BaseModel):
+    activa: bool
+
+
+@router.post("/camara/secundaria/uso")
+def usar_camara_secundaria(cuerpo: UsoSecundariaRequest, _facilitador_id: int = Depends(get_current_facilitador)) -> dict:
+    """Enciende o apaga la cámara secundaria sin tocar su configuración ni su calibración: apagada, la captura de fotos, el reconocimiento y
+    las vistas en vivo usan solo la principal."""
+    return {"usar_secundaria": servicio_camara.fijar_uso_secundaria(cuerpo.activa), "camaras": servicio_camara.camaras_en_uso()}
 
 
 class RotacionRequest(BaseModel):
@@ -681,10 +793,15 @@ def borrar_captura_dataset(
 
 
 @router.post("/dataset/candidato", response_model=ReentrenarResponse)
-def entrenar_candidato(_facilitador_id: int = Depends(get_current_facilitador)) -> ReentrenarResponse:
-    """Entrena en segundo plano (GPU del Mac si hay) un modelo candidato con el dataset propio y las casillas corregidas; solo reemplaza al actual si lo supera."""
+def entrenar_candidato(recorte: str = "ampliado", solo_posicion_actual: bool = True, incluir_secundaria: bool = False, _facilitador_id: int = Depends(get_current_facilitador)) -> ReentrenarResponse:
+    """Entrena en segundo plano (GPU del Mac si hay) un modelo candidato con el dataset propio y las casillas corregidas; solo reemplaza al actual si lo supera.
+
+    `recorte`: `ampliado` (2D, la casilla con margen) o `volumen` (3D, la caja de la pieza). El modelo que gane guarda ese tipo y el reconocimiento lo sigue.
+    Usa fotos de la cámara principal; con `solo_posicion_actual` (por defecto), las tomadas desde su última calibración. Con `incluir_secundaria` suma, solo para
+    entrenar, las fotos de la secundaria tomadas desde arriba, degradadas a la nitidez de la webcam (se valida solo con fotos reales de la principal).
+    """
     try:
-        dataset_propio.iniciar_entrenamiento_candidato()
+        dataset_propio.iniciar_entrenamiento_candidato(recorte, solo_posicion_actual, incluir_secundaria)
     except RuntimeError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
     except ValueError as error:

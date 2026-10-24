@@ -165,3 +165,11 @@ def test_la_pose_debe_tener_seis_valores() -> None:
         cliente.mover_a_pose((1, 2, 3))
     with pytest.raises(ValueError):
         cliente.mover_a_angulos((1, 2, 3))
+
+
+def test_robot_sin_modo_tcp_da_el_motivo_en_vez_de_un_timeout() -> None:
+    """El controlador contesta `Control Mode Is Not Tcp` sin `;` final: antes el cliente esperaba hasta el timeout ("timed out")."""
+    controlador = ControladorFalso([5], respuestas={"RobotMode()": "Control Mode Is Not Tcp\t"})
+    cliente = ClienteDobot("127.0.0.1", controlador.puerto, timeout_segundos=3.0)
+    with pytest.raises(ErrorDobot, match="modo de control TCP/IP"):
+        cliente.conectar()

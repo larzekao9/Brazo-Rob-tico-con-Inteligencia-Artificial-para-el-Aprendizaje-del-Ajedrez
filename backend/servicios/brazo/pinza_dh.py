@@ -36,6 +36,17 @@ CARRERA_MM = 26.0
 """Recorrido total entre dedos de la PGE-50-26 (ficha técnica). Solo vale con los dedos de fábrica y es una aproximación lineal."""
 
 
+CAUSAS_SIN_RESPUESTA = (
+    "Revisá que la pinza esté encendida (24 V en la herramienta del brazo), el cable del RS485 de la herramienta y que la pinza siga con "
+    "ID 1 y 115200 baudios; después tocá «Inicializar pinza»."
+)
+
+
+def _causas(error: Exception) -> str:
+    """Las causas probables de que la pinza no conteste, salvo que el motivo sea una parada del usuario (ahí no hay nada que revisar)."""
+    return "" if "Cancelado por el usuario" in str(error) else f" {CAUSAS_SIN_RESPUESTA}"
+
+
 class PinzaNoResponde(ErrorDobot):
     """La pinza no contestó o no llegó a la posición pedida a tiempo."""
 
@@ -98,6 +109,29 @@ class PinzaDH:
             finally:
                 self._maestro = None
 
+    def _reabrir(self) -> None:
+        """Vuelve a crear el canal Modbus (suelta el maestro anterior y repite `SetTool485` y `ModbusCreate`).
+
+        Sirve cuando el controlador perdió el canal (reinicio del RS485, un maestro viejo que se cerró solo): se nota como `ErrorID -1` al leer.
+        """
+        if self._maestro is not None:
+            try:
+                self.cliente.enviar(f"ModbusClose({self._maestro})")
+            except ErrorDobot:
+                pass
+            self._maestro = None
+        self.conectar()
+
+    def _con_reintento(self, comando) -> object:
+        """Ejecuta `comando()` (usa el maestro vigente); si el controlador devuelve error, renueva el canal Modbus y lo intenta una vez más."""
+        try:
+            return comando()
+        except ErrorDobot:
+            if getattr(self.cliente, "cancelado", False):  # el usuario paró el brazo: no se insiste ni se toca el canal
+                raise
+            self._reabrir()
+            return comando()
+
     def _requiere_conexion(self) -> int:
         if self._maestro is None:
             raise RuntimeError("La pinza no está conectada: llamá a conectar() primero")
@@ -106,17 +140,17 @@ class PinzaDH:
     def leer(self, direccion: int, cantidad: int = 1) -> list[int]:
         """Lee `cantidad` registros desde `direccion`. Lanza `PinzaNoResponde` si el controlador devuelve error."""
         try:
-            respuesta = self.cliente.enviar(f"GetHoldRegs({self._requiere_conexion()},{direccion},{cantidad})")
+            respuesta = self._con_reintento(lambda: self.cliente.enviar(f"GetHoldRegs({self._requiere_conexion()},{direccion},{cantidad})"))
         except ErrorDobot as error:
-            raise PinzaNoResponde(f"La pinza no contestó al leer 0x{direccion:04X}: {error}") from error
+            raise PinzaNoResponde(f"La pinza no contestó al leer 0x{direccion:04X}: {error}.{_causas(error)}") from error
         return [int(float(v)) for v in respuesta.valores.split(",") if v.strip()]
 
     def escribir(self, direccion: int, valor: int) -> None:
         """Escribe un registro. Lanza `PinzaNoResponde` si el controlador devuelve error."""
         try:
-            self.cliente.enviar(f"SetHoldRegs({self._requiere_conexion()},{direccion},1,{{{int(valor)}}})")
+            self._con_reintento(lambda: self.cliente.enviar(f"SetHoldRegs({self._requiere_conexion()},{direccion},1,{{{int(valor)}}})"))
         except ErrorDobot as error:
-            raise PinzaNoResponde(f"La pinza no aceptó la escritura en 0x{direccion:04X}: {error}") from error
+            raise PinzaNoResponde(f"La pinza no aceptó la escritura en 0x{direccion:04X}: {error}.{_causas(error)}") from error
 
     def estado(self) -> EstadoPinza:
         """Estado actual: inicializada, agarre y posición."""

@@ -57,6 +57,11 @@ def test_corregir_casilla_guarda_una_sola_muestra_en_la_clase_correcta(cliente, 
     assert [p.name.split("_")[-1] for p in (tmp_path / "black-pawn").glob("*.png")] == ["h7.png"]
 
 
+def test_corregir_casilla_con_una_camara_elegida(cliente) -> None:
+    r = cliente.post("/vision/dataset/casilla", json={"casilla": "h7", "clase": "black-pawn", "camaras": ["principal"]})
+    assert r.status_code == 200 and r.json()["camaras"] == ["principal"]
+
+
 def test_corregir_casilla_invalida_es_422(cliente) -> None:
     assert cliente.post("/vision/dataset/casilla", json={"casilla": "z9", "clase": "black-pawn"}).status_code == 422
     assert cliente.post("/vision/dataset/casilla", json={"casilla": "h7", "clase": "dragon"}).status_code == 422
@@ -267,12 +272,28 @@ def test_candidato_reporta_progreso_y_resultado(cliente, monkeypatch) -> None:
 
     monkeypatch.setattr(dataset_propio.subprocess, "Popen", popen)
     assert cliente.post("/vision/dataset/candidato").json() == {"estado": "en_curso"}
-    assert llamadas[0][0][1:] == ["-m", "training.entrenar_candidato"]
+    assert llamadas[0][0][1:] == ["-m", "training.entrenar_candidato", "--recorte", "ampliado"]  # por defecto, solo desde la última calibración
     assert llamadas[0][1]["env"]["PYTORCH_ENABLE_MPS_FALLBACK"] == "1"
     _esperar_candidato(cliente, "terminado")
     estado = cliente.get("/vision/dataset/candidato/estado").json()
     assert estado["progreso"].startswith("Época 3/50") and estado["resultado"] == "reemplazado — mejor"
     assert invalidado == [True]
+
+
+def test_candidato_3d_pasa_el_recorte_volumen_y_rechaza_uno_invalido(cliente, monkeypatch) -> None:
+    monkeypatch.setattr(dataset_propio, "_candidato", dataset_propio._Reentrenamiento())
+    monkeypatch.setattr(dataset_propio, "MINIMO_PARA_REENTRENAR", 0)
+    llamadas = []
+    monkeypatch.setattr(dataset_propio.subprocess, "Popen", lambda comando, **k: llamadas.append(comando) or _ProcesoFalso([], 0))
+    assert cliente.post("/vision/dataset/candidato", params={"recorte": "dragon"}).status_code == 400
+    assert cliente.post("/vision/dataset/candidato", params={"recorte": "volumen"}).status_code == 200
+    assert llamadas[0][-2:] == ["--recorte", "volumen"]
+    monkeypatch.setattr(dataset_propio, "_candidato", dataset_propio._Reentrenamiento())
+    assert cliente.post("/vision/dataset/candidato", params={"solo_posicion_actual": "false"}).status_code == 200
+    assert llamadas[1][-1] == "--todas-las-fotos"
+    monkeypatch.setattr(dataset_propio, "_candidato", dataset_propio._Reentrenamiento())
+    assert cliente.post("/vision/dataset/candidato", params={"incluir_secundaria": "true"}).status_code == 200
+    assert llamadas[2][-1] == "--incluir-secundaria"
 
 
 def test_candidato_con_pocas_muestras_es_400_y_no_pisa_al_reentrenamiento(cliente, monkeypatch) -> None:
@@ -367,13 +388,39 @@ def test_captura_doble_guarda_las_dos_camaras_con_el_mismo_grupo(cliente, tmp_pa
 
     monkeypatch.setattr(tablero, "ARCHIVO_ESQUINAS", tmp_path / "esquinas.json")
     tablero.guardar_esquinas_calibradas({"a1": (150, 660), "h1": (780, 620), "h8": (750, 40), "a8": (150, 80)}, tablero.archivo_esquinas("secundaria"))
-    monkeypatch.setattr(camara_mod, "_preferencia", {"secundaria": {"fuente": "1"}})
+    monkeypatch.setattr(camara_mod, "_preferencia", {"secundaria": {"fuente": "1"}, "ajustes": {"usar_secundaria": True}})
     r = cliente.post("/vision/dataset/foto", json={"fen_piezas": FEN}).json()
     assert len(r["capturas"]) == 2 and r["camaras"] == ["principal", "secundaria"] and r["guardadas"] == 128
     manifiestos = [json.loads(m.read_text()) for m in (tmp_path / "dataset_propio_cuadros").glob("*.json")] if (tmp_path / "dataset_propio_cuadros").exists() else []
     assert not manifiestos or {m["grupo"] for m in manifiestos} == {r["capturas"][0]}
     for captura in r["capturas"]:
         assert cliente.delete(f"/vision/dataset/captura/{captura}").json() == {"borradas": 64}
+
+
+def test_con_la_secundaria_apagada_solo_se_captura_con_la_principal(cliente, tmp_path, monkeypatch) -> None:
+    """Aunque la secundaria esté configurada y calibrada, apagada no entra en las fotos de entrenamiento (antes salía su foto negra)."""
+    import backend.servicios.vision.camara as camara_mod
+    from backend.servicios.vision import tablero
+
+    monkeypatch.setattr(tablero, "ARCHIVO_ESQUINAS", tmp_path / "esquinas.json")
+    tablero.guardar_esquinas_calibradas({"a1": (150, 660), "h1": (780, 620), "h8": (750, 40), "a8": (150, 80)}, tablero.archivo_esquinas("secundaria"))
+    monkeypatch.setattr(camara_mod, "_preferencia", {"secundaria": {"fuente": "1"}})
+    r = cliente.post("/vision/dataset/foto", json={"fen_piezas": FEN}).json()
+    assert r["camaras"] == ["principal"] and r["guardadas"] == 64
+
+
+def test_interruptor_de_la_secundaria_y_estado_de_las_camaras(cliente, tmp_path, monkeypatch) -> None:
+    import backend.servicios.vision.camara as camara_mod
+    from backend.servicios.vision import tablero
+
+    monkeypatch.setattr(tablero, "ARCHIVO_ESQUINAS", tmp_path / "esquinas.json")
+    monkeypatch.setattr(camara_mod, "ARCHIVO_PREFERENCIA", tmp_path / "preferencia.json")
+    monkeypatch.setattr(camara_mod, "_preferencia", {"secundaria": {"fuente": "1"}})
+    estado = cliente.get("/vision/camaras/estado").json()
+    assert estado["configuradas"] == ["principal"] and estado["secundaria_configurada"] is True and estado["usar_secundaria"] is False
+    assert cliente.post("/vision/camara/secundaria/uso", json={"activa": True}).json() == {"usar_secundaria": True, "camaras": ["principal", "secundaria"]}
+    assert cliente.get("/vision/camaras/estado").json()["configuradas"] == ["principal", "secundaria"]
+    assert cliente.post("/vision/camara/secundaria/uso", json={"activa": False}).json()["camaras"] == ["principal"]
 
 
 def test_flujo_de_las_dos_camaras_junta_las_vistas(cliente, monkeypatch) -> None:
@@ -384,13 +431,30 @@ def test_flujo_de_las_dos_camaras_junta_las_vistas(cliente, monkeypatch) -> None
     app.dependency_overrides[get_current_user] = lambda: 1
     monkeypatch.setattr(ruta, "flujo_de_frames", lambda *a, **k: iter([_foto()]))
     monkeypatch.setattr(ruta, "capturar_foto_tablero", _foto)
-    monkeypatch.setattr(estable, "camaras_configuradas", lambda: ["principal", "secundaria"])
     monkeypatch.setattr(estable, "camaras_calibradas", lambda: ["principal", "secundaria"])
     try:
         with cliente.stream("GET", "/vision/flujo", params={"modo": "camara", "camara": "todas"}) as r:
             cuerpo = b"".join(r.iter_bytes())
         assert r.status_code == 200 and cuerpo.count(b"--cuadro") == 1
         assert cliente.get("/vision/flujo", params={"camara": "otra"}).status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_flujo_con_limite_de_cuadros_por_segundo_salta_los_intermedios(cliente, monkeypatch) -> None:
+    import backend.rutas.ruta_vision as ruta
+    from backend.rutas.ruta_auth import get_current_user
+
+    app.dependency_overrides[get_current_user] = lambda: 1
+    monkeypatch.setattr(ruta, "flujo_de_frames", lambda *a, **k: iter([_foto(), _foto(), _foto(), _foto()]))
+    try:
+        with cliente.stream("GET", "/vision/flujo", params={"modo": "camara", "max_fps": 1}) as r:
+            limitado = b"".join(r.iter_bytes()).count(b"--cuadro")
+        monkeypatch.setattr(ruta, "flujo_de_frames", lambda *a, **k: iter([_foto(), _foto(), _foto(), _foto()]))
+        with cliente.stream("GET", "/vision/flujo", params={"modo": "camara"}) as r:
+            libre = b"".join(r.iter_bytes()).count(b"--cuadro")
+        assert limitado == 1 and libre == 4  # cuadros que llegan juntos: con el límite solo se procesa el primero
+        assert cliente.get("/vision/flujo", params={"max_fps": 500}).status_code == 422
     finally:
         app.dependency_overrides.pop(get_current_user, None)
 

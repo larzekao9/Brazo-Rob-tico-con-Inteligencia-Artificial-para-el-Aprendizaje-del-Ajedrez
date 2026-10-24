@@ -143,3 +143,20 @@ def test_el_probador_solo_clasifica_las_casillas_ocupadas(monkeypatch) -> None:
     assert mirados == [2]  # el modelo solo vio las 2 casillas con pieza
     vistas = {n for n, fila in zip(nombres, probs) if CLASES[fila.argmax()] != "vacia"}
     assert vistas == {"e4", "d5"}
+
+
+def test_una_referencia_lisa_no_se_guarda_ni_se_usa(tmp_path) -> None:
+    """La foto del tablero vacío sale lisa cuando las esquinas no calzan con la cámara (se recalibró después): no sirve y se descarta."""
+    lisa = np.full((750, 900, 3), 60, np.uint8)
+    with pytest.raises(ValueError, match="salió lisa"):
+        rv.guardar_referencia("principal", [(lisa, ESQUINAS)])
+    assert rv.cargar_referencia("principal") is None
+    cv2.imwrite(str(rv.ruta_referencia("principal")), np.full((800, 800, 3), 60, np.uint8))  # una lisa ya guardada antes
+    assert rv.cargar_referencia("principal") is None
+
+
+def test_borrar_la_referencia_la_quita_del_disco_y_de_memoria() -> None:
+    rv.guardar_referencia("principal", [(_vacio(), ESQUINAS)])
+    assert rv.cargar_referencia("principal") is not None
+    rv.borrar_referencia("principal")
+    assert rv.cargar_referencia("principal") is None and not rv.ruta_referencia("principal").exists()

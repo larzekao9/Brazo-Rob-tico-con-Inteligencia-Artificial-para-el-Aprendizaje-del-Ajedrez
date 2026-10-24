@@ -11,7 +11,7 @@ import numpy as np
 
 from backend.servicios.vision import ocupacion
 from backend.servicios.vision.fusion import fusionar_probabilidades
-from backend.servicios.vision.camara import camaras_configuradas, capturar_foto_tablero, flujo_de_frames
+from backend.servicios.vision.camara import camaras_en_uso, capturar_foto_tablero, flujo_de_frames
 from backend.servicios.vision.jugada_probable import Lectura
 from backend.servicios.vision.reconocimiento import esquinas_y_margen
 from backend.servicios.vision.tablero import dividir_en_casillas, enderezar_tablero
@@ -35,10 +35,10 @@ def ocupacion_de_imagen(imagen: np.ndarray, camara: str = "principal", esquinas:
 
 
 def camaras_calibradas() -> list[str]:
-    """Las cámaras con las que se reconoce: la principal y, si está configurada y calibrada, la secundaria."""
+    """Las cámaras con las que se reconoce: la principal y, si está en uso (`camaras_en_uso`) y calibrada, la secundaria."""
     from backend.servicios.vision.tablero import archivo_esquinas
 
-    return [c for c in camaras_configuradas() if c == "principal" or archivo_esquinas(c).exists()]
+    return [c for c in camaras_en_uso() if c == "principal" or archivo_esquinas(c).exists()]
 
 
 def ocupacion_fusionada(frame_principal: np.ndarray) -> np.ndarray:

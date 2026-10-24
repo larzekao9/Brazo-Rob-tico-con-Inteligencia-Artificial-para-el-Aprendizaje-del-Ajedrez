@@ -175,7 +175,7 @@ def test_estado_de_las_camaras_y_quitar_calibracion(cliente, tmp_path, monkeypat
     from backend.servicios.vision import camara, tablero
 
     monkeypatch.setattr(tablero, "ARCHIVO_ESQUINAS", tmp_path / "esquinas.json")
-    monkeypatch.setattr(camara, "_preferencia", {"secundaria": {"fuente": "1"}})
+    monkeypatch.setattr(camara, "_preferencia", {"secundaria": {"fuente": "1"}, "ajustes": {"usar_secundaria": True}})
     tablero.guardar_esquinas_calibradas({"a1": (10, 90), "h1": (90, 90), "h8": (90, 10), "a8": (10, 10)}, tablero.archivo_esquinas("secundaria"))
     estado = cliente.get("/vision/camaras/estado").json()
     assert estado["configuradas"] == ["principal", "secundaria"] and estado["calibradas"] == ["secundaria"]
