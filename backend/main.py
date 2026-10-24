@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.rutas.ruta_brazo import router as brazo_router
 from backend.rutas.ruta_brazo_control import router as brazo_control_router
+from backend.rutas.ruta_partida_fisica import router as partida_fisica_router
 from backend.rutas.ruta_jugada import router as jugada_router
 from backend.rutas.ruta_partida import router as partida_router
 from backend.rutas.ruta_sala import router as sala_router
@@ -80,6 +81,7 @@ app.include_router(vision_calibracion_router)
 app.include_router(vision_lente_router)
 app.include_router(brazo_router)
 app.include_router(brazo_control_router)
+app.include_router(partida_fisica_router)
 app.include_router(auth_router)
 app.include_router(aprendizaje_router)
 app.include_router(simulacion_router)

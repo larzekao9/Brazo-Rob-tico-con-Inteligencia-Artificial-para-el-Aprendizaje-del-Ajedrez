@@ -28,6 +28,7 @@ from backend.servicios.brazo.calibracion_brazo import (
 from backend.servicios.brazo import geometria_brazo, rutinas
 from backend.servicios.brazo.cliente_dobot import MODOS_DE_FALLA, ErrorDobot
 from backend.servicios.brazo.ejecutor_movimiento import EjecutorReal
+from backend.servicios.brazo.planificador_movimiento import Paso, cementerio
 from backend.servicios.brazo.pinza_dh import REG_FUERZA, REG_VELOCIDAD
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,7 @@ class _Estado:
         self.destino: str = ""
         self.tarea: dict = {"estado": "inactiva", "descripcion": "", "mensaje": "", "pasos": []}
         self.hilo: threading.Thread | None = None
+        self.ultima_pinza: dict | None = None
         self.cerrojo = threading.RLock()
 
 
@@ -159,11 +161,14 @@ def estado() -> dict:
             pose=list(ejecutor.cliente.pose()),
             angulos=list(ejecutor.cliente.angulos()),
         )
-        try:
-            pinza = ejecutor.pinza.estado()
-            base["pinza"] = {"inicializada": pinza.inicializada, "posicion": pinza.posicion, "agarre": pinza.agarre}
-        except Exception:  # noqa: BLE001 — la pinza todavía no está conectada por Modbus
-            base["pinza"] = None
+        if _estado.hilo is not None and _estado.hilo.is_alive():
+            base["pinza"] = _estado.ultima_pinza  # mientras otro hilo mueve el brazo no se le pregunta a la pinza: no hay que mezclar conversaciones con ella
+        else:
+            try:
+                pinza = ejecutor.pinza.estado()
+                base["pinza"] = _estado.ultima_pinza = {"inicializada": pinza.inicializada, "posicion": pinza.posicion, "agarre": pinza.agarre}
+            except Exception:  # noqa: BLE001 — la pinza todavía no está conectada por Modbus
+                base["pinza"] = None
         base["velocidad_global"] = ejecutor.cliente.velocidad_global
     except (OSError, ErrorDobot, RuntimeError) as error:
         base["error"] = str(error)
@@ -232,7 +237,13 @@ def parametros() -> dict:
         "apertura_extra_soltar": agarre.apertura_extra_soltar, "largo_pinza_mm": agarre.largo_pinza_mm,
         "aperturas_por_pieza": dict(agarre.aperturas_por_pieza), "altura_segura_mm": agarre.altura_segura_mm,
         "margen_agarre_mm": agarre.margen_agarre_mm, "giro_diagonal_grados": agarre.giro_diagonal_grados, "z_tope": agarre.z_tope,
+        "cementerio_origen": agarre.cementerio_origen, "cementerio_paso": agarre.cementerio_paso, "cementerio_paso_fila": agarre.cementerio_paso_fila,
+        "cementerio_columnas": agarre.cementerio_columnas, "reservas": dict(agarre.reservas),
     }
+
+
+def _es_par(valor) -> bool:
+    return isinstance(valor, (list, tuple)) and len(valor) == 2 and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in valor)
 
 
 def actualizar_parametros(valores: dict, guardar: bool = False) -> dict:
@@ -246,6 +257,15 @@ def actualizar_parametros(valores: dict, guardar: bool = False) -> dict:
         elif clave == "aperturas_por_pieza":
             if not isinstance(valor, dict) or any(k not in "pnbrqk" or len(k) != 1 or not isinstance(v, int) or not 0 <= v <= 1000 for k, v in valor.items()):
                 raise ErrorControl(422, "aperturas_por_pieza: letras p n b r q k con valores de 0 a 1000")
+        elif clave in ("cementerio_origen", "cementerio_paso", "cementerio_paso_fila"):
+            if not (clave == "cementerio_origen" and valor is None) and not _es_par(valor):
+                raise ErrorControl(422, f"{clave} tiene que ser [x, y] en mm" + (" (o null)" if clave == "cementerio_origen" else ""))
+        elif clave == "cementerio_columnas":
+            if not isinstance(valor, int) or isinstance(valor, bool) or not 1 <= valor <= 30:
+                raise ErrorControl(422, "cementerio_columnas debe ser un entero entre 1 y 30")
+        elif clave == "reservas":
+            if not isinstance(valor, dict) or any(k not in ("dama_blanca", "dama_negra") or not _es_par(v) for k, v in valor.items()):
+                raise ErrorControl(422, "reservas: dama_blanca y dama_negra, cada una [x, y] en mm")
         elif clave == "z_tope":
             if valor is not None and not isinstance(valor, (int, float)):
                 raise ErrorControl(422, "z_tope debe ser un número")
@@ -274,6 +294,19 @@ def actualizar_parametros(valores: dict, guardar: bool = False) -> dict:
     if guardar and _estado.emulador is None:
         guardar_parametros_agarre(ejecutor.parametros)
     return parametros()
+
+
+def _preparar_pinza(ejecutor: EjecutorReal) -> None:
+    """Deja la pinza conectada e inicializada antes de mover una pieza: la conecta si hace falta y, si no contesta a la lectura de su estado (recién conectada, sin
+    inicializar) o dice que no está inicializada, la inicializa (los dedos se abren y cierran unos segundos). Si ni así contesta, el error explica qué revisar."""
+    if ejecutor.pinza._maestro is None:
+        ejecutor.pinza.conectar()
+    try:
+        inicializada = ejecutor.pinza.estado().inicializada
+    except ErrorDobot:  # `PinzaNoResponde` también lo es
+        inicializada = False
+    if not inicializada:
+        ejecutor.pinza.inicializar()
 
 
 def inicializar_pinza() -> dict:
@@ -631,6 +664,86 @@ def ir_a_posicion_inicial() -> dict:
     return _lanzar_manual("Volver a la posición inicial", lambda cliente: cliente.mover_a_angulos(tuple(cero)))
 
 
+CASILLAS_CEMENTERIO = 30
+"""Lugares del cementerio: las 30 piezas que pueden salir del tablero (32 − los 2 reyes)."""
+MARGEN_PRUEBA_MM = 25.0
+"""En la prueba sin pieza, la punta baja hasta esta altura sobre donde soltaría (nunca hasta el tablero)."""
+
+
+PAUSA_PRUEBA_APERTURA_S = 4.0
+"""Cuánto se queda abajo, con la pinza abierta, para poder mirar si los dedos rodean la pieza sin tocarla."""
+
+
+def probar_apertura(casilla: str, tipo_pieza: str) -> dict:
+    """Baja con la pinza abierta a la apertura de `tipo_pieza` sobre `casilla` (donde está esa pieza), SIN cerrarla, espera unos segundos para mirar si los dedos la
+    rodean sin tocarla ni rozar las vecinas, y vuelve a subir y a la posición inicial. Sirve para medir la apertura de cada pieza antes de jugar."""
+    ejecutor = _ejecutor()
+    nombre = casilla.lower()
+    _casilla_o_error(nombre)
+    if tipo_pieza.lower() not in {"p", "n", "b", "r", "q", "k"}:
+        raise ErrorControl(422, "tipo_pieza debe ser p, n, b, r, q o k")
+    if ejecutor.posiciones_casillas is None or ejecutor.orientacion is None:
+        raise ErrorControl(409, "El brazo no tiene calibración del tablero (calibracion_local/brazo.json)")
+    try:
+        _ = ejecutor.parametros.z_agarre
+        ejecutor.parametros.apertura_para(tipo_pieza)
+    except RuntimeError as error:
+        raise ErrorControl(409, str(error)) from error
+    cero = ejecutor.angulos_cero
+
+    def accion(cliente) -> None:
+        _preparar_pinza(ejecutor)
+        if cero is not None:
+            cliente.mover_a_angulos(tuple(cero))
+        ejecutor.bajar_a(nombre, tipo_pieza)
+        fin = time.monotonic() + PAUSA_PRUEBA_APERTURA_S
+        while time.monotonic() < fin and not cliente.cancelado:
+            time.sleep(0.1)
+        ejecutor.subir_de(nombre, tipo_pieza)
+        if cero is not None:
+            cliente.mover_a_angulos(tuple(cero))
+
+    return _lanzar_manual(f"Probar la apertura {ejecutor.parametros.apertura_para(tipo_pieza)} ({tipo_pieza.upper()}) sobre {nombre}, sin cerrar", accion)
+
+
+def probar_lugar(lugar: str) -> dict:
+    """Lleva la punta, SIN pieza, sobre `lugar` (`cementerio:K` con K de 0 a 29, o `reserva:dama_negra` / `reserva:dama_blanca`), baja hasta unos mm de donde soltaría
+    y vuelve a subir y a la posición inicial: sirve para ver si el cementerio y las reservas están bien puestos y se alcanzan, primero en el emulador.
+
+    Usa poses cartesianas (la cinemática la resuelve el controlador, o el emulador), igual que cuando mueve una pieza de verdad.
+    """
+    ejecutor = _ejecutor()
+    if ejecutor.posiciones_casillas is None or ejecutor.orientacion is None:
+        raise ErrorControl(409, "El brazo no tiene calibración del tablero (calibracion_local/brazo.json)")
+    if lugar.startswith("cementerio:"):
+        try:
+            indice = int(lugar.split(":", 1)[1])
+        except ValueError as error:
+            raise ErrorControl(422, "Lugar inválido: cementerio:K con K de 0 a 29") from error
+        if not 0 <= indice < CASILLAS_CEMENTERIO:
+            raise ErrorControl(422, f"El cementerio tiene {CASILLAS_CEMENTERIO} casillas (0 a {CASILLAS_CEMENTERIO - 1})")
+    elif lugar not in ("reserva:dama_negra", "reserva:dama_blanca"):
+        raise ErrorControl(422, "Lugar inválido: cementerio:K, reserva:dama_negra o reserva:dama_blanca")
+    try:
+        _ = ejecutor.parametros.z_agarre
+        ejecutor._xy(lugar)  # falla con un mensaje claro si no está calibrado
+    except RuntimeError as error:
+        raise ErrorControl(409, str(error)) from error
+    seguro = ejecutor.parametros.altura_segura_mm
+    cero = ejecutor.angulos_cero
+
+    def accion(cliente) -> None:
+        if cero is not None:
+            cliente.mover_a_angulos(tuple(cero))
+        cliente.mover_a_pose(ejecutor._pose(lugar, seguro))
+        cliente.mover_a_pose(ejecutor._pose(lugar, MARGEN_PRUEBA_MM), lineal=True)
+        cliente.mover_a_pose(ejecutor._pose(lugar, seguro), lineal=True)
+        if cero is not None:
+            cliente.mover_a_angulos(tuple(cero))
+
+    return _lanzar_manual(f"Probar {lugar} (sin pieza)", accion)
+
+
 def mover_relativo(dx: float = 0.0, dy: float = 0.0, dz: float = 0.0, velocidad_mm_s: int = 20) -> dict:
     """Jog cartesiano: desplaza la punta `dx, dy, dz` mm respecto a la base (máximo 100 mm por orden)."""
     if max(abs(dx), abs(dy), abs(dz)) > JOG_MAX_MM:
@@ -650,70 +763,147 @@ def _exigir_habilitado(ejecutor: EjecutorReal) -> None:
         raise ErrorControl(409, f"El brazo no está habilitado y libre (modo {modo}: {MODOS_TEXTO.get(modo, '?')}): habilitalo primero")
 
 
-def _preparar_movimiento(origen: str, destino: str, tipo_pieza: str) -> tuple[EjecutorReal, chess.Board, chess.Move]:
-    ejecutor = _ejecutor()
+def _casilla_o_error(nombre: str) -> chess.Square:
     try:
-        desde, hasta = chess.parse_square(origen.lower()), chess.parse_square(destino.lower())
+        return chess.parse_square(nombre.lower())
     except ValueError as error:
         raise ErrorControl(422, "Casilla inválida: usá notación como e4") from error
-    if desde == hasta:
-        raise ErrorControl(422, "El origen y el destino son la misma casilla")
-    if tipo_pieza.lower() not in {"p", "n", "b", "r", "q", "k"}:
+
+
+def _pasos_de_prueba(
+    ejecutor: EjecutorReal, origen: str, destino: str, tipo_pieza: str, captura: bool, tipo_capturada: str, al_cementerio: bool, casilla_cementerio: int
+) -> list[Paso]:
+    """Los pasos de una prueba manual: llevar una pieza, capturar (la pieza del destino sale primero al cementerio) o mandar una pieza al cementerio."""
+    tipos = {"p", "n", "b", "r", "q", "k"}
+    if tipo_pieza.lower() not in tipos or tipo_capturada.lower() not in tipos:
         raise ErrorControl(422, "tipo_pieza debe ser p, n, b, r, q o k")
+    _casilla_o_error(origen)
+    if not 0 <= casilla_cementerio < CASILLAS_CEMENTERIO:
+        raise ErrorControl(422, f"El cementerio tiene {CASILLAS_CEMENTERIO} casillas (0 a {CASILLAS_CEMENTERIO - 1})")
     if ejecutor.posiciones_casillas is None or ejecutor.orientacion is None:
         raise ErrorControl(409, "El brazo no tiene calibración del tablero (calibracion_local/brazo.json)")
+    o = origen.lower()
+    if al_cementerio:
+        pasos = [Paso(tipo_pieza, o, cementerio(casilla_cementerio))]
+    else:
+        _casilla_o_error(destino)
+        d = destino.lower()
+        if o == d:
+            raise ErrorControl(422, "El origen y el destino son la misma casilla")
+        pasos = [Paso(tipo_pieza, o, d)]
+        if captura:
+            pasos.insert(0, Paso(tipo_capturada, d, cementerio(casilla_cementerio)))
     try:
         _ = ejecutor.parametros.z_agarre
-        ejecutor.parametros.apertura_para(tipo_pieza)
+        for paso in pasos:
+            ejecutor.parametros.apertura_para(paso.pieza)
+            ejecutor._xy(paso.origen)
+            ejecutor._xy(paso.destino)
     except RuntimeError as error:
         raise ErrorControl(409, str(error)) from error
-    tablero = chess.Board(None)
-    tablero.set_piece_at(desde, chess.Piece(chess.PIECE_SYMBOLS.index(tipo_pieza.lower()), chess.WHITE))
-    return ejecutor, tablero, chess.Move(desde, hasta)
+    return pasos
 
 
-def plan_de_movimiento(origen: str, destino: str, tipo_pieza: str = "p") -> list[dict]:
-    """ENSAYO: los pasos y poses por los que pasaría `ejecutar_movimiento` (misma secuencia), sin conectarse a nada que se mueva."""
-    ejecutor, _, _ = _preparar_movimiento(origen, destino, tipo_pieza)
+def _nombre_de_lugar(lugar: str) -> str:
+    return f"el cementerio (casilla {int(lugar.split(':', 1)[1]) + 1})" if lugar.startswith("cementerio:") else lugar
+
+
+def plan_de_movimiento(
+    origen: str, destino: str = "", tipo_pieza: str = "p", captura: bool = False, tipo_capturada: str = "p", al_cementerio: bool = False, casilla_cementerio: int = 0
+) -> list[dict]:
+    """ENSAYO: los pasos y poses por los que pasaría la prueba (misma secuencia que `ejecutar_pasos`), sin mover nada."""
+    ejecutor = _ejecutor()
+    pasos = _pasos_de_prueba(ejecutor, origen, destino, tipo_pieza, captura, tipo_capturada, al_cementerio, casilla_cementerio)
     p, seguro = ejecutor.parametros, ejecutor.parametros.altura_segura_mm
-    apertura = p.apertura_para(tipo_pieza)
-    o, d = origen.lower(), destino.lower()
-    return [
-        {"paso": "Ir a la posición inicial", "pose": None},
-        {"paso": f"Abrir la pinza a {apertura}", "pose": None},
-        {"paso": f"Ir sobre {o} (altura segura)", "pose": list(ejecutor._pose(o, seguro))},
-        {"paso": f"Bajar a {o}", "pose": list(ejecutor._pose(o))},
-        {"paso": "Cerrar la pinza y comprobar que agarró la pieza", "pose": None},
-        {"paso": "Subir con la pieza", "pose": list(ejecutor._pose(o, seguro))},
-        {"paso": f"Trasladar sobre {d}", "pose": list(ejecutor._pose(d, seguro))},
-        {"paso": f"Bajar a {d}", "pose": list(ejecutor._pose(d))},
-        {"paso": f"Soltar la pieza (abrir la pinza a {min(1000, apertura + p.apertura_extra_soltar)})", "pose": None},
-        {"paso": f"Subir de {d}", "pose": list(ejecutor._pose(d, seguro))},
-        {"paso": "Volver a la posición cero", "pose": None},
-    ]
+    plan = [{"paso": "Ir a la posición inicial", "pose": None}]
+    for paso in pasos:
+        apertura = p.apertura_para(paso.pieza)
+        o, d = paso.origen, paso.destino
+        plan += [
+            {"paso": f"Abrir la pinza a {apertura}", "pose": None},
+            {"paso": f"Ir sobre {_nombre_de_lugar(o)} (altura segura)", "pose": list(ejecutor._pose(o, seguro))},
+            {"paso": f"Bajar a {_nombre_de_lugar(o)}", "pose": list(ejecutor._pose(o))},
+            {"paso": "Cerrar la pinza y comprobar que agarró la pieza", "pose": None},
+            {"paso": "Subir con la pieza", "pose": list(ejecutor._pose(o, seguro))},
+            {"paso": f"Trasladar sobre {_nombre_de_lugar(d)}", "pose": list(ejecutor._pose(d, seguro))},
+            {"paso": f"Bajar a {_nombre_de_lugar(d)}", "pose": list(ejecutor._pose(d))},
+            {"paso": f"Soltar la pieza (abrir la pinza a {min(1000, apertura + p.apertura_extra_soltar)})", "pose": None},
+            {"paso": f"Subir de {_nombre_de_lugar(d)}", "pose": list(ejecutor._pose(d, seguro))},
+        ]
+    plan.append({"paso": "Volver a la posición cero", "pose": None})
+    return plan
 
 
-def mover_pieza(origen: str, destino: str, tipo_pieza: str = "p") -> dict:
-    """Lleva la pieza de `origen` a `destino` en un hilo (el estado se consulta en `estado()["tarea"]`). Una tarea a la vez."""
+def diagnostico(cuantos: int = 60) -> list[dict]:
+    """Los últimos comandos que se le mandaron al controlador (hora, hilo, comando, resultado), del más viejo al más nuevo: para ver cómo se cruzaron cuando algo falla."""
+    return list(_ejecutor().cliente.historial)[-cuantos:]
+
+
+def conectado() -> bool:
+    """Si hay un brazo (o el emulador) conectado desde el panel."""
+    return _estado.ejecutor is not None
+
+
+def ejecutar_jugada(tablero_antes: chess.Board, jugada: chess.Move) -> None:
+    """Hace una jugada completa (captura, enroque, coronación…) con el brazo conectado en el panel, en el hilo de quien llama, y espera a que termine.
+
+    Es lo que usa la partida física: la misma conexión, los mismos parámetros (aperturas, cementerio, reservas) y la misma secuencia que «Llevar pieza» del panel
+    (conecta e inicializa la pinza si hace falta, parte de la posición inicial y vuelve a ella), con un reintento de agarre. Mientras dura, el panel no acepta otro
+    movimiento. Una parada de emergencia o `parar` la corta y sale con error.
+
+    Raises:
+        ErrorControl: no hay conexión, ya hay un movimiento en curso o el brazo no está habilitado.
+        RuntimeError, PiezaNoAgarrada, ErrorDobot: lo que falle al mover (calibración, cementerio sin calibrar, pieza no agarrada…).
+    """
     with _estado.cerrojo:
-        ejecutor, tablero, jugada = _preparar_movimiento(origen, destino, tipo_pieza)
+        ejecutor = _ejecutor()
         if _estado.hilo is not None and _estado.hilo.is_alive():
             raise ErrorControl(409, "Ya hay un movimiento en curso")
         _exigir_habilitado(ejecutor)
-        pasos = plan_de_movimiento(origen, destino, tipo_pieza)
         ejecutor.cliente.reanudar()
-        descripcion = f"Llevar {tipo_pieza.upper()} de {origen.lower()} a {destino.lower()}"
+        ejecutor.reintentos_agarre = 1
+        _estado.tarea = {"estado": "ejecutando", "descripcion": f"Partida física: {jugada.uci()}", "mensaje": "", "pasos": []}
+        _estado.hilo = threading.current_thread()  # mientras dura, el panel ve «movimiento en curso»
+    try:
+        _preparar_pinza(ejecutor)
+        if ejecutor.angulos_cero is not None:
+            ejecutor.cliente.mover_a_angulos(tuple(ejecutor.angulos_cero))
+        ejecutor.ejecutar_movimiento(tablero_antes, jugada)
+        _estado.tarea.update(estado="terminada", mensaje="Listo")
+    except Exception as error:  # noqa: BLE001 — se anota en el panel y se vuelve a lanzar
+        cancelado = ejecutor.cliente.cancelado
+        _estado.tarea.update(estado="cancelada" if cancelado else "error", mensaje="Cancelado por el usuario" if cancelado else str(error))
+        raise
+    finally:
+        with _estado.cerrojo:
+            _estado.hilo = None
+
+
+def mover_pieza(
+    origen: str, destino: str = "", tipo_pieza: str = "p", captura: bool = False, tipo_capturada: str = "p", al_cementerio: bool = False, casilla_cementerio: int = 0
+) -> dict:
+    """Prueba manual en un hilo (el estado se consulta en `estado()["tarea"]`; una tarea a la vez): lleva la pieza de `origen` a `destino`; con `captura`, primero retira
+    la pieza del destino (de tipo `tipo_capturada`) a la casilla `casilla_cementerio` del cementerio; con `al_cementerio`, manda la pieza de `origen` al cementerio."""
+    with _estado.cerrojo:
+        ejecutor = _ejecutor()
+        pasos_fisicos = _pasos_de_prueba(ejecutor, origen, destino, tipo_pieza, captura, tipo_capturada, al_cementerio, casilla_cementerio)
+        if _estado.hilo is not None and _estado.hilo.is_alive():
+            raise ErrorControl(409, "Ya hay un movimiento en curso")
+        _exigir_habilitado(ejecutor)
+        pasos = plan_de_movimiento(origen, destino, tipo_pieza, captura, tipo_capturada, al_cementerio, casilla_cementerio)
+        ejecutor.cliente.reanudar()
+        if al_cementerio:
+            descripcion = f"Llevar {tipo_pieza.upper()} de {origen.lower()} al cementerio"
+        else:
+            descripcion = f"{'Capturar: ' if captura else ''}Llevar {tipo_pieza.upper()} de {origen.lower()} a {destino.lower()}"
         _estado.tarea = {"estado": "ejecutando", "descripcion": descripcion, "mensaje": "", "pasos": [p["paso"] for p in pasos]}
 
         def trabajo() -> None:
             try:
-                if ejecutor.pinza._maestro is None:
-                    ejecutor.pinza.conectar()
-                if not ejecutor.pinza.estado().inicializada:
-                    ejecutor.pinza.inicializar()
+                _preparar_pinza(ejecutor)
                 if ejecutor.angulos_cero is not None:  # siempre se parte de la posición inicial
                     ejecutor.cliente.mover_a_angulos(tuple(ejecutor.angulos_cero))
-                ejecutor.ejecutar_movimiento(tablero, jugada)
+                ejecutor.ejecutar_pasos(pasos_fisicos)
                 _estado.tarea.update(estado="terminada", mensaje="Listo")
             except Exception as error:  # noqa: BLE001 — todo error va al panel
                 cancelado = ejecutor.cliente.cancelado

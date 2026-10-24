@@ -167,15 +167,82 @@ def test_ejecutor_real_con_pinza_sin_inicializar_no_mueve_nada():
     assert historial == []
 
 
-def test_ejecutor_real_con_captura_lanza_not_implemented_error():
+PARAMETROS_COMPLETOS = ParametrosAgarre(
+    z_tope=100.0, apertura_aproximacion=APERTURA, altura_segura_mm=80.0, aperturas_por_pieza={"n": 600, "b": 600, "r": 620, "q": 640, "k": 660},
+    cementerio_origen=[900.0, 0.0], reservas={"dama_blanca": [900.0, 200.0], "dama_negra": [900.0, 300.0]},
+)
+
+
+def _destinos_en_xy(historial: list) -> list[tuple[float, float]]:
+    """(x, y) de cada vez que el brazo baja a agarrar o soltar (MovL a la altura de trabajo)."""
+    return [(l[1][0], l[1][1]) for l in historial if l[0] == "MovL" and l[1][2] == 103.0]
+
+
+def test_ejecutor_real_con_captura_retira_primero_la_pieza_capturada_al_cementerio():
+    ejecutor, historial = _ejecutor(PARAMETROS_COMPLETOS)
+    tablero_antes = chess.Board()
+    tablero_antes.push_san("e4")
+    tablero_antes.push_san("d5")
+
+    ejecutor.ejecutar_movimiento(tablero_antes, tablero_antes.parse_uci("e4d5"))
+
+    destinos = _destinos_en_xy(historial)
+    posiciones = ejecutor.posiciones_casillas
+    assert len(destinos) == 4  # (d5 → cementerio) y (e4 → d5): bajar a agarrar y a soltar en cada uno
+    assert destinos[0] == posiciones["d5"][:2] and destinos[1] == (900.0, 0.0)  # la capturada va al primer lugar del cementerio
+    assert destinos[2] == posiciones["e4"][:2] and destinos[3] == posiciones["d5"][:2]
+    assert [l for l in historial if l[0] == "pinza_cerrar"] and len([l for l in historial if l[0] == "pinza_cerrar"]) == 2
+
+
+def test_ejecutor_real_enroque_mueve_el_rey_y_despues_la_torre():
+    ejecutor, historial = _ejecutor(PARAMETROS_COMPLETOS)
+    tablero_antes = chess.Board("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1")
+
+    ejecutor.ejecutar_movimiento(tablero_antes, tablero_antes.parse_uci("e1g1"))
+
+    p = ejecutor.posiciones_casillas
+    assert _destinos_en_xy(historial) == [p["e1"][:2], p["g1"][:2], p["h1"][:2], p["f1"][:2]]
+
+
+def test_ejecutor_real_corona_con_la_dama_de_reserva():
+    ejecutor, historial = _ejecutor(PARAMETROS_COMPLETOS)
+    tablero_antes = chess.Board("8/P6k/8/8/8/8/8/K7 w - - 0 1")
+
+    ejecutor.ejecutar_movimiento(tablero_antes, tablero_antes.parse_uci("a7a8q"))
+
+    p = ejecutor.posiciones_casillas
+    assert _destinos_en_xy(historial) == [p["a7"][:2], ejecutor._xy("cementerio:29"), (900.0, 200.0), p["a8"][:2]]  # el peón al cementerio y la dama de reserva a a8
+
+
+def test_ejecutor_real_sin_cementerio_calibrado_no_mueve_nada_en_una_captura():
     ejecutor, historial = _ejecutor()
     tablero_antes = chess.Board()
     tablero_antes.push_san("e4")
     tablero_antes.push_san("d5")
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(RuntimeError, match="cementerio"):
         ejecutor.ejecutar_movimiento(tablero_antes, tablero_antes.parse_uci("e4d5"))
     assert historial == []
+
+
+def test_ejecutor_real_reintenta_el_agarre_una_vez_si_cerro_en_el_aire():
+    ejecutor, historial = _ejecutor(hay_pieza=False)
+    ejecutor.reintentos_agarre = 1
+
+    with pytest.raises(PiezaNoAgarrada):
+        _jugar(ejecutor)
+
+    assert len([l for l in historial if l == ("pinza_cerrar",)]) == 2  # lo intentó dos veces y recién después avisó
+
+
+def test_ejecutor_real_no_reintenta_si_se_le_cayo_la_pieza():
+    ejecutor, historial = _ejecutor(se_cae_al_subir=True)
+    ejecutor.reintentos_agarre = 3
+
+    with pytest.raises(PiezaNoAgarrada) as error:
+        _jugar(ejecutor)
+
+    assert not error.value.reintentable and len([l for l in historial if l == ("pinza_cerrar",)]) == 1
 
 
 def test_ejecutor_real_secuencia_de_una_jugada_sin_captura():

@@ -9,6 +9,7 @@ from backend.servicios.brazo.pinza_dh import (
     AGARRE_LLEGO,
     PinzaDH,
     PinzaNoResponde,
+    REINTENTOS_SIMPLES,
     ancho_mm_para_posicion,
     posicion_para_ancho_mm,
 )
@@ -74,7 +75,7 @@ def _pinza(**kwargs) -> tuple[PinzaDH, ClienteConPinzaFalsa]:
 def test_conectar_fija_el_rs485_y_abre_el_canal_interno_del_controlador() -> None:
     _, cliente = _pinza()
 
-    assert cliente.comandos == ['SetTool485(115200,"N",1)', 'ModbusCreate("127.0.0.1",60000,1,1)']
+    assert cliente.comandos[-2:] == ['SetTool485(115200,"N",1)', 'ModbusCreate("127.0.0.1",60000,1,1)']
 
 
 def test_sin_conectar_da_error_claro() -> None:
@@ -186,13 +187,19 @@ def test_conversion_entre_ancho_en_mm_y_posicion() -> None:
         posicion_para_ancho_mm(-1.0)
 
 
-def test_si_el_canal_modbus_se_perdio_lo_renueva_y_reintenta() -> None:
-    """Un `ErrorID -1` suelto (canal Modbus viejo) no tira la operación: se vuelve a crear el canal y se reintenta una vez."""
+@pytest.fixture(autouse=True)
+def _sin_pausas(monkeypatch) -> None:
+    """Las pausas entre reintentos existen para la pinza real; en las pruebas no hace falta esperar."""
+    monkeypatch.setattr("backend.servicios.brazo.pinza_dh.PAUSA_REINTENTO_S", 0)
+    monkeypatch.setattr("backend.servicios.brazo.pinza_dh.PAUSA_TRAS_RENOVAR_S", 0)
+
+
+def _pinza_con_lecturas_fallidas(cuantas: int) -> tuple[PinzaDH, ClienteConPinzaFalsa]:
     cliente = ClienteConPinzaFalsa()
     pinza = PinzaDH(cliente)
     pinza.conectar()
     original = cliente.enviar
-    fallos = [1]
+    fallos = [cuantas]
 
     def enviar(comando: str):
         if comando.startswith("GetHoldRegs") and fallos[0]:
@@ -202,11 +209,84 @@ def test_si_el_canal_modbus_se_perdio_lo_renueva_y_reintenta() -> None:
         return original(comando)
 
     cliente.enviar = enviar
+    return pinza, cliente
+
+
+def test_un_error_suelto_se_reintenta_sin_tocar_el_canal_modbus() -> None:
+    """Un `ErrorID -1` suelto (la pinza no contestó a tiempo) se resuelve repitiendo el comando: no se recrea el canal ni se vuelve a fijar el RS485."""
+    pinza, cliente = _pinza_con_lecturas_fallidas(2)
+    assert pinza.estado().inicializada is False
+    assert sum(c.startswith("ModbusCreate") for c in cliente.comandos) == 1  # solo el de la conexión
+    assert sum(c.startswith("SetTool485") for c in cliente.comandos) == 1
+
+
+def test_si_el_canal_modbus_se_perdio_lo_renueva_sin_repetir_el_rs485() -> None:
+    """Si repetirlo no alcanza, se recrea el canal (sin volver a fijar el RS485) y se reintenta una vez."""
+    pinza, cliente = _pinza_con_lecturas_fallidas(REINTENTOS_SIMPLES + 1)
     assert pinza.estado().inicializada is False
     assert sum(c.startswith("ModbusCreate") for c in cliente.comandos) == 2  # el de la conexión y el de la renovación
+    assert sum(c.startswith("SetTool485") for c in cliente.comandos) == 1
 
 
 def test_sin_respuesta_tras_el_reintento_explica_las_causas() -> None:
     pinza, _ = _pinza(responde=False)
     with pytest.raises(PinzaNoResponde, match="24 V"):
         pinza.estado()
+
+
+def test_conectar_cierra_los_maestros_viejos_si_el_controlador_rechaza_crear_otro() -> None:
+    """Tras reiniciar el backend sin cerrar el canal, `ModbusCreate` da ErrorID -1: se cierran los maestros viejos y se vuelve a crear."""
+
+    class ClienteConMaestroViejo(ClienteConPinzaFalsa):
+        def __init__(self):
+            super().__init__()
+            self.viejo_abierto = True
+
+        def enviar(self, comando: str) -> RespuestaDobot:
+            if comando.startswith("ModbusCreate") and self.viejo_abierto:
+                self.comandos.append(comando)
+                raise ErrorDobot(f"{comando} -> ErrorID -1")
+            if comando.startswith("ModbusClose"):
+                self.viejo_abierto = False
+            return super().enviar(comando)
+
+    cliente = ClienteConMaestroViejo()
+    pinza = PinzaDH(cliente)
+    pinza.conectar()
+    assert pinza._maestro == 0
+    assert [c for c in cliente.comandos if c.startswith("ModbusClose")] == [f"ModbusClose({i})" for i in range(5)]
+    assert sum(c.startswith("ModbusCreate") for c in cliente.comandos) == 1  # al limpiar antes de crear, el controlador ya no lo rechaza
+
+
+def test_conectar_siempre_limpia_los_maestros_viejos_antes_de_crear_el_suyo() -> None:
+    cliente = ClienteConPinzaFalsa()
+    PinzaDH(cliente).conectar()
+    cierres = [i for i, c in enumerate(cliente.comandos) if c.startswith("ModbusClose")]
+    creacion = next(i for i, c in enumerate(cliente.comandos) if c.startswith("ModbusCreate"))
+    assert len(cierres) == 5 and max(cierres) < creacion  # los cinco cierres van antes de crear el canal propio
+
+
+def test_renovar_el_canal_no_se_mezcla_con_una_lectura_de_otro_hilo() -> None:
+    """Mientras un hilo renueva el canal Modbus (cerrar maestros y crear otro), otro hilo no puede leer con el índice viejo: esperan su turno."""
+    import threading
+    import time
+
+    class ClienteLento(ClienteConPinzaFalsa):
+        def enviar(self, comando: str) -> RespuestaDobot:
+            if comando.startswith("ModbusCreate"):
+                time.sleep(0.15)  # da tiempo a que el otro hilo intente leer en medio de la renovación
+            return super().enviar(comando)
+
+    cliente = ClienteLento()
+    pinza = PinzaDH(cliente)
+    pinza.conectar()
+    cliente.comandos.clear()
+    hilo = threading.Thread(target=pinza._reabrir)
+    hilo.start()
+    time.sleep(0.05)
+    pinza.estado()  # se espera a que termine la renovación
+    hilo.join()
+    comandos = cliente.comandos
+    crear = next(i for i, c in enumerate(comandos) if c.startswith("ModbusCreate"))
+    lectura = next(i for i, c in enumerate(comandos) if c.startswith("GetHoldRegs"))
+    assert lectura > crear  # la lectura vino después de crear el canal nuevo

@@ -59,10 +59,26 @@ class EjecutarRutinaRequest(BaseModel):
     confirmar: bool = False
 
 
+class ProbarAperturaRequest(BaseModel):
+    casilla: str = Field(max_length=2)
+    tipo_pieza: str = Field("p", max_length=1)
+
+
+class ProbarLugarRequest(BaseModel):
+    lugar: str = Field(max_length=30)
+    """`cementerio:K` (K de 0 a 29), `reserva:dama_negra` o `reserva:dama_blanca`."""
+
+
 class MoverPiezaRequest(BaseModel):
     origen: str = Field(max_length=2)
-    destino: str = Field(max_length=2)
+    destino: str = Field("", max_length=2)
     tipo_pieza: str = Field("p", max_length=1)
+    captura: bool = False
+    """El destino tiene una pieza: se retira primero al cementerio."""
+    tipo_capturada: str = Field("p", max_length=1)
+    al_cementerio: bool = False
+    """Manda la pieza del origen al cementerio (sin destino)."""
+    casilla_cementerio: int = Field(0, ge=0, le=29)
 
 
 @router.get("/estado")
@@ -98,6 +114,12 @@ def limpiar_error() -> dict:
 @router.post("/parar")
 def parar() -> dict:
     return _llamar(control_brazo.parar)
+
+
+@router.get("/diagnostico")
+def diagnostico() -> list[dict]:
+    """Los últimos comandos enviados al controlador, con su resultado (para entender un fallo de la pinza o del brazo)."""
+    return _llamar(control_brazo.diagnostico)
 
 
 @router.get("/parametros")
@@ -142,12 +164,12 @@ def borrar_configuracion(nombre: str) -> list[dict]:
 
 @router.post("/mover-pieza/ensayo")
 def ensayo(cuerpo: MoverPiezaRequest) -> list[dict]:
-    return _llamar(control_brazo.plan_de_movimiento, cuerpo.origen, cuerpo.destino, cuerpo.tipo_pieza)
+    return _llamar(control_brazo.plan_de_movimiento, cuerpo.origen, cuerpo.destino, cuerpo.tipo_pieza, cuerpo.captura, cuerpo.tipo_capturada, cuerpo.al_cementerio, cuerpo.casilla_cementerio)
 
 
 @router.post("/mover-pieza")
 def mover_pieza(cuerpo: MoverPiezaRequest) -> dict:
-    return _llamar(control_brazo.mover_pieza, cuerpo.origen, cuerpo.destino, cuerpo.tipo_pieza)
+    return _llamar(control_brazo.mover_pieza, cuerpo.origen, cuerpo.destino, cuerpo.tipo_pieza, cuerpo.captura, cuerpo.tipo_capturada, cuerpo.al_cementerio, cuerpo.casilla_cementerio)
 
 
 @router.post("/mover-articulaciones")
@@ -158,6 +180,18 @@ def mover_articulaciones(cuerpo: ArticulacionesRequest) -> dict:
 @router.post("/mover-relativo")
 def mover_relativo(cuerpo: RelativoRequest) -> dict:
     return _llamar(control_brazo.mover_relativo, cuerpo.dx, cuerpo.dy, cuerpo.dz, cuerpo.velocidad_mm_s)
+
+
+@router.post("/probar-apertura")
+def probar_apertura(cuerpo: ProbarAperturaRequest) -> dict:
+    """Baja con la pinza abierta (sin cerrarla) sobre la pieza de `casilla` para ver si la apertura de ese tipo de pieza la rodea bien."""
+    return _llamar(control_brazo.probar_apertura, cuerpo.casilla, cuerpo.tipo_pieza)
+
+
+@router.post("/probar-lugar")
+def probar_lugar(cuerpo: ProbarLugarRequest) -> dict:
+    """Lleva la punta, sin pieza, sobre un lugar del cementerio o una reserva y baja hasta unos mm de donde soltaría (para revisarlos antes de jugar)."""
+    return _llamar(control_brazo.probar_lugar, cuerpo.lugar)
 
 
 @router.post("/posicion-inicial")

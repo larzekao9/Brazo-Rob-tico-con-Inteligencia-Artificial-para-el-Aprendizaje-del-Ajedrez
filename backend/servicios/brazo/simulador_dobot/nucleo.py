@@ -158,7 +158,16 @@ class Simulador:
         self.mundo = clase(self.geometria, self.parametros.fisicos, fen, self._yaw_dedos(self.pose), punta)
         self.pinza = PinzaSimulada(self.mundo, self.parametros.fisicos, self.registrar)
         self.pinza.ancho_mm = self.parametros.fisicos.carrera_mm
+        self._poner_reservas()
         self.avanzar_pasos(1)
+
+    def _poner_reservas(self) -> None:
+        """Las damas de reserva de los parámetros de agarre (`reservas`) quedan sobre la mesa donde están calibradas, para que el brazo pueda tomarlas al coronar.
+        Solo en el mundo geométrico (el de PyBullet no las dibuja)."""
+        poner = getattr(self.mundo, "poner_pieza_suelta", None)
+        for nombre, (x, y) in self.agarre.reservas.items():
+            if poner is not None:
+                poner("Q" if nombre.endswith("blanca") else "q", x, y)
 
     def reiniciar(self, fen: str | None = None) -> None:
         """Vuelve a la posición cero con la pinza sin inicializar y las piezas del FEN (por defecto la posición inicial)."""
@@ -175,6 +184,7 @@ class Simulador:
             chess.Board(fen)
             self.fen = fen
             self.mundo.cargar_fen(fen)
+            self._poner_reservas()
             self.registrar("sim", f"FEN cargado: {fen}")
 
     def cerrar(self) -> None:

@@ -15,6 +15,7 @@ import re
 import socket
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 
 MODO_LIBRE = 5
@@ -82,6 +83,8 @@ class ClienteDobot:
         self.velocidad_global, self.aceleracion, self.velocidad = velocidad_global, aceleracion, velocidad
         self._socket: socket.socket | None = None
         self._cerrojo = threading.RLock()
+        self.historial: deque[dict] = deque(maxlen=80)
+        """Los últimos comandos enviados (hora, hilo, comando y resultado): para ver en qué orden se cruzaron cuando algo falla (`GET /brazo/control/diagnostico`)."""
         """Un comando a la vez por el socket: el panel de control lee la telemetría mientras un hilo mueve el brazo."""
         self.cancelado = False
 
@@ -119,6 +122,18 @@ class ClienteDobot:
 
     def enviar(self, comando: str) -> RespuestaDobot:
         """Manda un comando, espera la respuesta completa (termina en `;`) y falla si el `ErrorID` no es 0."""
+        try:
+            respuesta = self._enviar(comando)
+        except Exception as error:
+            self._anotar(comando, f"ERROR {error}")
+            raise
+        self._anotar(comando, "ok")
+        return respuesta
+
+    def _anotar(self, comando: str, resultado: str) -> None:
+        self.historial.append({"hora": time.strftime("%H:%M:%S") + f".{int(time.time() * 1000) % 1000:03d}", "hilo": threading.current_thread().name, "comando": comando[:90], "resultado": resultado[:120]})
+
+    def _enviar(self, comando: str) -> RespuestaDobot:
         if self.cancelado and comando.startswith(COMANDOS_BLOQUEADOS_AL_CANCELAR):
             raise ErrorDobot("Cancelado por el usuario")
         with self._cerrojo:

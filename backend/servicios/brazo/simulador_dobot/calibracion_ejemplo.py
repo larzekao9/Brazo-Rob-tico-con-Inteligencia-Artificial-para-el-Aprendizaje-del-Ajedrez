@@ -20,6 +20,7 @@ PASO_CASILLA_MM = 30.5
 ORIGEN_A1 = (300.0, -3.5 * PASO_CASILLA_MM)
 Z_ENSENANZA = 234.8
 Z_TOPE_EJEMPLO = 223.65
+X_CEMENTERIO = 300.0 + 7 * PASO_CASILLA_MM + 60.0  # 60 mm más allá de la fila 8
 POSE_CERO = (250.0, -250.0, Z_TOPE_EJEMPLO + 250.0, -180.0, 0.0, -120.0)
 
 
@@ -53,6 +54,12 @@ def parametros_agarre_ejemplo() -> ParametrosAgarre:
         aperturas_por_pieza={"n": 860, "b": 760, "r": 760, "q": 800, "k": 800},
         fuerza=40,
         velocidad_pinza=20,
+        # Cementerio y damas de reserva pasada la octava fila (x mayor que la de a8), a la altura del tablero.
+        cementerio_origen=[X_CEMENTERIO, -100.0],
+        cementerio_paso=[0.0, 33.0],
+        cementerio_paso_fila=[33.0, 0.0],
+        cementerio_columnas=8,
+        reservas={"dama_blanca": [X_CEMENTERIO - 20, -150.0], "dama_negra": [X_CEMENTERIO - 20, -185.0]},
     )
 
 

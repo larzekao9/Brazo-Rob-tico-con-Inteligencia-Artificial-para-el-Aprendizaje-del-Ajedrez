@@ -39,7 +39,7 @@ def test_estado_trae_pose_pinza_piezas_y_tablero(web):
     _, cuerpo = _pedir(base + "/api/estado")
     estado = json.loads(cuerpo)
     assert estado["modo"] == 5 and len(estado["pose"]) == 6 and estado["pinza"]["agarre"] == 1
-    assert len(estado["piezas"]) == 1 and estado["tablero"]["z_tope"] == simulador.z_tope
+    assert len(estado["piezas"]) == 3 and estado["tablero"]["z_tope"] == simulador.z_tope  # la del FEN y las dos damas de reserva de los parámetros de ejemplo
     assert set(estado["perfiles"]) == {"p", "n", "b", "r", "q", "k"}
 
 
@@ -52,11 +52,11 @@ def test_pausa_velocidad_fen_reinicio_y_fallos_por_http(web):
     _pedir(base + "/api/velocidad", {"escala": 500})
     assert simulador.escala_tiempo == 20
     _pedir(base + "/api/fen", {"fen": "8/8/8/8/4P3/8/8/8 w - - 0 1"})
-    assert len(simulador.mundo.piezas()) == 1 and simulador.mundo.piezas()[0].casilla_inicial == "e4"
+    assert [p.casilla_inicial for p in simulador.mundo.piezas() if p.casilla_inicial != "reserva"] == ["e4"]  # y las damas de reserva siguen en su sitio
     _pedir(base + "/api/fallo", {"tipo": "pinza_no_responde", "valor": True})
     assert simulador.fallos.pinza_no_responde
     _pedir(base + "/api/reiniciar", {})
-    assert len(simulador.mundo.piezas()) == 32 and not simulador.fallos.pinza_no_responde
+    assert len(simulador.mundo.piezas()) == 34 and not simulador.fallos.pinza_no_responde  # las 32 del tablero y las 2 damas de reserva
     _pedir(base + "/api/limpiar_log", {})
     assert len(simulador.log) == 0
 

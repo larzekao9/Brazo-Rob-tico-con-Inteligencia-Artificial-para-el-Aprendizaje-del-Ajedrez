@@ -10,6 +10,7 @@ import chess
 
 from backend.servicios.brazo.calibracion_brazo import ParametrosAgarre
 from backend.servicios.brazo.cliente_dobot import ClienteDobot
+from backend.servicios.brazo.planificador_movimiento import PREFIJO_CEMENTERIO, PREFIJO_RESERVA, Paso, planificar
 from backend.servicios.brazo.pinza_dh import AGARRE_SOSTIENE, POSICION_ABIERTA, PinzaDH
 
 
@@ -89,7 +90,14 @@ class EjecutorSimulado(EjecutorMovimiento):
 
 
 class PiezaNoAgarrada(RuntimeError):
-    """La pinza cerró y no sintió ninguna pieza (cerró en el aire) o se le cayó mientras la subía."""
+    """La pinza cerró y no sintió ninguna pieza (cerró en el aire) o se le cayó mientras la subía.
+
+    `reintentable` es `True` si cerró en el aire (se puede volver a bajar a probar) y `False` si se le cayó la pieza (pudo quedar en cualquier lado: que lo mire una persona).
+    """
+
+    def __init__(self, mensaje: str, reintentable: bool = True):
+        super().__init__(mensaje)
+        self.reintentable = reintentable
 
 
 class EjecutorReal(EjecutorMovimiento):
@@ -105,7 +113,8 @@ class EjecutorReal(EjecutorMovimiento):
     - `posiciones_casillas` (calibración del tablero), `orientacion` `(rx, ry, rz)` de la herramienta y `parametros.z_tope`.
     - el brazo encendido y habilitado en modo TCP, y la pinza inicializada (`conectar()` la inicializa si hace falta).
 
-    Todavía no resuelve capturas (retirar la pieza del destino), enroque, captura al paso ni coronación.
+    Las jugadas especiales se resuelven con `planificador_movimiento.planificar`: la captura retira la pieza capturada al cementerio, el enroque mueve rey y torre,
+    la captura al paso retira el peón y la coronación retira el peón y pone la dama de reserva (el cementerio y la reserva se calibran en `ParametrosAgarre`).
     """
 
     def __init__(
@@ -120,6 +129,7 @@ class EjecutorReal(EjecutorMovimiento):
         parametros: ParametrosAgarre | None = None,
         cliente: ClienteDobot | None = None,
         pinza: PinzaDH | None = None,
+        reintentos_agarre: int = 0,
     ):
         """
         Args:
@@ -130,6 +140,7 @@ class EjecutorReal(EjecutorMovimiento):
             velocidad_global: `SpeedFactor` al conectar (1 a 100); bajo por seguridad.
             parametros: alturas, giro y apertura de agarre (ver `ParametrosAgarre`).
             cliente, pinza: ya armados (para pruebas); si no, se crean con `host`.
+            reintentos_agarre: cuántas veces más se vuelve a bajar por una pieza si la pinza cerró en el aire (0 = ninguna).
         """
         self.parametros = parametros or ParametrosAgarre()
         self.cliente = cliente or ClienteDobot(host, puerto_dashboard, timeout_segundos, velocidad_global)
@@ -137,6 +148,7 @@ class EjecutorReal(EjecutorMovimiento):
         self.posiciones_casillas = posiciones_casillas
         self.orientacion = orientacion
         self.angulos_cero = angulos_cero
+        self.reintentos_agarre = reintentos_agarre
 
     def conectar(self, inicializar_pinza: bool = True) -> None:
         """Abre la conexión con el brazo y con la pinza, y la inicializa si hace falta (los dedos se mueven unos segundos: libres)."""
@@ -150,9 +162,32 @@ class EjecutorReal(EjecutorMovimiento):
         self.pinza.desconectar()
         self.cliente.cerrar()
 
+    def _xy(self, lugar: str) -> tuple[float, float]:
+        """(x, y) de un lugar: una casilla del tablero, `cementerio:K` o `reserva:dama_blanca`.
+
+        Raises:
+            RuntimeError: si el cementerio o la reserva no están calibrados.
+        """
+        if lugar.startswith(PREFIJO_CEMENTERIO):
+            p = self.parametros
+            if p.cementerio_origen is None:
+                raise RuntimeError("Falta calibrar el cementerio (cementerio_origen): ahí se dejan las piezas capturadas")
+            indice = int(lugar[len(PREFIJO_CEMENTERIO):])
+            fila, columna = divmod(indice, max(1, p.cementerio_columnas))
+            return (p.cementerio_origen[0] + columna * p.cementerio_paso[0] + fila * p.cementerio_paso_fila[0],
+                    p.cementerio_origen[1] + columna * p.cementerio_paso[1] + fila * p.cementerio_paso_fila[1])
+        if lugar.startswith(PREFIJO_RESERVA):
+            nombre = lugar[len(PREFIJO_RESERVA):]
+            if nombre not in self.parametros.reservas:
+                raise RuntimeError(f"Falta calibrar la pieza de reserva '{nombre}' (reservas) para coronar")
+            x, y = self.parametros.reservas[nombre]
+            return x, y
+        x, y, _ = self.posiciones_casillas[lugar]
+        return x, y
+
     def _pose(self, casilla: str, sobre_mm: float = 0.0) -> tuple[float, ...]:
-        """Pose de la herramienta sobre `casilla`: altura de agarre más `sobre_mm`, con el giro en diagonal."""
-        x, y, _ = self.posiciones_casillas[casilla]
+        """Pose de la herramienta sobre `casilla` (o cementerio/reserva): altura de agarre más `sobre_mm`, con el giro en diagonal."""
+        x, y = self._xy(casilla)
         rx, ry, rz = self.orientacion
         return (x, y, self.parametros.z_agarre + sobre_mm, rx, ry, rz + self.parametros.giro_diagonal_grados)
 
@@ -175,29 +210,57 @@ class EjecutorReal(EjecutorMovimiento):
         self.cliente.mover_a_pose(self._pose(casilla, self.parametros.altura_segura_mm), lineal=True)
 
     def ejecutar_movimiento(self, tablero_antes: chess.Board, jugada: chess.Move) -> None:
-        """Mueve la pieza de `jugada` (sin captura) y deja el brazo en la posición cero.
+        """Hace `jugada` con el brazo (cada paso de `planificar`) y lo deja en la posición cero.
 
         Raises:
-            RuntimeError: si falta la calibración, la orientación o la altura del tablero, o la pinza no está inicializada.
-            NotImplementedError: si `jugada` captura una pieza (retirar la capturada es el siguiente paso).
-            PiezaNoAgarrada: si la pinza cierra sin sentir una pieza o la pierde al subirla.
+            RuntimeError: si falta la calibración, la orientación, la altura del tablero, una apertura, el cementerio o la reserva, o la pinza no está inicializada.
+                Se comprueba todo ANTES de mover nada.
+            ValueError: la coronación no es a dama.
+            PiezaNoAgarrada: si la pinza cierra sin sentir una pieza (tras los reintentos) o la pierde al subirla.
         """
         if self.posiciones_casillas is None:
             raise RuntimeError("No se cargó la calibración del tablero todavía — llamá calcular_posiciones_casillas() con puntos medidos primero.")
         if self.orientacion is None:
             raise RuntimeError("Falta la orientación (rx, ry, rz) de la herramienta: tomala de GetPose() con la pinza apuntando al tablero.")
         _ = self.parametros.z_agarre  # falla con un mensaje claro si falta la altura del tablero
-        if tablero_antes.is_capture(jugada):
-            raise NotImplementedError("Retirar piezas capturadas del tablero físico es el siguiente paso, no implementado todavía.")
-        self.parametros.apertura_para(tablero_antes.piece_at(jugada.from_square).symbol())  # falla si falta medirla
+        self.ejecutar_pasos(planificar(tablero_antes, jugada))
+
+    def ejecutar_pasos(self, pasos: list[Paso]) -> None:
+        """Hace cada paso (agarrar en `origen`, soltar en `destino`) y deja el brazo en la posición cero. Es lo que usan `ejecutar_movimiento` y las pruebas
+        manuales del panel (capturar, mandar una pieza al cementerio).
+
+        Raises:
+            RuntimeError: falta calibración, una apertura, el cementerio o la reserva, o la pinza no está inicializada (se comprueba antes de mover).
+            PiezaNoAgarrada: la pinza cierra sin sentir una pieza (tras los reintentos) o la pierde al subirla.
+        """
+        if self.posiciones_casillas is None or self.orientacion is None:
+            raise RuntimeError("Falta la calibración del tablero o la orientación de la herramienta.")
+        _ = self.parametros.z_agarre
+        for paso in pasos:  # todo lo que haga falta tiene que estar listo antes de mover la primera pieza
+            self.parametros.apertura_para(paso.pieza)
+            self._xy(paso.origen)
+            self._xy(paso.destino)
         if not self.pinza.estado().inicializada:
             raise RuntimeError("La pinza no está inicializada: llamá a conectar() o a pinza.inicializar() antes de mover piezas.")
+        for paso in pasos:
+            self._trasladar(paso)
+        if self.angulos_cero is not None:
+            self.cliente.mover_a_angulos(self.angulos_cero)
 
-        origen = chess.square_name(jugada.from_square)
-        destino = chess.square_name(jugada.to_square)
+    def _trasladar(self, paso: Paso) -> None:
+        """Un paso, con los reintentos de agarre que se hayan pedido (solo si la pinza cerró en el aire)."""
+        for intento in range(self.reintentos_agarre + 1):
+            try:
+                self._trasladar_una_vez(paso)
+                return
+            except PiezaNoAgarrada as error:
+                if not error.reintentable or intento == self.reintentos_agarre:
+                    raise
+
+    def _trasladar_una_vez(self, paso: Paso) -> None:
+        origen, destino = paso.origen, paso.destino
         seguro = self.parametros.altura_segura_mm
-        apertura = self.parametros.apertura_para(tablero_antes.piece_at(jugada.from_square).symbol())
-
+        apertura = self.parametros.apertura_para(paso.pieza)
         self.pinza.mover_a(apertura)
         self.cliente.mover_a_pose(self._pose(origen, seguro))
         self.cliente.mover_a_pose(self._pose(origen), lineal=True)
@@ -211,10 +274,8 @@ class EjecutorReal(EjecutorMovimiento):
         self.cliente.mover_a_pose(self._pose(origen, seguro), lineal=True)
         if self.pinza.estado().agarre != AGARRE_SOSTIENE:
             self._retirarse(origen, apertura)
-            raise PiezaNoAgarrada(f"Se le cayó la pieza de {origen} al subirla")
+            raise PiezaNoAgarrada(f"Se le cayó la pieza de {origen} al subirla", reintentable=False)
         self.cliente.mover_a_pose(self._pose(destino, seguro), lineal=True)
         self.cliente.mover_a_pose(self._pose(destino), lineal=True)
         self.pinza.mover_a(min(POSICION_ABIERTA, apertura + self.parametros.apertura_extra_soltar))  # soltar, más abierta que al agarrar
         self.cliente.mover_a_pose(self._pose(destino, seguro), lineal=True)
-        if self.angulos_cero is not None:
-            self.cliente.mover_a_angulos(self.angulos_cero)

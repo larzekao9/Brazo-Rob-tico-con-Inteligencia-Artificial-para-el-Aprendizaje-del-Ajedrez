@@ -193,6 +193,15 @@ class ParametrosAgarre:
     """Altura sobre el agarre para trasladarse: los dedos pasan por encima del rey, la pieza más alta."""
     fuerza: int = 20
     velocidad_pinza: int = 20
+    cementerio_origen: list[float] | None = None
+    """(x, y) de la primera casilla del cementerio, fuera del tablero, a la misma altura que él: ahí van las piezas capturadas y los peones coronados."""
+    cementerio_paso: list[float] = field(default_factory=lambda: [30.0, 0.0])
+    """(dx, dy) de una casilla a la siguiente de la misma fila del cementerio (mm): más que el ancho de la pieza más ancha."""
+    cementerio_paso_fila: list[float] = field(default_factory=lambda: [0.0, 30.0])
+    """(dx, dy) de una fila del cementerio a la siguiente (mm)."""
+    cementerio_columnas: int = 8
+    reservas: dict[str, list[float]] = field(default_factory=dict)
+    """(x, y) de las piezas de reserva para coronar: `"dama_blanca"`, `"dama_negra"`."""
 
     def apertura_para(self, tipo_pieza: str) -> int:
         """Apertura de la pinza al bajar sobre una pieza de `tipo_pieza` (`"p"`, `"n"`, `"b"`, `"r"`, `"q"`, `"k"`).

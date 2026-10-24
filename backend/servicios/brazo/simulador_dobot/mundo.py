@@ -393,6 +393,11 @@ class MundoGeometrico:
             x, y = self.geometria.centro_casilla(casilla)
             self._piezas[numero] = EstadoPieza(numero, simbolo, x, y, self.geometria.z_superficie, 0.0, casilla)
 
+    def poner_pieza_suelta(self, simbolo: str, x: float, y: float) -> None:
+        """Deja una pieza apoyada en la mesa en (x, y), fuera de las casillas (por ejemplo, la dama de reserva)."""
+        numero = max(self._piezas, default=0) + 1
+        self._piezas[numero] = EstadoPieza(numero, simbolo, x, y, self.geometria.z_superficie, 0.0, "reserva")
+
     def poner_pieza_en_mano(self, simbolo: str) -> None:
         self.quitar_pieza_en_mano()
         numero = max(self._piezas, default=0) + 1

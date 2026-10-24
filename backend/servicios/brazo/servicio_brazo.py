@@ -16,6 +16,7 @@ import os
 import chess
 
 from backend.modelos.partida import Partida
+from backend.servicios.brazo import control_brazo
 from backend.servicios.brazo.calibracion_brazo import cargar_calibracion_brazo, cargar_parametros_agarre
 from backend.servicios.brazo.ejecutor_movimiento import EjecutorMovimiento
 from backend.servicios.brazo.fabrica_ejecutores import crear_ejecutor_movimiento
@@ -69,11 +70,30 @@ def _obtener_ejecutor() -> EjecutorMovimiento:
         if puerto_dashboard is not None:
             kwargs["puerto_dashboard"] = int(puerto_dashboard)
         kwargs.update(_calibracion_del_brazo())
+    if modo == "real":
+        kwargs["reintentos_agarre"] = 1  # regla de negocio: un solo reintento de agarre, después incidente
     ejecutor = crear_ejecutor_movimiento(modo, **kwargs)
     if modo == "real":
         ejecutor.conectar()
     _ejecutor = ejecutor
     return _ejecutor
+
+
+def ejecutar_jugada_fisica(tablero_antes: chess.Board, jugada: chess.Move) -> None:
+    """Ejecuta `jugada` en el brazo y deja pasar cualquier error (a diferencia de `ejecutar_respuesta_en_brazo`, que lo devuelve como texto).
+
+    La usa `partida_fisica`, que necesita saber exactamente qué falló para pasar a incidente. Si hay un brazo conectado en el panel de control (real o emulador) usa ese;
+    si no, y solo con `AJEDREZ_MODO_BRAZO=real`, el ejecutor real de esa variable; en cualquier otro caso falla (no hay brazo).
+    """
+    global _ultima_jugada
+    if control_brazo.conectado():  # el brazo (o el emulador) que se conectó en el panel de control: misma conexión y mismos parámetros
+        control_brazo.ejecutar_jugada(tablero_antes, jugada)
+    elif os.environ.get("AJEDREZ_MODO_BRAZO", "simulado") == "real":
+        _obtener_ejecutor().ejecutar_movimiento(tablero_antes, jugada)
+    else:
+        # Sin brazo conectado no se finge que se movió algo (el ejecutor «simulado» no mueve nada real): se avisa.
+        raise RuntimeError("No hay ningún brazo conectado: conectá el brazo real (o el emulador) en «Control del brazo», habilitalo y volvé a intentar.")
+    _ultima_jugada = jugada.uci()
 
 
 def ejecutar_respuesta_en_brazo(

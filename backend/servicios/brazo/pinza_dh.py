@@ -15,6 +15,7 @@ nuevos hay que recalibrar con 0xA5 (`recalibrar`), porque cambia el recorrido.
 """
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass
 
@@ -33,6 +34,13 @@ ESPERA_ESTADO_VIEJO_SEGUNDOS = 1.0
 AGARRE_EN_MOVIMIENTO, AGARRE_LLEGO, AGARRE_SOSTIENE, AGARRE_SE_CAYO = 0, 1, 2, 3
 POSICION_ABIERTA, POSICION_CERRADA = 1000, 0
 CARRERA_MM = 26.0
+MAESTROS_MODBUS_MAXIMOS = 5
+REINTENTOS_SIMPLES = 3
+"""Veces que se repite un comando que falló, tal cual, antes de renovar el canal Modbus: la pinza a veces no contesta un instante (se mueve, el bus está ocupado)."""
+PAUSA_REINTENTO_S = 0.2
+PAUSA_TRAS_RENOVAR_S = 0.6
+"""La pinza necesita un momento tras recrear el canal antes de contestar."""
+"""Cuántos maestros Modbus admite el controlador a la vez (índices 0 a 4)."""
 """Recorrido total entre dedos de la PGE-50-26 (ficha técnica). Solo vale con los dedos de fábrica y es una aproximación lineal."""
 
 
@@ -88,6 +96,9 @@ class PinzaDH:
         self.cliente, self.fuerza, self.velocidad = cliente, fuerza, velocidad
         self.id_esclavo, self.baudios = id_esclavo, baudios
         self._maestro: int | None = None
+        self._cerrojo = threading.RLock()
+        """Una sola conversación a la vez con la pinza: el panel consulta su estado cada instante mientras otro hilo la mueve, y sin esto las renovaciones del canal
+        Modbus de uno (`_reabrir`: cerrar los maestros y crear otro) cortaban el canal del otro y fallaban las dos."""
 
     @staticmethod
     def _validar(valor: int, minimo: int, maximo: int, nombre: str) -> None:
@@ -96,41 +107,73 @@ class PinzaDH:
 
     # --- comunicación -----------------------------------------------------------------------------------------------
     def conectar(self) -> None:
-        """Fija el RS485 de la herramienta y abre el canal Modbus hacia la pinza."""
-        self.cliente.enviar(f'SetTool485({self.baudios},"N",1)')
-        respuesta = self.cliente.enviar(f'ModbusCreate("127.0.0.1",60000,{self.id_esclavo},1)')
-        self._maestro = int(float(respuesta.valores))
+        """Fija el RS485 de la herramienta y abre el canal Modbus hacia la pinza.
+
+        Antes cierra cualquier canal Modbus que haya quedado abierto de una conexión anterior (el backend se reinició sin cerrarlo): con uno viejo abierto el controlador
+        o bien rechaza crear otro (`ErrorID -1`) o lo crea con otro índice y las lecturas a la pinza fallan («La pinza no contestó»). El controlador admite 5 a la vez.
+        """
+        with self._cerrojo:
+            self._cerrar_maestros_viejos()
+            self.cliente.enviar(f'SetTool485({self.baudios},"N",1)')
+            crear = f'ModbusCreate("127.0.0.1",60000,{self.id_esclavo},1)'
+            try:
+                respuesta = self.cliente.enviar(crear)
+            except ErrorDobot:
+                self._cerrar_maestros_viejos()  # segunda oportunidad, por si el controlador tardó en soltarlos
+                respuesta = self.cliente.enviar(crear)
+            self._maestro = int(float(respuesta.valores))
+
+    def _cerrar_maestros_viejos(self) -> None:
+        for indice in range(MAESTROS_MODBUS_MAXIMOS):
+            try:
+                self.cliente.enviar(f"ModbusClose({indice})")
+            except ErrorDobot:
+                pass  # ese no estaba abierto
 
     def desconectar(self) -> None:
         """Libera el maestro Modbus (el controlador admite solo 5 a la vez)."""
-        if self._maestro is not None:
-            try:
-                self.cliente.enviar(f"ModbusClose({self._maestro})")
-            finally:
-                self._maestro = None
+        with self._cerrojo:
+            if self._maestro is not None:
+                try:
+                    self.cliente.enviar(f"ModbusClose({self._maestro})")
+                finally:
+                    self._maestro = None
 
     def _reabrir(self) -> None:
-        """Vuelve a crear el canal Modbus (suelta el maestro anterior y repite `SetTool485` y `ModbusCreate`).
+        """Vuelve a crear el canal Modbus (suelta el maestro anterior y crea otro). No repite `SetTool485`: la configuración del RS485 sigue valiendo y volver a fijarla
+        en medio de un movimiento hace que la pinza deje de contestar un buen rato.
 
-        Sirve cuando el controlador perdió el canal (reinicio del RS485, un maestro viejo que se cerró solo): se nota como `ErrorID -1` al leer.
+        Sirve cuando el controlador perdió el canal (un maestro viejo que se cerró solo): se nota como `ErrorID -1` al leer.
         """
-        if self._maestro is not None:
+        with self._cerrojo:
+            if self._maestro is not None:
+                try:
+                    self.cliente.enviar(f"ModbusClose({self._maestro})")
+                except ErrorDobot:
+                    pass
+                self._maestro = None
+            crear = f'ModbusCreate("127.0.0.1",60000,{self.id_esclavo},1)'
             try:
-                self.cliente.enviar(f"ModbusClose({self._maestro})")
+                respuesta = self.cliente.enviar(crear)
             except ErrorDobot:
-                pass
-            self._maestro = None
-        self.conectar()
+                self._cerrar_maestros_viejos()
+                respuesta = self.cliente.enviar(crear)
+            self._maestro = int(float(respuesta.valores))
 
     def _con_reintento(self, comando) -> object:
-        """Ejecuta `comando()` (usa el maestro vigente); si el controlador devuelve error, renueva el canal Modbus y lo intenta una vez más."""
-        try:
-            return comando()
-        except ErrorDobot:
-            if getattr(self.cliente, "cancelado", False):  # el usuario paró el brazo: no se insiste ni se toca el canal
-                raise
-            self._reabrir()
-            return comando()
+        """Ejecuta `comando()` (usa el maestro vigente). Si falla, primero lo repite unas veces con una pausa corta (lo más común es que la pinza no haya contestado
+        a tiempo); solo si sigue fallando renueva el canal Modbus y lo intenta una vez más."""
+        for intento in range(REINTENTOS_SIMPLES + 1):
+            try:
+                return comando()
+            except ErrorDobot:
+                if getattr(self.cliente, "cancelado", False):  # el usuario paró el brazo: no se insiste ni se toca el canal
+                    raise
+                if intento < REINTENTOS_SIMPLES:
+                    time.sleep(PAUSA_REINTENTO_S)
+        self._reabrir()
+        time.sleep(PAUSA_TRAS_RENOVAR_S)
+        return comando()
 
     def _requiere_conexion(self) -> int:
         if self._maestro is None:
@@ -139,18 +182,20 @@ class PinzaDH:
 
     def leer(self, direccion: int, cantidad: int = 1) -> list[int]:
         """Lee `cantidad` registros desde `direccion`. Lanza `PinzaNoResponde` si el controlador devuelve error."""
-        try:
-            respuesta = self._con_reintento(lambda: self.cliente.enviar(f"GetHoldRegs({self._requiere_conexion()},{direccion},{cantidad})"))
-        except ErrorDobot as error:
-            raise PinzaNoResponde(f"La pinza no contestó al leer 0x{direccion:04X}: {error}.{_causas(error)}") from error
-        return [int(float(v)) for v in respuesta.valores.split(",") if v.strip()]
+        with self._cerrojo:
+            try:
+                respuesta = self._con_reintento(lambda: self.cliente.enviar(f"GetHoldRegs({self._requiere_conexion()},{direccion},{cantidad})"))
+            except ErrorDobot as error:
+                raise PinzaNoResponde(f"La pinza no contestó al leer 0x{direccion:04X}: {error}.{_causas(error)}") from error
+            return [int(float(v)) for v in respuesta.valores.split(",") if v.strip()]
 
     def escribir(self, direccion: int, valor: int) -> None:
         """Escribe un registro. Lanza `PinzaNoResponde` si el controlador devuelve error."""
-        try:
-            self._con_reintento(lambda: self.cliente.enviar(f"SetHoldRegs({self._requiere_conexion()},{direccion},1,{{{int(valor)}}})"))
-        except ErrorDobot as error:
-            raise PinzaNoResponde(f"La pinza no aceptó la escritura en 0x{direccion:04X}: {error}.{_causas(error)}") from error
+        with self._cerrojo:
+            try:
+                self._con_reintento(lambda: self.cliente.enviar(f"SetHoldRegs({self._requiere_conexion()},{direccion},1,{{{int(valor)}}})"))
+            except ErrorDobot as error:
+                raise PinzaNoResponde(f"La pinza no aceptó la escritura en 0x{direccion:04X}: {error}.{_causas(error)}") from error
 
     def estado(self) -> EstadoPinza:
         """Estado actual: inicializada, agarre y posición."""

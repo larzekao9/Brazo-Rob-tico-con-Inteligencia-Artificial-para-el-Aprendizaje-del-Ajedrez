@@ -384,8 +384,13 @@ def mover(
     jugada_uci: str,
     tiempo_jugada_ms: int | None = None,
     reloj_blancas_ms: int | None = None,
+    ejecutar_brazo: bool = True,
+    coronar_solo_a_dama: bool = False,
 ) -> dict:
     """Aplica la jugada del humano (UCI) y responde con la jugada de la estrategia activa.
+
+    Con `ejecutar_brazo=False` no manda la respuesta al brazo (quien llama la ejecuta aparte, p. ej. `partida_fisica`, que no puede bloquear unos 30 s).
+    Con `coronar_solo_a_dama=True`, si la respuesta corona a otra pieza se corona a dama (el brazo solo tiene damas de reserva).
 
     Las dos jugadas (humano + respuesta) se prueban sobre una copia del
     tablero, no sobre `partida.tablero` directamente: si la estrategia activa
@@ -452,6 +457,9 @@ def mover(
         tiempo_rival_ms = int((time.perf_counter() - inicio_decision) * 1000)
         tablero_antes_motor = tablero_intento.copy()
         jugada_motor_move = tablero_intento.parse_san(jugada_motor_san)
+        if coronar_solo_a_dama and jugada_motor_move.promotion not in (None, chess.QUEEN):
+            jugada_motor_move = chess.Move(jugada_motor_move.from_square, jugada_motor_move.to_square, promotion=chess.QUEEN)
+            jugada_motor_san = tablero_intento.san(jugada_motor_move)
         tablero_intento.push(jugada_motor_move)
         jugadas_a_registrar.append((
             len(tablero_intento.move_stack),
@@ -459,7 +467,8 @@ def mover(
             jugada_motor_move.uci(),
             partida.tipo_oponente,
         ))
-        error_brazo = ejecutar_respuesta_en_brazo(partida, tablero_antes_motor, jugada_motor_move)
+        if ejecutar_brazo:
+            error_brazo = ejecutar_respuesta_en_brazo(partida, tablero_antes_motor, jugada_motor_move)
 
     ahora = datetime.now(timezone.utc).isoformat()
     if partida.iniciada_en is None:
