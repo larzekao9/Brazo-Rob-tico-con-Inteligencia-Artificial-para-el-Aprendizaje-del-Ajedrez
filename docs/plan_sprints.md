@@ -268,6 +268,19 @@ Win% y el mate se muestra en palabras. Verificado con tests, contra la API real 
       duración de una partida se determina por su control de tiempo (p. ej. 10 min por lado) y termina por
       jaque mate, tablas, abandono o tiempo agotado. Límite: la primera jugada de la partida no se mide (el reloj
       todavía no empezó) y las partidas anteriores a este cambio no tienen tiempos.
+- [x] **Abandono de partidas, como en Lichess (2026-10-24, recomendación del director de ajedrez):**
+      - **Con reloj no se puede dejar la partida.** La pantalla avisa cada 5 s que el jugador sigue ahí
+        (`POST /partida/{id}/presencia`, solo con la pestaña a la vista); si pasan más de **20 segundos** sin aviso
+        (cierra o cambia de pestaña, sale de la pantalla, se queda sin conexión) la partida se da por perdida. Con
+        menos de 5 jugadas del jugador se borra en vez de contar. Las señales viven en memoria del servidor
+        (`servicios/partida/presencia.py`, un solo proceso); si una pantalla no avisa nunca (app móvil) esa partida
+        no se pierde por ausencia y queda con la regla de los 2 días.
+      - **Sin reloj se puede salir y volver** a hacer una jugada, pero si pasan más de **2 días** sin jugar se da por
+        perdida (antes eran 12 h). Empezar una partida nueva con otra a medias también da la anterior por perdida.
+      - "Dada por perdida" = `estado = abandonada` con la derrota del jugador (`resultado = 0-1`): cuenta como
+        partida jugada y perdida en el historial y las estadísticas, pero **no calibra el nivel** (ni cuenta para las
+        3 partidas del diagnóstico, que siguen siendo obligatorias) ni entra al dataset de entrenamiento
+        (`motivo = abandonada` en `/calibrar` y en el análisis). Sin cambios de esquema de base de datos.
 - [x] **Mate forzado:** si hay mate en N, muestra "MATE en N" en el panel de Stockfish (la etiqueta de la barra, que es chica, dice "M3")
 - [x] **Integración con EstrategiaModelo:** el modelo v5 propio (SE-ResNet-8) decide jugadas maestras de forma autónoma con poda táctica.
 - [x] **Ampliación (Hebert, esta semana):** el modelo propio ahora se autoidentifica en toda la
@@ -754,6 +767,11 @@ un solo curso a la vez: entrar a otro lo mueve). Desde ahí ve los videos por pi
   ilustración con una IA de imágenes. Tabla `medalla_personalizada`; máximo 30 por facilitador; borrar una medalla la quita
   también a quienes la ganaron. Tests: `backend/rutas/test_ruta_medallas_propias.py`. De paso se corrigió que eliminar la
   cuenta de un jugador con medallas fallaba por una referencia de la base.
+- [x] **Ilustraciones sugeridas (2026-10-24):** cada una de las 9 ideas listas de «Crear medallas propias» trae su
+  ilustración (piezas con carita, estilo de las figuritas de fábrica) en `frontend/public/ideas-medallas/<idea>.png`. Al
+  elegir una idea queda elegida su ilustración (se ve en la vista previa y en la tarjeta de la idea) y se sube sola al
+  crear la medalla; el facilitador puede descartarla o subir la suya. Viajan con el build del frontend, no con el volumen
+  de medallas. Si una idea no tiene archivo, se ve la silueta de la pieza.
 - Límites conocidos: el jugador entra desde Mi Perfil (el código no se pide todavía al registrarse); un jugador está
   en un solo curso y para cambiar de curso primero sale; los videos dependen de que el facilitador los haya subido. No se probó el reproductor con
   otros códecs ni navegadores, ni en un celular real (solo ancho emulado).

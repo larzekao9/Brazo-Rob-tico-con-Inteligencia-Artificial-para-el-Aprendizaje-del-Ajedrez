@@ -1,6 +1,5 @@
 """Ciclo de vida de las partidas fuera de la jugada en sí: cerrar las que
-quedan pendientes al crear una nueva, y barrer las que se abandonaron por
-inactividad.
+quedan pendientes al crear una nueva, y barrer las que se abandonaron.
 
 La Sala de Control crea una partida apenas se abre la pantalla (no hay botón
 "iniciar"), así que si el facilitador la cierra sin jugar, o simplemente
@@ -8,8 +7,19 @@ navega a otra pantalla, esa partida queda `en_curso` para siempre si nadie la
 cierra. Este módulo es el que decide qué hacer con esas partidas — nunca
 borra ni toca una partida marcada `es_demostracion=True`, y usa
 `MIN_JUGADAS_PARTIDA_VALIDA` (definida una sola vez en
-`backend.servicios.calibracion`) para decidir entre borrar una partida vacía
-o guardarla como `"abandonada"` porque ya tiene contenido útil.
+`backend.servicios.calibracion`) para decidir entre borrar una partida con
+muy pocas jugadas o darla por perdida porque ya se jugó algo.
+
+Reglas de abandono (como en Lichess):
+
+- **Con reloj**: no se puede dejar. Si pasan más de `SEGUNDOS_AUSENCIA_CON_RELOJ` sin señal de vida de la pantalla
+  (`presencia.py`), la partida se da por perdida.
+- **Sin reloj**: se puede salir y volver a seguir. Si pasan más de `HORAS_INACTIVIDAD_ABANDONO` (2 días) sin una
+  jugada, se da por perdida.
+
+"Dar por perdida" = `estado = "abandonada"` con la derrota del jugador (`resultado_por_tiempo = "0-1"`): cuenta como una
+partida jugada y perdida en el historial y las estadísticas, pero NO calibra el nivel (ni cuenta para el diagnóstico)
+ni entra al dataset de entrenamiento, porque no se terminó de jugar.
 
 Las funciones acá reciben el repositorio como parámetro (no importan
 `servicio_partida._repositorio` directamente) para no crear un import
@@ -24,13 +34,18 @@ from datetime import datetime, timedelta, timezone
 from backend.modelos.partida import Partida
 from backend.repositorios.repositorio_partida import RepositorioPartidas
 from backend.servicios.calibracion import MIN_JUGADAS_PARTIDA_VALIDA
+import backend.servicios.partida.presencia as presencia
 
 logger = logging.getLogger(__name__)
 
-HORAS_INACTIVIDAD_ABANDONO = 12
+HORAS_INACTIVIDAD_ABANDONO = 48
 """Con al menos una jugada del jugador, una partida `en_curso` sin novedad
-por más de este tiempo se considera abandonada (o se borra, si tampoco llega
+por más de este tiempo (2 días) se da por perdida (o se borra, si tampoco llega
 a `MIN_JUGADAS_PARTIDA_VALIDA`) — ver `limpiar_partidas_inactivas`."""
+
+SEGUNDOS_AUSENCIA_CON_RELOJ = 20
+"""Una partida con reloj cuya pantalla no da señales de vida por más de este tiempo se da por perdida (o se borra, si
+tiene menos de `MIN_JUGADAS_PARTIDA_VALIDA` jugadas) — ver `dar_por_perdida_si_ausente`."""
 
 MINUTOS_PARTIDA_VACIA = 60
 """Una partida `en_curso` sin ninguna jugada del jugador se borra si pasó
@@ -51,14 +66,41 @@ def _a_datetime_utc(valor: str) -> datetime:
 
 
 def _cerrar_o_borrar(partida: Partida, repositorio: RepositorioPartidas) -> None:
-    """Decide entre borrar o marcar `"abandonada"` una partida `en_curso`
-    que ya no hace falta conservar activa, según cuántas jugadas del jugador
-    tiene."""
+    """Decide entre borrar o dar por perdida una partida `en_curso` que ya no
+    hace falta conservar activa, según cuántas jugadas del jugador tiene: con
+    menos de `MIN_JUGADAS_PARTIDA_VALIDA` casi no se jugó y se borra; con más,
+    se da por perdida (`estado = "abandonada"` y derrota del jugador, que
+    juega blancas) para que nadie deje partidas a medias sin consecuencia."""
+    presencia.olvidar(partida.id)
     if partida.jugadas_jugador < MIN_JUGADAS_PARTIDA_VALIDA:
         repositorio.eliminar(partida.id)
     else:
+        partida.resultado_por_tiempo = "0-1"
         partida.estado = "abandonada"
+        partida.actualizada_en = datetime.now(timezone.utc).isoformat()
         repositorio.guardar(partida)
+
+
+def dar_por_perdida_si_ausente(partida: Partida, repositorio: RepositorioPartidas, ahora: float | None = None) -> bool:
+    """Cierra una partida con reloj cuyo jugador se fue: devuelve `True` si la cerró (dada por perdida o borrada).
+
+    Solo actúa si la partida es del jugador contra el motor o el modelo (no demostraciones ni salas), sigue `en_curso`,
+    tiene reloj y ya llegó alguna señal de vida de su pantalla (`presencia.py`), y la última fue hace más de
+    `SEGUNDOS_AUSENCIA_CON_RELOJ`. Sin señal registrada no hace nada (ver el porqué en `presencia.py`).
+    """
+    if (
+        partida.estado != "en_curso"
+        or partida.terminada
+        or not partida.control_tiempo_ms
+        or partida.es_demostracion
+        or partida.tipo_oponente == "humano"
+    ):
+        return False
+    sin_senal = presencia.segundos_sin_senal(partida.id, ahora)
+    if sin_senal is None or sin_senal <= SEGUNDOS_AUSENCIA_CON_RELOJ:
+        return False
+    _cerrar_o_borrar(partida, repositorio)
+    return True
 
 
 def cerrar_partidas_pendientes(repositorio: RepositorioPartidas, usuario_id: int) -> None:
@@ -82,12 +124,15 @@ def cerrar_partidas_pendientes(repositorio: RepositorioPartidas, usuario_id: int
 def limpiar_partidas_inactivas(repositorio: RepositorioPartidas) -> None:
     """Barrido general (todos los usuarios) de partidas `en_curso` inactivas.
 
-    Dos reglas, según si el jugador llegó a mover alguna vez:
+    Tres reglas:
 
+    - Con reloj y sin señal de vida de la pantalla por más de
+      `SEGUNDOS_AUSENCIA_CON_RELOJ`: se da por perdida (ver
+      `dar_por_perdida_si_ausente`).
     - Sin ninguna jugada del jugador: se borra si pasaron más de
       `MINUTOS_PARTIDA_VACIA` desde que se creó (`creada_en`) — se abrió la
       pantalla y nunca se jugó nada.
-    - Con al menos una: se cierra (borrada o `"abandonada"`, según
+    - Con al menos una: se cierra (borrada o dada por perdida, según
       `MIN_JUGADAS_PARTIDA_VALIDA`) si pasaron más de
       `HORAS_INACTIVIDAD_ABANDONO` desde la última jugada (`actualizada_en`,
       o `creada_en` si por algún motivo no está seteada).
@@ -101,9 +146,13 @@ def limpiar_partidas_inactivas(repositorio: RepositorioPartidas) -> None:
     sin romper el flujo del usuario.
     """
     ahora = datetime.now(timezone.utc)
+    en_curso: set[str] = set()
     for partida in repositorio.listar():
         if partida.estado != "en_curso" or partida.es_demostracion or partida.tipo_oponente == "humano":
             continue
+        if dar_por_perdida_si_ausente(partida, repositorio):
+            continue
+        en_curso.add(partida.id)
         if partida.jugadas_jugador == 0:
             referencia = _a_datetime_utc(partida.creada_en)
             if ahora - referencia > timedelta(minutes=MINUTOS_PARTIDA_VACIA):
@@ -112,6 +161,7 @@ def limpiar_partidas_inactivas(repositorio: RepositorioPartidas) -> None:
         referencia = _a_datetime_utc(partida.actualizada_en or partida.creada_en)
         if ahora - referencia > timedelta(hours=HORAS_INACTIVIDAD_ABANDONO):
             _cerrar_o_borrar(partida, repositorio)
+    presencia.olvidar_salvo(en_curso)
 
 
 def partida_en_curso_de(repositorio: RepositorioPartidas, usuario_id: int) -> Partida | None:

@@ -12,6 +12,7 @@ MotivoCalibracion = Literal[
     "ya_registrada",
     "partida_incompleta",
     "no_terminada",
+    "abandonada",
     "dueno_no_jugador",
     "sin_dueno",
     "no_aplica",

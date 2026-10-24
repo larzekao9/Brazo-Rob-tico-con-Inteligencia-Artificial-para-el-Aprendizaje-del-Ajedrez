@@ -23,6 +23,7 @@ from backend.servicios.brazo.servicio_brazo import ejecutar_respuesta_en_brazo
 from backend.servicios.estrategias.fabrica_estrategias import TIPOS_SOPORTADOS, crear_estrategia_jugada
 from backend.servicios.motor.motor_ajedrez import NIVEL_MAX, analizar_posicion, analizar_posiciones
 import backend.servicios.partida.ciclo_vida as ciclo_vida
+import backend.servicios.partida.presencia as presencia
 from backend.servicios.retroalimentacion.servicio_retroalimentacion import (
     analizar_jugada_en_tiempo_real,
     centipawns_a_probabilidad_victoria,
@@ -133,10 +134,34 @@ def crear_partida(
 def obtener_partida(partida_id: str) -> Partida:
     """Busca una partida por id.
 
+    Si es una partida con reloj cuyo jugador se fue (ver `ciclo_vida.dar_por_perdida_si_ausente`), la da por
+    perdida antes de devolverla: así cualquier consulta, jugada o señal de vida que llegue después de pasado el
+    plazo la ve ya cerrada.
+
     Raises:
-        KeyError: si no existe una partida con ese id.
+        KeyError: si no existe una partida con ese id (o si se borró por abandono con muy pocas jugadas).
     """
-    return _repositorio.obtener(partida_id)
+    partida = _repositorio.obtener(partida_id)
+    if ciclo_vida.dar_por_perdida_si_ausente(partida, _repositorio):
+        return _repositorio.obtener(partida_id)
+    return partida
+
+
+def registrar_presencia(partida_id: str) -> Partida:
+    """Señal de vida de la pantalla: el jugador sigue en esta partida con reloj (`POST /partida/{id}/presencia`).
+
+    La pantalla la manda cada pocos segundos mientras la partida está a la vista. Si pasaron más de
+    `ciclo_vida.SEGUNDOS_AUSENCIA_CON_RELOJ` desde la anterior, la partida ya se dio por perdida y se devuelve
+    cerrada (`estado == "abandonada"`) en vez de registrar nada. Una partida sin reloj o ya terminada no lleva
+    señal: se devuelve tal cual.
+
+    Raises:
+        KeyError: si no existe la partida (o se borró por abandono con muy pocas jugadas).
+    """
+    partida = obtener_partida(partida_id)
+    if partida.estado == "en_curso" and not partida.terminada and partida.control_tiempo_ms:
+        presencia.registrar(partida_id)
+    return partida
 
 
 def listar_partidas() -> list[Partida]:
@@ -430,7 +455,11 @@ def mover(
     """
     partida = obtener_partida(partida_id)
     if partida.terminada:
+        if partida.estado == "abandonada":
+            raise ValueError("La partida se dio por perdida por abandono: no volviste a tiempo")
         raise ValueError("La partida ya terminó")
+    if partida.control_tiempo_ms:
+        presencia.registrar(partida.id)  # jugar también es una señal de vida
 
     try:
         jugada_humano = partida.tablero.parse_uci(jugada_uci)

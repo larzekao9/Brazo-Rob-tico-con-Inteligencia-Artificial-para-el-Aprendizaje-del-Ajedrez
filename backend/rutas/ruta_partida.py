@@ -49,6 +49,7 @@ from backend.servicios.partida.servicio_partida import (
     obtener_partida_en_demostracion,
     partida_en_curso_de,
     actualizar_reloj,
+    registrar_presencia,
     terminar_por_tiempo,
 )
 from backend.servicios.aprendizaje.analisis_red import analizar_partida_con_red
@@ -397,6 +398,28 @@ def actualizar_reloj_partida(
     return _a_estado(partida, usuario_nombre=_resolver_nombre_dueno(db, partida.usuario_id))
 
 
+@router.post("/{partida_id}/presencia", response_model=EstadoPartidaResponse)
+def presencia_partida(
+    partida_id: str,
+    usuario_id: int = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> EstadoPartidaResponse:
+    """Señal de vida: la pantalla avisa que el jugador sigue en esta partida con reloj (cada pocos segundos, mientras
+    la partida está a la vista).
+
+    Una partida con reloj no se puede dejar: si pasan más de 20 segundos sin esta señal se da por perdida
+    (`estado == "abandonada"`, derrota del jugador) o se borra si casi no se jugó. La respuesta es el estado de la
+    partida, así la pantalla se entera enseguida si ya se cerró. Sin reloj, o ya terminada, no hace nada.
+
+    Requiere ser el dueño de la partida (403 si no); 404 si no existe o se borró por abandono."""
+    _exigir_dueno(partida_id, usuario_id)
+    try:
+        partida = registrar_presencia(partida_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return _a_estado(partida, usuario_nombre=_resolver_nombre_dueno(db, partida.usuario_id))
+
+
 @router.post("/{partida_id}/tiempo-agotado", response_model=EstadoPartidaResponse)
 def tiempo_agotado(
     partida_id: str,
@@ -505,7 +528,9 @@ def calibrar_partida(
     facilitador (calibra al dueño real, igual que en `analisis-completo`).
 
     Si la partida no terminó responde 200 con `registrada=false` y
-    `motivo="no_terminada"`, sin analizar nada. Si ya se sabe que no se puede
+    `motivo="no_terminada"`, sin analizar nada; si se dio por perdida por
+    abandono (`estado == "abandonada"`) responde `motivo="abandonada"`: no mide
+    el nivel ni cuenta para el diagnóstico. Si ya se sabe que no se puede
     o no hace falta calibrar (`sin_dueno`, `dueno_no_jugador`, `ya_registrada`)
     también responde eso sin correr Stockfish. **Partidas `humano` (salas) no
     calibran** (`motivo="no_aplica"`). Si no, analiza la partida y delega en
@@ -527,6 +552,9 @@ def calibrar_partida(
         return CalibracionResponse(**respuesta_no_registrada(db, None, "no_aplica"))
 
     dueno = get_user_by_id(db, partida.usuario_id) if partida.usuario_id is not None else None
+    if partida.estado == "abandonada":
+        # Una partida que se dejó (dada por perdida) no mide el nivel ni cuenta para el diagnóstico.
+        return CalibracionResponse(**respuesta_no_registrada(db, dueno, "abandonada"))
     if not partida.terminada:
         return CalibracionResponse(**respuesta_no_registrada(db, dueno, "no_terminada"))
     descartada = calibracion_descartada(db, dueno, partida_id)
@@ -584,7 +612,10 @@ def analisis_completo_partida(
 
     dueno = get_user_by_id(db, partida.usuario_id) if partida.usuario_id is not None else None
 
-    if partida.terminada:
+    if partida.estado == "abandonada":
+        # Dada por perdida por abandono: se puede revisar, pero no mide el nivel ni cuenta para el diagnóstico.
+        calibracion = respuesta_no_registrada(db, dueno, "abandonada")
+    elif partida.terminada:
         calibracion = registrar_calibracion(db, dueno, partida_id, resultado["resumen"])
     else:
         calibracion = respuesta_no_registrada(db, dueno, "no_terminada")
